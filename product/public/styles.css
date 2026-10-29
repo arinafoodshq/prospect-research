@@ -89,3 +89,4 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .campaign h4 { margin: 0 0 0.3rem; }
 .campaign .meta { color: var(--muted); font-size: 0.85rem; }
 .campaign ul { list-style: none; padding: 0; margin: 0.4rem 0; font-size: 0.88rem; }
+.site-logo { height: 2.2rem; width: auto; align-self: center; }
