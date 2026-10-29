@@ -10,6 +10,10 @@
 
 import type { Evidence, Prospect } from "./db";
 import type { AssessProposal, DraftProposal, MetaClient, SearchHit } from "./research/phases";
+import {
+  buildPlanGoal, buildSearchGoal, renderBriefPrompt, validateBrief,
+  type CommercialBrief,
+} from "./research/commercial";
 
 export const MODEL_ID = "muse-spark-1.3";
 export type SearchContextSize = "low" | "medium" | "high";
@@ -250,6 +254,16 @@ const TOP_N_START = /^\s*top\s+\d+/i;
 const POSSESSIVE_POST = /\w+'s\s+(posts?|blogs?|articles?)\b/i;
 const SITES_LIKE = /\bsites?\s+like\b/i;
 const BARE_DOMAIN = /\.(com|org|ng|net|io|co|info|biz)\b/i;
+/** Page-type words: portal/login/archive pages are never the business itself. */
+const PAGE_TYPE_WORDS = /\b(portal|portals|login|logins|archives?|sitemap|homepage|webmail)\b/i;
+/** Company-profile page titles ("X Overview, Competitors & Contact Info"). */
+const PROFILE_TITLE = /\b(overview|competitors?|revenue|employees|funding|valuation)\b/i;
+/** Headline verbs observed in live-run junk (extends HEADLINE_VERBS cases). */
+const EXTRA_HEADLINE_VERBS = /\b(dabbles?|dives?|eyes?|bets?|mulls?|weighs?|taps?|opens?|wants?|plans?|seeks?|vows?|hails?)\b/i;
+/** "List of ..." directory pages are never a business. */
+const LIST_OF_LEAD = /^\s*lists?\s+of\b/i;
+/** Possessive product lines ("Men's Straight Jeans") are departments, not businesses. */
+const POSSESSIVE_PRODUCT = /\b(men'?s|women'?s|kids'?|unisex)\b.{0,24}\b(jeans|shirts?|dresses|shoes|sneakers|gowns|wigs?|bags?|watches|phones?|laptops?|trousers|jackets|suits)\b/i;
 
 /** Words that never make a name distinctive (categories, places, fillers). */
 const GENERIC_WORDS = new Set(
@@ -343,6 +357,13 @@ export function isPlausibleName(raw: string): boolean {
   if (POSSESSIVE_POST.test(trimmed)) return false; // "X's Posts" blog page, not a business
   if (SITES_LIKE.test(trimmed)) return false; // "sites like X" roundup, not a business
   if (/alternativ/i.test(trimmed) && BARE_DOMAIN.test(trimmed)) return false; // "X alternatives" roundup, not a business
+  if (PAGE_TYPE_WORDS.test(trimmed)) return false; // portal/login/archive page, not the business
+  if (EXTRA_HEADLINE_VERBS.test(trimmed) && !COMPANY_DESIGNATOR.test(trimmed)) return false; // news headline, not a name
+  if (PROFILE_TITLE.test(trimmed) && /,/.test(trimmed)) return false; // company-profile page title, not a name
+  if (LIST_OF_LEAD.test(trimmed)) return false; // "List of ..." directory page, not a business
+  if (POSSESSIVE_PRODUCT.test(trimmed)) return false; // possessive product line, not a business
+  if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
+  if (/:/.test(trimmed) && /\b(lagos|nigeria|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
   if (lowerWords.includes("at") && lowerWords.some((w) => JOB_WORDS.has(w))) return false; // "<role> at <company>" job post
   const distinctive = words.filter((w) => {
@@ -392,7 +413,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
     const req = buildPhaseRequest({
       phase: "discover",
       briefExcerpt: brief,
-      phaseGoal: `Find businesses that match: ${query}. Wanted: buying businesses (offices, schools, clinics, hubs, venues). Never list caterers, food vendors, or recipe/blog pages. Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words, e.g. Logistics", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}]. Example: [{"name": "Brightline Logistics", "category": "Logistics", "fact": "Runs a weekday lunch rota for 45 staff", "url": "https://brightline.ng/about"}]`,
+      phaseGoal: activeBrief ? buildSearchGoal(activeBrief, query) : `Find businesses that match: ${query}. Wanted: buying businesses (offices, schools, clinics, hubs, venues). Never list caterers, food vendors, or recipe/blog pages. Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words, e.g. Logistics", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}]. Example: [{"name": "Brightline Logistics", "category": "Logistics", "fact": "Runs a weekday lunch rota for 45 staff", "url": "https://brightline.ng/about"}]`,
       searchContextSize: "low",
       maxToolCalls: 4,
     });
@@ -450,7 +471,9 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
     const req = buildPhaseRequest({
       phase: "assess",
       briefExcerpt: brief,
-      phaseGoal: `Rate fit 1-5 for each prospect. Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"..."}]. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence claims: ${JSON.stringify(evidence.slice(0, 30).map((e) => e.claim))}.`,
+      phaseGoal: activeBrief
+        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality (1=none),"confidence":1-5 source quality}}]. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence claims: ${JSON.stringify(evidence.slice(0, 30).map((e) => e.claim))}.`
+        : `Rate fit 1-5 for each prospect. Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"..."}]. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence claims: ${JSON.stringify(evidence.slice(0, 30).map((e) => e.claim))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
@@ -467,23 +490,35 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       const weakening = Array.isArray(item["weakening_claims"])
         ? (item["weakening_claims"] as unknown[]).filter((c): c is string => typeof c === "string")
         : [];
+      const dimsRaw = isRecord(item["dimensions"]) ? (item["dimensions"] as Record<string, unknown>) : null;
+      const dims = dimsRaw && ["icp_fit", "problem", "readiness", "reachability", "confidence"]
+        .every((k) => typeof dimsRaw[k] === "number" && Number.isInteger(dimsRaw[k]) && (dimsRaw[k] as number) >= 1 && (dimsRaw[k] as number) <= 5)
+        ? {
+            icp_fit: dimsRaw["icp_fit"] as number, problem: dimsRaw["problem"] as number,
+            readiness: dimsRaw["readiness"] as number, reachability: dimsRaw["reachability"] as number,
+            confidence: dimsRaw["confidence"] as number,
+          }
+        : null;
       out.push({
         prospect_id: pid,
         fit_rating: rating,
         supporting_claims: supporting,
         ...(weakening.length > 0 ? { weakening_claims: weakening } : {}),
         rationale: typeof item["rationale"] === "string" ? item["rationale"] : "",
+        ...(dims ? { dimensions: dims } : {}),
       });
     }
     return out;
   }
 
-  async function proposeDrafts(prospects: Prospect[]): Promise<DraftProposal[]> {
+  async function proposeDrafts(prospects: Prospect[], evidence: Evidence[] = []): Promise<DraftProposal[]> {
     const ids = new Set(prospects.map((p) => p.id));
     const req = buildPhaseRequest({
       phase: "draft",
       briefExcerpt: brief,
-      phaseGoal: `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"...","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}.`,
+      phaseGoal: activeBrief
+        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims]}]. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim })))}.`
+        : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"...","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
@@ -495,6 +530,9 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       if (typeof pid !== "string" || !ids.has(pid)) continue;
       if (typeof body !== "string" || !CITATION_MARKER.test(body)) continue;
       const channel = item["channel"];
+      const supportingIds = Array.isArray(item["supporting_ids"])
+        ? (item["supporting_ids"] as unknown[]).filter((x): x is string => typeof x === "string")
+        : [];
       out.push({
         prospect_id: pid,
         channel: typeof channel === "string" && (DRAFT_CHANNELS as readonly string[]).includes(channel)
@@ -507,6 +545,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
         ...(typeof item["follow_up_days"] === "number" && item["follow_up_days"] > 0
           ? { follow_up_days: Math.floor(item["follow_up_days"]) }
           : {}),
+        ...(supportingIds.length > 0 ? { supporting_ids: supportingIds } : {}),
       });
     }
     return out;
@@ -516,7 +555,9 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: briefExcerpt,
-      phaseGoal: `Draft a buyer search plan: business types x locale angles. Queries must find BUYING businesses (offices, schools, clinics, hubs, venues near the service area) — never caterers or food vendors. Qualify each query with the service-area locale from the brief. Reply ONLY a JSON array of at most ${MAX_PLAN_QUERIES_OUT} search query strings.`,
+      // Brief-driven plan when a commercial brief was built; legacy excerpt
+      // prompts otherwise (runs without a brief keep working).
+      phaseGoal: activeBrief ? buildPlanGoal(activeBrief) : `Draft a buyer search plan: business types x locale angles. Queries must find BUYING businesses (offices, schools, clinics, hubs, venues near the service area) — never caterers or food vendors. Qualify each query with the service-area locale from the brief. Reply ONLY a JSON array of at most ${MAX_PLAN_QUERIES_OUT} search query strings.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
@@ -543,5 +584,49 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
     return { text: (await res.text()).slice(0, FETCH_TEXT_CAP) };
   }
 
-  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage };
+  let activeBrief: CommercialBrief | null = null;
+
+  async function buildBrief(profile: {
+    name: string; website_url: string; description: string;
+    target_market: string; service_area_note: string; constraints_note: string;
+  }): Promise<CommercialBrief> {
+    const goal = [
+      "Build a commercial brief for B2B prospecting. Reply ONLY JSON, no other text.",
+      `Business: ${profile.name}. ${profile.description}`,
+      `Website: ${profile.website_url || "none"}. Target market: ${profile.target_market || "unknown"}.`,
+      `Service area: ${profile.service_area_note || "unknown"}. Constraints: ${profile.constraints_note || "none stated"}.`,
+      'Shape: {"version":1,"offer":{"description":string,"geography":string,"outcomes":[3 strings]},',
+      '"primary_segment":{"label":string,"industries":[1-3],"geos":[1-3],"sizes":[1-2],"use_cases":[1-3],"inclusions":[2-5 observable traits],"exclusions":[2-6 categories to never target]},',
+      '"secondary_segments":[],"pains":[{"job":string,"obstacle":string,"workaround":string,"trigger_hints":[2-4],"falsifiable_by":string}],',
+      '"buyer_roles":[{"role":string,"concerns":[1-3]}],"statements":[{"text":string,"provenance":"user_fact|source_verified|inference|hypothesis|unknown"}],',
+      '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty]}.',
+      "Rules: exactly one primary segment; exclusions must name concrete categories; every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
+    ].join("\n");
+    const req = buildPhaseRequest({
+      phase: "plan",
+      briefExcerpt: `${profile.name}. ${profile.description}`,
+      phaseGoal: goal,
+    });
+    req.tools = []; // structured burst: answer in text, no tool loop offered
+    const parsed = await callResponses(req);
+    const raw = parsed.outputText;
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    let item: unknown = null;
+    if (start >= 0 && end > start) {
+      try {
+        item = JSON.parse(raw.slice(start, end + 1)) as unknown;
+      } catch { item = null; }
+    }
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("brief burst did not return an object");
+    }
+    return validateBrief(item);
+  }
+
+  function setBrief(b: CommercialBrief): void {
+    activeBrief = b;
+  }
+
+  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief };
 }

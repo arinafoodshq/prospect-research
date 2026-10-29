@@ -18,9 +18,11 @@ import {
   assess,
   briefGateDecision,
   discover,
+  draft,
   draftGateDecision,
   investigate,
   listAssessments,
+  plan,
   type BudgetState,
 } from "../src/research/phases";
 import { dedupeKey } from "../src/db";
@@ -465,7 +467,8 @@ describe("assessment rating cap", () => {
   it("links paraphrased claims sharing 3+ significant words, caps the rest", async () => {
     const { db, tables } = makeMockDb();
     seedRun(tables);
-    const { prospectId } = await seedCandidate(db, "Fuzzy Co");
+    const seeded = await seedCandidate(db, "Fuzzy Co");
+    const prospectId = seeded.prospectId;
     const rotaId = await saveEvidence(db, {
       run_id: RUN_ID,
       claim: "Fuzzy Co runs a weekday office lunch rota",
@@ -477,6 +480,9 @@ describe("assessment rating cap", () => {
       conflicts_with: null,
       supersedes: null,
     });
+    // New contract: support links only prospect-owned evidence (as investigate attaches).
+    await db.prepare("UPDATE prospect SET evidence_ids = ? WHERE id = ?")
+      .bind(JSON.stringify([seeded.evidenceId, rotaId]), prospectId).run();
     await setProspectStatus(db, RUN_ID, prospectId, "investigating");
     const out = await assess(
       BRIEF,
@@ -733,5 +739,269 @@ describe("gate decisions", () => {
     ]);
     expect(resumed.wait).toBe(false);
     expect(resumed.pending).toBe(0);
+  });
+});
+
+// --- commercial brief + hard gate (new path) ----------------------------------
+
+const RETAIL_BRIEF = {
+  version: 1,
+  offer: { description: "ops system for SMEs", geography: "Lagos, Nigeria", outcomes: ["fewer lost orders"] },
+  primary_segment: {
+    label: "Lagos retail shops (5-200 staff)",
+    industries: ["retail", "logistics"],
+    geos: ["Lagos", "Nigeria"],
+    sizes: ["5-200 staff"],
+    use_cases: ["WhatsApp orders"],
+    inclusions: ["takes orders over WhatsApp"],
+    exclusions: ["schools", "clinics", "hospitals"],
+  },
+  secondary_segments: [],
+  pains: [{
+    job: "fulfill orders", obstacle: "chats and notebooks",
+    trigger_hints: ["new branch"], falsifiable_by: "already runs an ERP",
+  }],
+  buyer_roles: [{ role: "founder", concerns: ["cost"] }],
+  statements: [{ text: "serves SMEs", provenance: "user_fact" }],
+  questions: [],
+  assumptions: [],
+};
+
+describe("plan builds the commercial brief", () => {
+  it("stores a validated brief once and hands it to later bursts", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["q1"]);
+    tables["business_profile"].push({
+      id: "brief_1", name: "TechAssembly", website_url: "https://techassembly.io",
+      description: "ops system", target_market: "retail",
+      service_area: JSON.stringify({ city: "Lagos", country: "Nigeria" }),
+      constraints: JSON.stringify({ exclusions: ["schools"] }),
+    });
+    let handed: any = null;
+    const out = await plan(BRIEF, db, {
+      buildBrief: async () => RETAIL_BRIEF as any,
+      setBrief: (b: any) => { handed = b; },
+      planQueries: async () => ["retail Lagos"],
+    }, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect(JSON.parse(tables["research_run"][0].commercial_brief).version).toBe(1);
+    expect(handed.primary_segment.label).toContain("retail");
+  });
+
+  it("stops plan_failed when the brief burst is invalid", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["q1"]);
+    tables["business_profile"].push({
+      id: "brief_1", name: "X", website_url: "", description: "d",
+      target_market: "t", service_area: "{}", constraints: "{}",
+    });
+    const out = await plan(BRIEF, db, {
+      buildBrief: async () => { throw new Error("bad json"); },
+      planQueries: async () => ["q"],
+    }, budgetsWith());
+    expect(out.status).toBe("stopped");
+    expect(out.stop_reason).toBe("plan_failed");
+  });
+
+  it("skips rebuilding when a brief is already stored", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["q1"]);
+    tables["research_run"][0].commercial_brief = JSON.stringify(RETAIL_BRIEF);
+    const buildBrief = vi.fn(async () => RETAIL_BRIEF as any);
+    let handed: any = null;
+    const out = await plan(BRIEF, db, {
+      buildBrief, setBrief: (b: any) => { handed = b; },
+      planQueries: async () => ["q"],
+    }, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect(buildBrief).not.toHaveBeenCalled();
+    expect(handed.version).toBe(1);
+  });
+});
+
+describe("assess hard gate + dimensions", () => {
+  async function seedBriefed() {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    tables["research_run"][0].commercial_brief = JSON.stringify(RETAIL_BRIEF);
+    return { db, tables };
+  }
+  async function seedNamed(db: Db, name: string, category: string, url: string) {
+    const evidenceId = await saveEvidence(db, {
+      run_id: RUN_ID, claim: `${name} exists`, quote: `${name} quoted`,
+      source_url: url, source_type: "search_snippet", retrieved_at: new Date().toISOString(),
+      reliability: "unknown", conflicts_with: null, supersedes: null,
+    });
+    const r = await saveCandidate(db, {
+      run_id: RUN_ID, name, category, location: { city: "Lagos" }, evidence_ids: [evidenceId],
+    });
+    await setProspectStatus(db, RUN_ID, r.prospect_id, "investigating");
+    return r.prospect_id;
+  }
+
+  it("disqualifies an excluded industry despite a confident 5/5 proposal", async () => {
+    const { db } = await seedBriefed();
+    const pid = await seedNamed(db, "Greensprings School", "Education", "https://greensprings.ng/");
+    const out = await assess(BRIEF, db, {
+      proposeAssessments: async () => [{
+        prospect_id: pid, fit_rating: 5, supporting_claims: ["Greensprings School exists"],
+        rationale: "great fit",
+        dimensions: { icp_fit: 5, problem: 5, readiness: 5, reachability: 5, confidence: 5 },
+      }],
+    }, budgetsWith());
+    expect(out.status).toBe("completed");
+    const prospects = await listProspects(db, RUN_ID);
+    expect(prospects.find((p) => p.id === pid)?.status).toBe("disqualified");
+    const { results } = await db.prepare("SELECT * FROM assessment WHERE prospect_id = ?").bind(pid).all<any>();
+    expect(results[0].rationale).toContain("hard constraint");
+    expect(results[0].verdict).toBe("disqualified");
+  });
+
+  it("records needs_research (staying investigating) when evidence is thin", async () => {
+    const { db } = await seedBriefed();
+    const pid = await seedNamed(db, "Brightline Retail", "Retail", "https://brightline.ng/");
+    await assess(BRIEF, db, {
+      proposeAssessments: async () => [{
+        prospect_id: pid, fit_rating: 4, supporting_claims: ["Brightline Retail exists"],
+        rationale: "good account",
+        dimensions: { icp_fit: 4, problem: 3, readiness: 3, reachability: 3, confidence: 3 },
+      }],
+    }, budgetsWith());
+    const prospects = await listProspects(db, RUN_ID);
+    expect(prospects.find((p) => p.id === pid)?.status).toBe("investigating");
+    const { results } = await db.prepare("SELECT * FROM assessment WHERE prospect_id = ?").bind(pid).all<any>();
+    expect(results[0].verdict).toBe("needs_research");
+    expect(results[0].fit_rating).toBe(3);
+  });
+
+  it("qualifies only with fit, primary evidence, and signal", async () => {
+    const { db } = await seedBriefed();
+    const pid = await seedNamed(db, "Brightline Retail", "Retail", "https://brightline.ng/");
+    const fetched = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "fetched page for Brightline Retail", quote: "shop page",
+      source_url: "https://brightline.ng/", source_type: "fetched_page",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const row = (await listProspects(db, RUN_ID)).find((p) => p.id === pid);
+    await db.prepare("UPDATE prospect SET evidence_ids = ? WHERE id = ?")
+      .bind(JSON.stringify([...row!.evidence_ids, fetched]), pid).run();
+    await assess(BRIEF, db, {
+      proposeAssessments: async () => [{
+        prospect_id: pid, fit_rating: 4, supporting_claims: ["Brightline Retail exists"],
+        rationale: "fits",
+        dimensions: { icp_fit: 4, problem: 4, readiness: 3, reachability: 3, confidence: 4 },
+      }],
+    }, budgetsWith());
+    const prospects = await listProspects(db, RUN_ID);
+    expect(prospects.find((p) => p.id === pid)?.status).toBe("qualified");
+    const { results } = await db.prepare("SELECT * FROM assessment WHERE prospect_id = ?").bind(pid).all<any>();
+    expect(results[0].verdict).toBe("qualified");
+    expect(JSON.parse(results[0].dimensions).icp_fit).toBe(4);
+  });
+});
+
+describe("investigate per-prospect fetch", () => {
+  it("fetches each prospect's own url and never a placeholder", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const urls: string[] = [];
+    const mk = async (name: string, url: string) => {
+      const evidenceId = await saveEvidence(db, {
+        run_id: RUN_ID, claim: `${name} exists`, quote: "q", source_url: url,
+        source_type: "search_snippet", retrieved_at: new Date().toISOString(),
+        reliability: "unknown", conflicts_with: null, supersedes: null,
+      });
+      await saveCandidate(db, { run_id: RUN_ID, name, category: "Retail", location: {}, evidence_ids: [evidenceId] });
+    };
+    await mk("Shop A", "https://shopa.ng/about");
+    await mk("Shop B", "https://shopb.ng/about");
+    const out = await investigate(BRIEF, db, {
+      fetchPage: async (url: string) => { urls.push(url); return { text: `page text for ${url}` }; },
+    }, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect(urls.sort()).toEqual(["https://shopa.ng/about", "https://shopb.ng/about"]);
+    const prospects = await listProspects(db, RUN_ID);
+    expect(prospects.every((p) => p.evidence_ids.length >= 2)).toBe(true);
+  });
+
+  it("extracts contacts from fetched pages and binds them to the fetch evidence", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const evidenceId = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "Shop exists", quote: "q", source_url: "https://shop.ng/",
+      source_type: "search_snippet", retrieved_at: new Date().toISOString(),
+      reliability: "unknown", conflicts_with: null, supersedes: null,
+    });
+    await saveCandidate(db, { run_id: RUN_ID, name: "Shop", category: "Retail", location: {}, evidence_ids: [evidenceId] });
+    await investigate(BRIEF, db, {
+      fetchPage: async () => ({ text: "Contact us at hello@shop.ng or 0803 123 4567 today." }),
+    }, budgetsWith());
+    const { results } = await db.prepare("SELECT * FROM contact_route").all<any>();
+    const values = results.map((r) => r.value).sort();
+    expect(values).toContain("hello@shop.ng");
+    expect(values).toContain("08031234567");
+  });
+});
+
+describe("draft grounding", () => {
+  async function seedShortlisted(db: Db, name: string, quote: string) {
+    const evidenceId = await saveEvidence(db, {
+      run_id: RUN_ID, claim: `${name} exists`, quote,
+      source_url: "https://example.com/x", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const r = await saveCandidate(db, { run_id: RUN_ID, name, category: "Retail", location: {}, evidence_ids: [evidenceId] });
+    await setProspectStatus(db, RUN_ID, r.prospect_id, "investigating");
+    await setProspectStatus(db, RUN_ID, r.prospect_id, "qualified");
+    await setProspectStatus(db, RUN_ID, r.prospect_id, "shortlisted");
+    return { prospectId: r.prospect_id, evidenceId };
+  }
+
+  it("withholds the route when the contact is ungrounded but keeps the draft", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const { prospectId } = await seedShortlisted(db, "Acme", "acme quoted, no contact here");
+    await draft(BRIEF, db, {
+      proposeDrafts: async () => [{
+        prospect_id: prospectId, channel: "email", contact_value: "boss@acme.ng",
+        subject: "Hi", body: "Hello [source 1]", next_action: "Send",
+      }],
+    }, budgetsWith());
+    const routes = await db.prepare("SELECT * FROM contact_route").all();
+    expect(routes.results).toHaveLength(0);
+    const drafts = await db.prepare("SELECT * FROM outreach_draft").all();
+    expect(drafts.results).toHaveLength(1);
+  });
+
+  it("saves the route when the contact appears in own evidence", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const { prospectId } = await seedShortlisted(db, "Acme", "mail boss@acme.ng for orders");
+    await draft(BRIEF, db, {
+      proposeDrafts: async () => [{
+        prospect_id: prospectId, channel: "email", contact_value: "boss@acme.ng",
+        subject: "Hi", body: "Hello [source 1]", next_action: "Send",
+      }],
+    }, budgetsWith());
+    const routes = await db.prepare("SELECT * FROM contact_route").all<any>();
+    expect(routes.results).toHaveLength(1);
+    expect(routes.results[0].value).toBe("boss@acme.ng");
+  });
+
+  it("rejects drafts citing foreign evidence ids", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const { prospectId } = await seedShortlisted(db, "Acme", "quoted");
+    await draft(BRIEF, db, {
+      proposeDrafts: async () => [{
+        prospect_id: prospectId, channel: "email", contact_value: "boss@acme.ng",
+        subject: "Hi", body: "Hello [source 1]", next_action: "Send",
+        supporting_ids: ["ev_foreign"],
+      }],
+    }, budgetsWith());
+    const drafts = await db.prepare("SELECT * FROM outreach_draft").all();
+    expect(drafts.results).toHaveLength(0);
   });
 });

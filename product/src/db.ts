@@ -33,6 +33,7 @@ export interface BusinessProfile {
 export interface ResearchRun {
   id: string; profile_id: string; workflow_instance_id: string;
   plan: { queries: string[] }; status: RunStatus; stop_reason: string | null;
+  commercial_brief?: string | null;
   budgets: RunBudgets; consumed: RunConsumed;
   started_at: string; finished_at: string | null; created_at: string;
 }
@@ -57,6 +58,7 @@ export interface Evidence {
 export interface Prospect {
   id: string; run_id: string; name: string; category: string;
   location: Record<string, string>; dedupe_key: string;
+  evidence_ids: string[];
   status: ProspectStatus; rank: number | null; created_at: string;
 }
 
@@ -64,6 +66,7 @@ export interface Assessment {
   id: string; prospect_id: string; fit_rating: 1 | 2 | 3 | 4 | 5;
   supporting_evidence_ids: string[]; weakening_evidence_ids: string[];
   uncertainties: string[]; missing_info: string[]; rationale: string;
+  dimensions?: { icp_fit: number; problem: number; readiness: number; reachability: number; confidence: number }; verdict?: string;
   model_id: string; created_at: string;
 }
 
@@ -145,6 +148,35 @@ export function dedupeKey(name: string, domainOrHandle?: string): string {
   return normDomain ? `${normName}::${normDomain}` : normName;
 }
 
+/**
+ * Lookup keys for deterministic merging: the full name+domain key first,
+ * then the name-only fallback so the same business found via different
+ * domains still merges. Existing key format unchanged.
+ */
+export function dedupeLookupKeys(name: string, domainOrHandle?: string): string[] {
+  const full = dedupeKey(name, domainOrHandle);
+  const nameOnly = dedupeKey(name);
+  return full === nameOnly ? [full] : [full, nameOnly];
+}
+
+/**
+ * Strip control chars, U+FFFD replacements, and lone surrogates from
+ * model/web text. Applied by writers; fetched-page bodies stay verbatim
+ * except for these (page text is untrusted data, stored as-is otherwise).
+ */
+export function sanitizeText(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (c === 0xFFFD) continue;
+    if (c < 0x20 && c !== 0x09 && c !== 0x0A && c !== 0x0D) continue;
+    if (c === 0x7F) continue;
+    if (c >= 0xD800 && c <= 0xDFFF) continue; // lone surrogate (pairs arrive whole)
+    out += ch;
+  }
+  return out.trim();
+}
+
 export function nowIso(): string { return new Date().toISOString(); }
 export function makeId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
@@ -166,7 +198,7 @@ export async function saveEvidence(db: Db, row: Omit<Evidence, "id" | "created_a
   await db.prepare(
     `INSERT INTO evidence (id, run_id, claim, quote, source_url, source_type, retrieved_at, reliability, conflicts_with, supersedes, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, row.run_id, row.claim, row.quote, row.source_url, row.source_type,
+  ).bind(id, row.run_id, sanitizeText(row.claim), sanitizeText(row.quote), row.source_url, row.source_type,
     row.retrieved_at, row.reliability, row.conflicts_with, row.supersedes, nowIso()).run();
   return id;
 }
@@ -186,18 +218,30 @@ export async function saveCandidate(
     if (!found) throw new DbValidationError(`evidence ${eid} does not exist in run ${input.run_id}`);
   }
   const key = dedupeKey(input.name, input.domainOrHandle);
-  const existing = await db.prepare(
-    "SELECT id FROM prospect WHERE run_id = ? AND dedupe_key = ? ORDER BY created_at ASC LIMIT 1",
-  ).bind(input.run_id, key).first<string>("id");
-  if (existing) {
+  for (const lookup of dedupeLookupKeys(input.name, input.domainOrHandle)) {
+    const existing = await db.prepare(
+      "SELECT id FROM prospect WHERE run_id = ? AND dedupe_key = ? ORDER BY created_at ASC LIMIT 1",
+    ).bind(input.run_id, lookup).first<string>("id");
+    if (!existing) continue;
+    const row = await db.prepare("SELECT evidence_ids FROM prospect WHERE id = ?").bind(existing)
+      .first<{ evidence_ids: string }>();
+    let ids: string[] = [];
+    try {
+      const parsed: unknown = JSON.parse(row?.evidence_ids ?? "[]");
+      if (Array.isArray(parsed)) ids = parsed.filter((x): x is string => typeof x === "string");
+    } catch { ids = []; }
+    const union = [...new Set([...ids, ...input.evidence_ids])];
+    await db.prepare("UPDATE prospect SET evidence_ids = ? WHERE id = ?")
+      .bind(JSON.stringify(union), existing).run();
     await logActivity(db, { run_id: input.run_id, prospect_id: existing, event: "created", note: `dedupe merge: ${input.name}` });
     return { prospect_id: existing, merged: true };
   }
   const id = makeId("pr");
   await db.prepare(
-    `INSERT INTO prospect (id, run_id, name, category, location, dedupe_key, status, rank, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'candidate', NULL, ?)`,
-  ).bind(id, input.run_id, input.name, input.category, JSON.stringify(input.location), key, nowIso()).run();
+    `INSERT INTO prospect (id, run_id, name, category, location, dedupe_key, evidence_ids, status, rank, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', NULL, ?)`,
+  ).bind(id, input.run_id, sanitizeText(input.name), sanitizeText(input.category),
+    JSON.stringify(input.location), key, JSON.stringify(input.evidence_ids), nowIso()).run();
   await logActivity(db, { run_id: input.run_id, prospect_id: id, event: "created", note: null });
   return { prospect_id: id, merged: false };
 }
@@ -205,13 +249,22 @@ export async function saveCandidate(
 /** Assessment writer: empty supporting list forces fit_rating <= 2. */
 export async function saveAssessment(
   db: Db,
-  input: { prospect_id: string; fit_rating: number; supporting_ids: string[]; weakening_ids: string[]; uncertainties: string[]; missing_info: string[]; rationale: string; model_id: string },
+input: { prospect_id: string; fit_rating: number; supporting_ids: string[]; weakening_ids: string[]; uncertainties: string[]; missing_info: string[]; rationale: string; model_id: string; dimensions?: { icp_fit: number; problem: number; readiness: number; reachability: number; confidence: number }; verdict?: string },
 ): Promise<string> {
   if (input.fit_rating < 1 || input.fit_rating > 5) throw new DbValidationError("fit_rating must be 1..5");
   if (input.supporting_ids.length === 0 && input.fit_rating > 2) {
     throw new DbValidationError("empty supporting evidence forces fit_rating <= 2");
   }
   if (!input.rationale) throw new DbValidationError("assessment rationale is required");
+  if (input.dimensions !== undefined) {
+    for (const k of ["icp_fit", "problem", "readiness", "reachability", "confidence"] as const) {
+      const v = input.dimensions[k];
+      if (!Number.isInteger(v) || v < 1 || v > 5) throw new DbValidationError(`assessment dimension ${k} must be 1..5`);
+    }
+  }
+  if (input.verdict !== undefined && !["qualified", "needs_research", "no_signal", "manual_review", "disqualified"].includes(input.verdict)) {
+    throw new DbValidationError(`unknown verdict ${input.verdict}`);
+  }
   const prospect = await db.prepare("SELECT id, run_id FROM prospect WHERE id = ?").bind(input.prospect_id).first<{ id: string; run_id: string }>();
   if (!prospect) throw new DbValidationError(`prospect ${input.prospect_id} does not exist`);
   for (const eid of [...input.supporting_ids, ...input.weakening_ids]) {
@@ -220,11 +273,12 @@ export async function saveAssessment(
   }
   const id = makeId("as");
   await db.prepare(
-    `INSERT INTO assessment (id, prospect_id, fit_rating, supporting_evidence_ids, weakening_evidence_ids, uncertainties, missing_info, rationale, model_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+`INSERT INTO assessment (id, prospect_id, fit_rating, supporting_evidence_ids, weakening_evidence_ids, uncertainties, missing_info, rationale, model_id, dimensions, verdict, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(id, input.prospect_id, input.fit_rating, JSON.stringify(input.supporting_ids),
     JSON.stringify(input.weakening_ids), JSON.stringify(input.uncertainties),
-    JSON.stringify(input.missing_info), input.rationale, input.model_id, nowIso()).run();
+JSON.stringify(input.missing_info), sanitizeText(input.rationale), input.model_id,
+    JSON.stringify(input.dimensions ?? null), input.verdict ?? null, nowIso()).run();
   return id;
 }
 
@@ -240,7 +294,7 @@ export async function saveRoute(
   await db.prepare(
     `INSERT INTO contact_route (id, prospect_id, channel, value, verification, evidence_id, created_at)
      VALUES (?, ?, ?, ?, 'public_listing', ?, ?)`,
-  ).bind(id, input.prospect_id, input.channel, input.value, input.evidence_id, nowIso()).run();
+).bind(id, input.prospect_id, input.channel, sanitizeText(input.value), input.evidence_id, nowIso()).run();
   return id;
 }
 
@@ -260,8 +314,8 @@ export async function saveDraft(
   await db.prepare(
     `INSERT INTO outreach_draft (id, prospect_id, channel_suggestion, subject, body, next_action, follow_up_days, status, edited_by_human, decided_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 0, NULL, ?)`,
-  ).bind(id, input.prospect_id, input.channel_suggestion, input.subject,
-    input.body, input.next_action, input.follow_up_days ?? null, nowIso()).run();
+).bind(id, input.prospect_id, input.channel_suggestion, input.subject === null ? null : sanitizeText(input.subject),
+sanitizeText(input.body), sanitizeText(input.next_action), input.follow_up_days ?? null, nowIso()).run();
   return id;
 }
 
@@ -340,6 +394,7 @@ export async function getRun(db: Db, run_id: string): Promise<ResearchRun | null
     workflow_instance_id: row["workflow_instance_id"] as string,
     plan: JSON.parse(row["plan"] as string), status: row["status"] as RunStatus,
     stop_reason: row["stop_reason"] as string | null,
+    commercial_brief: (row["commercial_brief"] as string | null) ?? null,
     budgets: JSON.parse(row["budgets"] as string), consumed: JSON.parse(row["consumed"] as string),
     started_at: row["started_at"] as string, finished_at: row["finished_at"] as string | null,
     created_at: row["created_at"] as string,
@@ -352,6 +407,7 @@ export async function listProspects(db: Db, run_id: string): Promise<Prospect[]>
     id: r["id"] as string, run_id: r["run_id"] as string, name: r["name"] as string,
     category: r["category"] as string, location: JSON.parse(r["location"] as string),
     dedupe_key: r["dedupe_key"] as string, status: r["status"] as ProspectStatus,
+    evidence_ids: JSON.parse((r["evidence_ids"] as string) ?? "[]") as string[],
     rank: r["rank"] as number | null, created_at: r["created_at"] as string,
   }));
 }

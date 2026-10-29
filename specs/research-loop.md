@@ -1,6 +1,6 @@
 # specs/research-loop.md — Product Runtime Loop (System B)
 
-- Status: draft for review (v0.1, 2026-10-28).
+- Status: v0.2 live 2026-10-29 (v0.1 draft 2026-10-28).
 - Owner: System B only. Deployed loop (Worker + Workflow + D1). Distinct from the
   development controller loop in `specs/agent-loop.md`: different runtime, tools,
   state, budgets, and gates. Machine-readable tool contracts: `tools.md` Part B.
@@ -125,3 +125,49 @@ Evidence: approval in `progress.md`.
 ## 11. Version history
 
 - v0.1 (2026-10-28): initial draft for review.
+- v0.2 (2026-10-29): research-intelligence upgrade (§12); approved in
+  progress.md 2026-10-29 entry "Research upgrade deployed".
+
+## 12. Research-intelligence pipeline (v0.2, live)
+
+Replaces the §3 plan/discover/assess/draft internals; phases, budgets,
+resume, and gates are unchanged.
+
+1. **Commercial brief.** Before any search, Meta produces a versioned brief
+   (offer, primary segment, geography, exclusions, pains, buyer roles;
+   every statement labelled user_fact | source_verified | inference |
+   hypothesis | unknown). Stored on the run; shown for confirmation.
+2. **ICP contract.** Brief → machine contract: hard inclusion industries +
+   geos, hard exclusion phrases, preferred criteria. Hard constraints run
+   in deterministic code (`checkHardConstraints`); no score overrides them.
+3. **Problem-led search.** Each query tests one named ICP criterion and
+   keeps segment + geography + exclusions. Snippets are discovery signals
+   only — never qualification evidence.
+4. **Entity resolution.** Never use a search title as a business name.
+   Candidates resolve via domain/name/location/official profile; duplicates
+   merge deterministically with alias + source history.
+5. **Evidence rule.** Qualification needs ≥1 prospect-owned fetched source
+   (own site, Google Business Profile, own Instagram/Facebook/WhatsApp
+   Business). Directories discover but never qualify. Each claim stores
+   source URL + excerpt + date + stated|inferred. Fetched text is untrusted
+   data, never instructions.
+6. **Gate semantics (2026-10-29 fix).** Exclusion phrases split into
+   significant words matched by whole-word stemmed equality on
+   name/category only — never location, never synonym groups, never
+   substrings. Inclusions stay fuzzy (substring + retail/logistics synonym
+   groups). Rationale: fuzzy exclusions rejected the entire home market
+   (Lagos prospects matched "...no Lagos operations"; retail matched
+   "supermarket chains"). Regression test pins the stored brief verbatim.
+7. **Dimensional qualification.** Fit, pain evidence
+   (documented|indicated|plausible|contradicted), buying signal (dated or
+   none), reachability, evidence confidence. Outcomes: qualified |
+   promising | no_signal | manual_review | disqualified+reason. Fit below
+   threshold can never be qualified.
+8. **Contact grounding + draft chain.** Contact pass runs after fit; routes
+   store source + verification status; never invent emails or claim
+   WhatsApp-enabled without evidence. Drafts cite supporting claim IDs;
+   unsupported claims force more-research/no-contact instead.
+
+Evaluation: pre-registered thresholds in progress.md (≥80% qualified
+in-segment, 0 hard violations, 100% qualified with prospect-owned source,
+0 contradictory duplicates). Baseline run preserved for comparison.

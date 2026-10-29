@@ -131,7 +131,8 @@ interface ProfileRow {
 
 interface RunRow {
   id: string; profile_id: string; workflow_instance_id: string; plan: string;
-  status: string; stop_reason: string | null; budgets: string; consumed: string;
+  status: string; stop_reason: string | null; commercial_brief: string | null;
+  budgets: string; consumed: string;
   started_at: string; finished_at: string | null; created_at: string;
 }
 
@@ -152,6 +153,7 @@ function serializeRun(r: RunRow): Record<string, unknown> {
     id: r.id, profile_id: r.profile_id, workflow_instance_id: r.workflow_instance_id,
     plan: parseJson<{ queries: string[] }>(r.plan, { queries: [] }),
     status: r.status, stop_reason: r.stop_reason,
+    commercial_brief: r.commercial_brief ? parseJson<Record<string, unknown>>(r.commercial_brief, {}) : null,
     budgets: parseJson<Record<string, number>>(r.budgets, {}),
     consumed: parseJson<Record<string, number>>(r.consumed, {}),
     started_at: r.started_at, finished_at: r.finished_at, created_at: r.created_at,

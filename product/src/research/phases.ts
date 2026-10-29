@@ -23,6 +23,11 @@ import {
   type Prospect,
 } from "../db";
 import { budgetReason, firstBreach, type BudgetCaps, type BudgetConsumed } from "./budgets";
+import {
+  checkHardConstraints, decideVerdict, extractContacts, icpFromBrief, isGroundedContact,
+  validateBrief,
+  type QualificationDims,
+} from "./commercial";
 import { execFetchPage, type FetchPageDeps } from "./tools";
 
 // --- Injected deps ----------------------------------------------------------
@@ -51,6 +56,8 @@ export interface AssessProposal {
   supporting_claims: string[];
   weakening_claims?: string[];
   rationale: string;
+  /** Dimensional scores (new path); absent = legacy overall-only proposal. */
+  dimensions?: { icp_fit: number; problem: number; readiness: number; reachability: number; confidence: number };
 }
 
 export interface DraftProposal {
@@ -62,6 +69,18 @@ export interface DraftProposal {
   body: string;
   next_action: string;
   follow_up_days?: number;
+  /** Prospect-evidence ids backing the draft's claims (audited in code). */
+  supporting_ids?: string[];
+}
+
+/** Business-profile fields the brief builder reasons over (plain strings). */
+export interface BriefProfile {
+  name: string;
+  website_url: string;
+  description: string;
+  target_market: string;
+  service_area_note: string;
+  constraints_note: string;
 }
 
 /** Mockable Meta client surface (no live calls; mocked in tests). */
@@ -69,9 +88,13 @@ export interface MetaClient {
   planQueries?: (briefExcerpt: string) => Promise<string[]>;
   search?: (query: string) => Promise<SearchHit[]>;
   proposeAssessments?: (prospects: Prospect[], evidence: Evidence[]) => Promise<AssessProposal[]>;
-  proposeDrafts?: (prospects: Prospect[]) => Promise<DraftProposal[]>;
+  proposeDrafts?: (prospects: Prospect[], evidence?: Evidence[]) => Promise<DraftProposal[]>;
   fetchPage?: (url: string, timeoutMs: number) => Promise<{ text: string } | { failure: "blocked" | "empty" | "timeout"; detail: string }>;
   rationales?: (prospectIds: string[]) => Promise<Record<string, string>>;
+  /** Build + validate the versioned commercial brief (new path; absent = legacy excerpt flow). */
+  buildBrief?: (profile: BriefProfile) => Promise<import("./commercial").CommercialBrief>;
+  /** Hand the stored brief to later bursts (prompts switch to brief-driven goals). */
+  setBrief?: (brief: import("./commercial").CommercialBrief) => void;
 }
 
 export interface BudgetState {
@@ -125,6 +148,53 @@ export async function plan(
   }
   const breach = firstBreach(budgets.consumed, budgets.caps);
   if (breach) return stopped(breach, "budget breached before plan");
+  // New path: build + store the versioned commercial brief once per run,
+  // then hand it to later bursts. Absent without buildBrief (legacy flow).
+  if (meta.buildBrief || meta.setBrief) {
+    const stored = await getRun(db, budgets.run_id);
+    let briefJson = stored?.commercial_brief ?? null;
+    if (meta.buildBrief && !briefJson) {
+      const profile = await db.prepare("SELECT * FROM business_profile WHERE id = ?").bind(brief.id)
+        .first<{ name: string; website_url: string; description: string; target_market: string; service_area: string; constraints: string }>();
+      if (!profile) return stopped("plan_failed", `profile ${brief.id} not found`);
+      const areaOf = (raw: string): string => {
+        try {
+          const parsed = JSON.parse(raw) as { country?: unknown; region?: unknown; city?: unknown };
+          return [parsed?.city, parsed?.region, parsed?.country].filter((v): v is string => typeof v === "string" && v !== "").join(", ");
+        } catch { return ""; }
+      };
+      const constraintsOf = (raw: string): string => {
+        try {
+          const parsed = JSON.parse(raw) as { min_order?: unknown; price_range?: unknown; exclusions?: unknown };
+          const parts: string[] = [];
+          if (typeof parsed?.min_order === "string" && parsed.min_order !== "") parts.push(`min order: ${parsed.min_order}`);
+          if (typeof parsed?.price_range === "string" && parsed.price_range !== "") parts.push(`price: ${parsed.price_range}`);
+          if (Array.isArray(parsed?.exclusions)) {
+            const ex = parsed.exclusions.filter((e): e is string => typeof e === "string");
+            if (ex.length > 0) parts.push(`excludes: ${ex.join(", ")}`);
+          }
+          return parts.join("; ");
+        } catch { return ""; }
+      };
+      try {
+        const built = validateBrief(await meta.buildBrief({
+          name: profile.name, website_url: profile.website_url ?? "", description: profile.description,
+          target_market: profile.target_market, service_area_note: areaOf(profile.service_area),
+          constraints_note: constraintsOf(profile.constraints),
+        }));
+        briefJson = JSON.stringify(built);
+        await db.prepare("UPDATE research_run SET commercial_brief = ? WHERE id = ?")
+          .bind(briefJson, budgets.run_id).run();
+      } catch (e) {
+        return stopped("plan_failed", e instanceof Error ? e.message : "brief burst failed");
+      }
+    }
+    if (meta.setBrief && briefJson) {
+      try {
+        meta.setBrief(validateBrief(JSON.parse(briefJson)));
+      } catch { /* stored brief invalid: stay on legacy prompts */ }
+    }
+  }
   let queries: string[];
   try {
     queries = meta.planQueries ? await meta.planQueries(brief.excerpt) : [];
@@ -238,24 +308,57 @@ export async function investigate(
     if (budgets.consumed.fetches + 1 > budgets.caps.fetches) {
       return stopped(budgetReason("fetches"), "fetch budget exhausted mid-investigate");
     }
-    const evs = await listEvidence(db, budgets.run_id);
-    const prior = evs.find((e) => e.source_url);
-    const url = prior?.source_url ?? `https://example.com/${encodeURIComponent(p.name)}`;
-    const res = await execFetchPage(fetchDeps, { url });
-    if (res.ok) {
+    // Per-prospect fetch: the prospect's OWN discovery URL. Never another
+    // prospect's evidence, never a placeholder (both happened before).
+    const ownIds = new Set(p.evidence_ids);
+    const own = (await listEvidence(db, budgets.run_id)).filter((e) => ownIds.has(e.id));
+    const target = own.find((e) => e.source_url);
+    if (!target?.source_url) {
       await saveEvidence(db, {
-        run_id: budgets.run_id, claim: `fetched page for ${p.name}`, quote: res.value.text.slice(0, 500),
-        source_url: url, source_type: "fetched_page", retrieved_at: new Date().toISOString(),
-        reliability: "unknown", conflicts_with: null, supersedes: null,
-      });
-    } else {
-      // Explicit fetch-failure evidence (never a silent skip).
-      await saveEvidence(db, {
-        run_id: budgets.run_id, claim: `fetch failed for ${p.name}: ${res.error}`,
-        quote: res.reason ?? res.error, source_url: url, source_type: "fetched_page",
+        run_id: budgets.run_id, claim: `no fetchable source url for ${p.name}`,
+        quote: "candidate discovery recorded no source url", source_url: null, source_type: "fetched_page",
         retrieved_at: new Date().toISOString(), reliability: "unknown",
         conflicts_with: null, supersedes: null,
       });
+      try {
+        await setProspectStatus(db, budgets.run_id, p.id, "investigating");
+        investigated += 1;
+      } catch (e) {
+        if (!(e instanceof DbValidationError)) throw e;
+      }
+      continue;
+    }
+    const res = await execFetchPage(fetchDeps, { url: target.source_url });
+    const attach = async (evId: string): Promise<void> => {
+      const union = [...new Set([...p.evidence_ids, evId])];
+      await db.prepare("UPDATE prospect SET evidence_ids = ? WHERE id = ?").bind(JSON.stringify(union), p.id).run();
+      p.evidence_ids = union;
+    };
+    if (res.ok) {
+      const evId = await saveEvidence(db, {
+        run_id: budgets.run_id, claim: `fetched page for ${p.name}`, quote: res.value.text.slice(0, 500),
+        source_url: target.source_url, source_type: "fetched_page", retrieved_at: new Date().toISOString(),
+        reliability: "unknown", conflicts_with: null, supersedes: null,
+      });
+      await attach(evId);
+      // Deterministic contact pass: emails/phones lifted from the fetched
+      // page, each bound to this evidence row. Never invented; never fatal.
+      for (const c of extractContacts(res.value.text).slice(0, 5)) {
+        try {
+          await saveRoute(db, { prospect_id: p.id, channel: c.channel, value: c.value, evidence_id: evId });
+        } catch {
+          /* dupes or bad rows: contacts are best-effort, the run continues */
+        }
+      }
+    } else {
+      // Explicit fetch-failure evidence (never a silent skip).
+      const evId = await saveEvidence(db, {
+        run_id: budgets.run_id, claim: `fetch failed for ${p.name}: ${res.error}`,
+        quote: res.reason ?? res.error, source_url: target.source_url, source_type: "fetched_page",
+        retrieved_at: new Date().toISOString(), reliability: "unknown",
+        conflicts_with: null, supersedes: null,
+      });
+      await attach(evId);
     }
     try {
       await setProspectStatus(db, budgets.run_id, p.id, "investigating");
@@ -316,16 +419,24 @@ export async function assess(
     return stopped("assess_failed", e instanceof Error ? e.message : "assess burst failed");
   }
   budgets.consumed.tool_rounds += 1;
+  // New path: load the stored brief for the deterministic hard gate.
+  const stored = await getRun(db, budgets.run_id);
+  let icp: ReturnType<typeof icpFromBrief> | null = null;
+  if (stored?.commercial_brief) {
+    try {
+      icp = icpFromBrief(validateBrief(JSON.parse(stored.commercial_brief)));
+    } catch { icp = null; }
+  }
   let done = 0;
   for (const t of targets) {
     const prop = proposals.find((x) => x.prospect_id === t.id);
     const rating = prop?.fit_rating ?? 2;
-    // Link support by matching claim text to run evidence (case-insensitive,
-    // either direction); unmatched claims link nothing — never arbitrary rows.
-    // Rating cap with no supporting evidence: clamp rather than invent.
-    const runEvidence = evidence.filter((e) => e.run_id === budgets.run_id);
+    // Prospect-scoped linking: support matches only the prospect's OWN
+    // evidence rows. Run-wide linking attached other businesses' evidence.
+    const ownIds = new Set(t.evidence_ids);
+    const ownEvidence = evidence.filter((e) => e.run_id === budgets.run_id && ownIds.has(e.id));
     const claims = (prop?.supporting_claims ?? []).map((c) => c.toLowerCase());
-    const supporting = runEvidence
+    const supporting = ownEvidence
       .filter((e) => claims.some((c) => {
         if (c.length === 0) return false;
         const el = e.claim.toLowerCase();
@@ -338,6 +449,63 @@ export async function assess(
         return shared >= 3;
       }))
       .map((e) => e.id);
+    // Deterministic hard gate: violations disqualify whatever the model says.
+    const hard = icp
+      ? checkHardConstraints(icp, { name: t.name, category: t.category, location: t.location })
+      : { ok: true as const };
+    if (!hard.ok) {
+      await saveAssessment(db, {
+        prospect_id: t.id, fit_rating: 1, supporting_ids: supporting,
+        weakening_ids: [], uncertainties: [], missing_info: [],
+        rationale: `hard constraint: ${hard.reason}`, model_id: "mocked-model",
+        verdict: "disqualified",
+      });
+      await setProspectStatus(db, budgets.run_id, t.id, "disqualified");
+      done += 1;
+      continue;
+    }
+    const rd = prop?.dimensions;
+    const dims: QualificationDims | null = rd &&
+      [rd.icp_fit, rd.problem, rd.readiness, rd.reachability, rd.confidence]
+        .every((v) => Number.isInteger(v) && v >= 1 && v <= 5)
+      ? {
+          icp_fit: rd.icp_fit as 1 | 2 | 3 | 4 | 5, problem: rd.problem as 1 | 2 | 3 | 4 | 5,
+          readiness: rd.readiness as 1 | 2 | 3 | 4 | 5,
+          reachability: rd.reachability as 1 | 2 | 3 | 4 | 5,
+          confidence: rd.confidence as 1 | 2 | 3 | 4 | 5,
+        }
+      : null;
+    if (dims && icp) {
+      const primaryEvidence = ownEvidence.some((e) => e.source_type === "fetched_page");
+      const decision = decideVerdict(dims, hard, primaryEvidence);
+      try {
+        await saveAssessment(db, {
+          prospect_id: t.id, fit_rating: decision.fit_rating, supporting_ids: supporting,
+          weakening_ids: [], uncertainties: [], missing_info: [],
+          rationale: `${prop?.rationale ?? "model assessment"} [verdict: ${decision.verdict} — ${decision.reason}]`,
+          model_id: "mocked-model", dimensions: dims, verdict: decision.verdict,
+        });
+        // Terminal statuses only for decided outcomes; the undecided stay
+        // investigating with their verdict recorded on the assessment.
+        if (decision.verdict === "qualified" || decision.verdict === "disqualified") {
+          await setProspectStatus(db, budgets.run_id, t.id, decision.verdict);
+        }
+        done += 1;
+      } catch (e) {
+        if (e instanceof DbValidationError) {
+          try {
+            await setProspectStatus(db, budgets.run_id, t.id, "disqualified");
+          } catch {
+            /* already there via a concurrent runner — still counts as handled */
+          }
+          done += 1;
+          continue;
+        }
+        throw e;
+      }
+      continue;
+    }
+    // Legacy path (no dimensions or no brief): rating + support cap as before.
     const capped = supporting.length === 0 ? Math.min(rating, 2) : rating;
     try {
       await saveAssessment(db, {
@@ -498,13 +666,13 @@ export async function draft(
   const prospects = await listProspects(db, budgets.run_id);
   const targets = prospects.filter((p) => p.status === "shortlisted");
   if (targets.length === 0) return stopped("no_candidates", "no shortlisted prospects to draft");
+  const allEvidence = await listEvidence(db, budgets.run_id);
   let proposals: DraftProposal[];
   try {
     if (meta.proposeDrafts) {
-      proposals = await meta.proposeDrafts(targets);
+      proposals = await meta.proposeDrafts(targets, allEvidence.filter((e) => e.run_id === budgets.run_id));
     } else {
-      const evs = await listEvidence(db, budgets.run_id);
-      const first = evs[0];
+      const first = allEvidence[0];
       proposals = targets.map((t) => ({
         prospect_id: t.id, channel: "website_form" as const, contact_value: "https://example.com/contact",
         subject: `Hello ${t.name}`, body: `Hi ${t.name}, see [${first?.id ?? "ev_x"}].`,
@@ -518,12 +686,33 @@ export async function draft(
   let done = 0;
   for (const t of targets) {
     const prop = proposals.find((x) => x.prospect_id === t.id);
-    if (!prop) continue; // flagged for manual review; run continues
-    const evs = await listEvidence(db, budgets.run_id);
-    const evId = evs[0]?.id;
-    if (!evId) continue;
+    if (!prop) {
+      await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "deferred", note: "draft skipped: no proposal from burst" });
+      continue;
+    }
+    const ownIds = new Set(t.evidence_ids);
+    const ownEvidence = allEvidence.filter((e) => e.run_id === budgets.run_id && ownIds.has(e.id));
+    if (ownEvidence.length === 0) {
+      await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "deferred", note: "draft skipped: no auditable evidence" });
+      continue;
+    }
+    // Audit claimed support: every cited id must be the prospect's own evidence.
+    if (prop.supporting_ids !== undefined &&
+      (prop.supporting_ids.length === 0 || prop.supporting_ids.some((id) => !ownIds.has(id)))) {
+      await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "deferred", note: `draft skipped: supporting_ids not owned (${prop.supporting_ids.join(", ").slice(0, 200)})` });
+      continue;
+    }
+    // Contact grounding: model-proposed values must appear in the prospect's
+    // own evidence text; otherwise the draft is kept but no route is invented.
+    const texts = ownEvidence.map((e) => `${e.claim}\n${e.quote}`);
+    const grounded = isGroundedContact(prop.contact_value, texts);
+    const routeEv = ownEvidence.find((e) => e.source_type === "fetched_page") ?? ownEvidence[0];
     try {
-      await saveRoute(db, { prospect_id: t.id, channel: prop.channel, value: prop.contact_value, evidence_id: evId });
+      if (grounded && routeEv) {
+        await saveRoute(db, { prospect_id: t.id, channel: prop.channel, value: prop.contact_value, evidence_id: routeEv.id });
+      } else {
+        await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "drafted", note: "contact ungrounded: route withheld" });
+      }
       await saveDraft(db, {
         prospect_id: t.id, channel_suggestion: prop.channel_suggestion ?? prop.channel,
         subject: prop.subject ?? null, body: prop.body, next_action: prop.next_action,

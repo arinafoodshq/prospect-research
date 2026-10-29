@@ -452,3 +452,45 @@ require fetched_page evidence per qualified prospect; name validation
 + dedup + encoding fix; fit-threshold calibration; contact extraction
 pass. Needs user call: quality sprint vs demo-video polish first.
 Run: run_d3f68cbd (profile bp_76b0bee9).
+
+## 2026-10-29 - Research upgrade deployed; acceptance thresholds (pre-registered)
+
+Pipeline v0badbb0e live with: versioned commercial brief, ICP hard-gate,
+brief-driven search (catering hardcode removed from new path), per-prospect
+fetch, prospect-scoped evidence, dimensional verdicts, contact grounding,
+name/dedupe/encoding fixes. Migration 0002 applied remote (local dev DB
+never initialized - noted, unused).
+Baseline: run_d3f68cbd (25 prospects, 4 qualified, 0 in-segment, 274
+snippets/9 fetched, 8/25 with routes). Comparison: run_375b97dd on
+identical profile bp_e2fbf040.
+ACCEPTANCE (set before seeing results):
+- >=80% of qualified prospects in the primary segment (retail/logistics)
+- 0 hard-constraint violations among qualified
+- 100% of qualified have a prospect-owned fetched source (structural)
+- 0 duplicates with contradictory verdicts
+- Contact coverage + cost/time per qualified: report only, no threshold
+- Fewer, better-evidenced prospects is a PASS, not a fail
+
+## 2026-10-29 - Gate root cause: exclusions nuked the home market
+
+run_375b97dd scored: 25 prospects, 18 disqualified, 4 investigating, 3
+shortlisted-as-qualified (2 junk "Fabric Store"/"Grocery Store" headlines).
+0 drafts — FAIL vs acceptance (>=80% in-segment, real qualified>0).
+Root cause in checkHardConstraints (commercial.ts), proven against the
+brief Meta stored on run_724:
+1. Exclusion "Businesses outside Nigeria with no Lagos operations" matched
+   EVERY Lagos prospect: location haystack + reversed substring
+   (n.includes("lagos")).
+2. Exclusion "Large enterprises and supermarket chains" matched every
+   "Retail"-category prospect via synonym-group equivalence
+   (retail == supermarket).
+Fix (deployed v5484c961): exclusions chunked into significant words, matched
+by whole-word stemmed equality only, name/category only (never location);
+geo words filtered vs inclusion geos; "outside/within/..." stop-listed.
+New regression test uses run_724's exact exclusion list (bank/supermarket/
+software rejected; retail/logistics pass; school rejected by inclusions).
+Tests 239/239 + tsc clean. Spec note: termHit (fuzzy) stays for inclusions;
+exclusions are deliberately strict.
+Fresh comparison launched on identical TechAssembly input: profile
+bp_64987b2e, run_99840398 (budgets same: 30/40/25/$6). Old runs preserved.
+Catering eval still separate; fallback-demo decision after this run lands.

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS research_run (
     'created','discovering','investigating','assessing','drafting',
     'awaiting_brief','awaiting_approval','complete','stopped','failed')),
   stop_reason TEXT,                  -- e.g. budget_searches, no_candidates
+  commercial_brief TEXT,             -- JSON versioned CommercialBrief (NULL = legacy run)
   budgets TEXT NOT NULL,             -- JSON caps
   consumed TEXT NOT NULL,            -- JSON counters + cost_usd_est
   started_at TEXT NOT NULL,
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS prospect (
   category TEXT NOT NULL,
   location TEXT NOT NULL,            -- JSON
   dedupe_key TEXT NOT NULL,
+  evidence_ids TEXT NOT NULL DEFAULT '[]',  -- JSON list of owning evidence ids
   status TEXT NOT NULL CHECK (status IN (
     'candidate','investigating','qualified','disqualified',
     'shortlisted','approved','rejected','contacted','closed','deferred')),
@@ -87,6 +89,8 @@ CREATE TABLE IF NOT EXISTS assessment (
   uncertainties TEXT NOT NULL,            -- JSON list
   missing_info TEXT NOT NULL,             -- JSON list
   rationale TEXT NOT NULL,
+  dimensions TEXT,                   -- JSON QualificationDims (NULL = legacy)
+  verdict TEXT,                      -- qualified|needs_research|no_signal|manual_review|disqualified
   model_id TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
