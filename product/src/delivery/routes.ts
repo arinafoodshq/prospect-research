@@ -39,7 +39,12 @@ export async function getRelayHealth(_req: Request, env: DeliveryEnv, client?: S
   }
   try {
     const r = await c.get("/health");
-    if (r.json && r.json["ok"] === true) return Response.json({ relay: "reachable" });
+    if (r.json && r.json["ok"] === true) {
+      const out: Record<string, unknown> = { relay: "reachable" };
+      if (typeof r.json["uptimeSec"] === "number") out["uptimeSec"] = r.json["uptimeSec"];
+      if (typeof r.json["startedAt"] === "string") out["startedAt"] = r.json["startedAt"];
+      return Response.json(out);
+    }
     return Response.json({ relay: "unreachable", detail: `HTTP ${r.status}` });
   } catch (e) {
     return Response.json({ relay: "unreachable", detail: e instanceof Error ? e.message.slice(0, 120) : "error" });

@@ -7,7 +7,10 @@
  */
 import { makeId, nowIso, type Db } from "../db";
 import { openSecret, signUnsub } from "./crypto";
-import { isValidEmail, providerFor, type DeliveryProvider, type ProviderId } from "./providers";
+import {
+  isValidEmail, providerFor,
+  type ConnCreds, type DeliveryProvider, type ProviderId, type SendRequest, type SendResult,
+} from "./providers";
 
 export interface DeliveryJob { recipientId: string; campaignId: string; claim: string }
 
@@ -151,63 +154,94 @@ async function maybeComplete(db: Db, campaignId: string, now: string): Promise<v
     .bind("complete", JSON.stringify(counts), now, campaignId).run();
 }
 
+interface SenderConn {
+  id: string; provider: ProviderId; sender_email: string; sender_name: string | null;
+  status: string; secret_blob: string | null;
+}
+
+/** Everything resolved before the transport call (shared by single + batch sends). */
+export interface PreparedSend {
+  row: RecipientRow;
+  conn: SenderConn;
+  attempts: number;
+  now: string;
+  provider: DeliveryProvider;
+  creds: ConnCreds;
+  req: SendRequest;
+}
+
+type Prepared = { kind: "send"; ctx: PreparedSend } | { kind: "done"; outcome: ConsumeOutcome };
+
+async function finishSend(
+  db: Db, row: RecipientRow, attempts: number, now: string,
+  status: string, providerId: string | null, err: string | null, next: string | null,
+): Promise<void> {
+  await db.prepare(
+    "UPDATE campaign_recipient SET status = ?, attempts = ?, provider_message_id = COALESCE(?, provider_message_id), last_error = ?, next_attempt_at = ?, sent_at = ?, updated_at = ? WHERE id = ?",
+  ).bind(status, attempts, providerId, err, next, status === "sent" || status === "accepted" ? now : null, now, row.id).run();
+}
+
 /**
- * Consumer: one attempt for one claimed job. Verifies the claim stamp,
- * re-checks eligibility, sends, records the outcome. Returns the outcome;
- * throws only on unexpected errors (queue retries those, then DLQ).
+ * Prepare one job: verify the claim stamp, re-check eligibility, resolve the
+ * sender + provider request. Decided branches (stale/suppressed/invalid/
+ * unconnected) record their outcome here and return done.
  */
-export async function consumeDeliveryJob(db: Db, deps: ConsumerDeps, job: DeliveryJob, nowOverride?: string): Promise<ConsumeOutcome> {
+async function prepareSend(db: Db, deps: ConsumerDeps, job: DeliveryJob, nowOverride?: string): Promise<Prepared> {
   const now = nowOverride ?? nowIso();
   const row = await db.prepare("SELECT * FROM campaign_recipient WHERE id = ?").bind(job.recipientId).first<RecipientRow>();
-  if (!row || row.status !== "sending" || row.updated_at !== job.claim) return "stale";
+  if (!row || row.status !== "sending" || row.updated_at !== job.claim) return { kind: "done", outcome: "stale" };
   const attempts = row.attempts + 1;
-  const finish = async (status: string, providerId: string | null, err: string | null, next: string | null) => {
-    await db.prepare(
-      "UPDATE campaign_recipient SET status = ?, attempts = ?, provider_message_id = COALESCE(?, provider_message_id), last_error = ?, next_attempt_at = ?, sent_at = ?, updated_at = ? WHERE id = ?",
-    ).bind(status, attempts, providerId, err, next, status === "sent" || status === "accepted" ? now : null, now, row.id).run();
-  };
   const norm = row.email.trim().toLowerCase();
   const blocked = await db.prepare("SELECT email FROM suppression WHERE email = ?").bind(norm).first<{ email: string }>();
   if (blocked) {
-    await finish("suppressed", null, "suppressed at send time", null);
+    await finishSend(db, row, attempts, now, "suppressed", null, "suppressed at send time", null);
     await logAttempt(db, row.id, attempts, "suppressed", null, "policy", "suppressed at send time");
     await maybeComplete(db, row.campaign_id, now);
-    return "skipped";
+    return { kind: "done", outcome: "skipped" };
   }
   if (!isValidEmail(row.email)) {
-    await finish("failed", null, "invalid recipient email", null);
+    await finishSend(db, row, attempts, now, "failed", null, "invalid recipient email", null);
     await logAttempt(db, row.id, attempts, "failed", null, "validation", "invalid recipient email");
     await maybeComplete(db, row.campaign_id, now);
-    return "failed";
+    return { kind: "done", outcome: "failed" };
   }
   const campaign = await db.prepare("SELECT * FROM campaign WHERE id = ?").bind(row.campaign_id)
     .first<{ connection_id: string | null; status: string }>();
   const conn = campaign?.connection_id
-    ? await db.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(campaign.connection_id)
-      .first<{ id: string; provider: ProviderId; sender_email: string; sender_name: string | null; status: string; secret_blob: string | null }>()
+    ? await db.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(campaign.connection_id).first<SenderConn>()
     : null;
   if (!conn || conn.status !== "connected" || !conn.secret_blob) {
-    await finish("failed", null, "sender not connected", null);
+    await finishSend(db, row, attempts, now, "failed", null, "sender not connected", null);
     await logAttempt(db, row.id, attempts, "failed", null, "auth", "sender not connected");
     await maybeComplete(db, row.campaign_id, now);
-    return "failed";
+    return { kind: "done", outcome: "failed" };
   }
   const provider = deps.providers?.[conn.provider] ?? providerFor(conn.provider);
   const secret = await openSecret(JSON.parse(conn.secret_blob as string), deps.credKeyB64);
   const token = deps.unsubBaseUrl ? await signUnsub(deps.credKeyB64, row.id) : null;
   const unsubUrl = token ? deps.unsubBaseUrl + encodeURIComponent(token) : undefined;
   const text = unsubUrl ? `${row.body_snapshot}\n\nUnsubscribe: ${unsubUrl}` : row.body_snapshot;
-  const res = await provider.send(
-    { secret, senderEmail: conn.sender_email, ...(conn.sender_name ? { senderName: conn.sender_name } : {}) },
-    {
-      fromEmail: conn.sender_email, ...(conn.sender_name ? { fromName: conn.sender_name } : {}),
-      to: row.email, subject: row.subject_snapshot, text,
-      ...(unsubUrl ? { unsubUrl } : {}), idempotencyKey: row.idempotency_key,
+  return {
+    kind: "send",
+    ctx: {
+      row, conn, attempts, now, provider,
+      creds: { secret, senderEmail: conn.sender_email, ...(conn.sender_name ? { senderName: conn.sender_name } : {}) },
+      req: {
+        fromEmail: conn.sender_email, ...(conn.sender_name ? { fromName: conn.sender_name } : {}),
+        to: row.email, subject: row.subject_snapshot, text,
+        ...(unsubUrl ? { unsubUrl } : {}), idempotencyKey: row.idempotency_key,
+      },
     },
-  );
+  };
+}
+
+/** Record one transport outcome (shared by single sends and grouped batches). */
+async function applySendResult(db: Db, p: PreparedSend, res: SendResult): Promise<ConsumeOutcome> {
+  const { row, conn, attempts, now } = p;
+  const norm = row.email.trim().toLowerCase();
   if (res.ok) {
     const st = res.status === "sent" ? "sent" : "accepted";
-    await finish(st, res.providerMessageId ?? null, null, null);
+    await finishSend(db, row, attempts, now, st, res.providerMessageId ?? null, null, null);
     await logAttempt(db, row.id, attempts, st, res.providerMessageId ?? null, null, null);
     await logSendContact(db, row.id, row.prospect_id, row.campaign_id, now);
     await maybeComplete(db, row.campaign_id, now);
@@ -215,7 +249,7 @@ export async function consumeDeliveryJob(db: Db, deps: ConsumerDeps, job: Delive
   }
   await logAttempt(db, row.id, attempts, "failed", res.providerMessageId ?? null, res.errorCategory ?? null, res.errorDetail ?? null);
   if (res.errorCategory === "auth") {
-    await finish("queued", null, res.errorDetail ?? "provider auth failed", null);
+    await finishSend(db, row, attempts, now, "queued", null, res.errorDetail ?? "provider auth failed", null);
     await db.prepare("UPDATE campaign SET status = ?, stats_json = ?, updated_at = ? WHERE id = ?")
       .bind("failed", JSON.stringify({ error: "provider auth failed" }), now, row.campaign_id).run();
     await db.prepare("UPDATE sender_connection SET status = ?, last_error = ?, updated_at = ? WHERE id = ?")
@@ -223,15 +257,27 @@ export async function consumeDeliveryJob(db: Db, deps: ConsumerDeps, job: Delive
     return "failed";
   }
   if (res.retryable && attempts < MAX_ATTEMPTS) {
-    await finish("queued", null, res.errorDetail ?? "transient failure", backoffIso(Date.parse(now), attempts));
+    await finishSend(db, row, attempts, now, "queued", null, res.errorDetail ?? "transient failure", backoffIso(Date.parse(now), attempts));
     return "requeued";
   }
   if (!res.retryable && /bounc|invalid recipient|unknown user|mailbox/i.test(res.errorDetail ?? "")) {
     await suppress(db, norm, "bounced");
   }
-  await finish("failed", null, res.errorDetail ?? "send failed", null);
+  await finishSend(db, row, attempts, now, "failed", null, res.errorDetail ?? "send failed", null);
   await maybeComplete(db, row.campaign_id, now);
   return "failed";
+}
+
+/**
+ * Consumer: one attempt for one claimed job. Verifies the claim stamp,
+ * re-checks eligibility, sends, records the outcome. Returns the outcome;
+ * throws only on unexpected errors (queue retries those, then DLQ).
+ */
+export async function consumeDeliveryJob(db: Db, deps: ConsumerDeps, job: DeliveryJob, nowOverride?: string): Promise<ConsumeOutcome> {
+  const prep = await prepareSend(db, deps, job, nowOverride);
+  if (prep.kind === "done") return prep.outcome;
+  const res = await prep.ctx.provider.send(prep.ctx.creds, prep.ctx.req);
+  return applySendResult(db, prep.ctx, res);
 }
 
 export interface QueueMessage {
@@ -242,15 +288,72 @@ export interface QueueMessage {
 }
 
 /**
- * Batch consumer: every handled outcome ACKs (app-level backoff covers
- * transient provider errors via requeue + cron). Only unexpected throws
- * propagate, letting the queue retry then DLQ the message.
+ * Batch consumer: prepare every message, group same-connection sendables onto
+ * the provider bulk path (one relay call per group), send the rest singly.
+ * Every handled outcome ACKs; only unexpected throws propagate, letting the
+ * queue retry then DLQ the message.
  */
 export async function consumeDeliveryBatch(
   db: Db, deps: ConsumerDeps, messages: QueueMessage[], nowOverride?: string,
 ): Promise<void> {
+  const groups = new Map<string, { ctx: PreparedSend; msg: QueueMessage }[]>();
+  const singles: { ctx: PreparedSend; msg: QueueMessage }[] = [];
   for (const msg of messages) {
-    await consumeDeliveryJob(db, deps, msg.body, nowOverride);
-    msg.ack();
+    const prep = await prepareSend(db, deps, msg.body, nowOverride);
+    if (prep.kind === "done") { msg.ack(); continue; }
+    if (prep.ctx.provider.sendMany) {
+      const list = groups.get(prep.ctx.conn.id) ?? [];
+      list.push({ ctx: prep.ctx, msg });
+      groups.set(prep.ctx.conn.id, list);
+    } else {
+      singles.push({ ctx: prep.ctx, msg });
+    }
   }
+  for (const [, g] of groups) {
+    const first = g[0];
+    const sendMany = first?.ctx.provider.sendMany;
+    if (!first || !sendMany) continue;
+    const results = await sendMany(first.ctx.creds, g.map((x) => x.ctx.req));
+    for (let i = 0; i < g.length; i++) {
+      const item = g[i];
+      if (!item) continue;
+      const res = results[i] ?? {
+        ok: false, status: "failed", retryable: true,
+        errorCategory: "transient", errorDetail: "batch result missing",
+      } satisfies SendResult;
+      await applySendResult(db, item.ctx, res);
+      item.msg.ack();
+    }
+  }
+  for (const s of singles) {
+    const res = await s.ctx.provider.send(s.ctx.creds, s.ctx.req);
+    await applySendResult(db, s.ctx, res);
+    s.msg.ack();
+  }
+}
+
+/**
+ * Keep-warm: if connected SMTP senders have open recipients, ping the relay
+ * so the container is warm before the queue consumer sends. Returns whether
+ * a ping was attempted and whether it answered. Never throws.
+ */
+export async function warmSmtpRelay(db: Db, ping: () => Promise<unknown>): Promise<"warmed" | "idle" | "failed"> {
+  const conns = await db.prepare("SELECT * FROM sender_connection WHERE provider = ? AND status = ?")
+    .bind("smtp", "connected").all<SenderConn>();
+  for (const conn of conns.results ?? []) {
+    const camps = await db.prepare("SELECT * FROM campaign WHERE connection_id = ?").bind(conn.id).all<{ id: string }>();
+    for (const camp of (camps.results ?? [])) {
+      const recs = await db.prepare("SELECT * FROM campaign_recipient WHERE campaign_id = ?").bind(camp.id).all<RecipientRow>();
+      const open = (recs.results ?? []).some((r) => r.status === "queued" || r.status === "scheduled" || r.status === "sending");
+      if (open) {
+        try {
+          await ping();
+          return "warmed";
+        } catch {
+          return "failed";
+        }
+      }
+    }
+  }
+  return "idle";
 }

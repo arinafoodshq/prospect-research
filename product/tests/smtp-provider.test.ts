@@ -87,3 +87,49 @@ describe("relay health endpoint", () => {
     expect(body.detail).toContain("boom");
   });
 });
+
+describe("smtp sendMany (one relay call per group)", () => {
+  it("posts one batch and maps per-item results in order", async () => {
+    const calls: unknown[] = [];
+    const client: SmtpRelayClient = {
+      post: async (path, body) => {
+        calls.push({ path, body });
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            results: [
+              { ok: true, messageId: "<1@mail>" },
+              { ok: false, error: "550 nope", category: "permanent", retryable: false },
+            ],
+          },
+        };
+      },
+      get: async () => { throw new Error("unused"); },
+    };
+    const p = smtpProvider(client);
+    const out = await p.sendMany!(CREDS, [
+      REQ,
+      { ...REQ, to: "bad@x.co" },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as { path: string }).path).toBe("/send-batch");
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ ok: true, status: "sent", providerMessageId: "<1@mail>" });
+    expect(out[1]).toMatchObject({ ok: false, retryable: false, errorCategory: "permanent" });
+  });
+
+  it("maps a length mismatch to transient for every item", async () => {
+    const p = smtpProvider(relay({ ok: true, results: [{ ok: true }] }));
+    const out = await p.sendMany!(CREDS, [REQ, REQ]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ ok: false, retryable: true, errorCategory: "transient" });
+  });
+
+  it("maps an unreachable relay to transient for every item", async () => {
+    const p = smtpProvider({ post: async () => { throw new Error("down"); }, get: async () => { throw new Error("unused"); } });
+    const out = await p.sendMany!(CREDS, [REQ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ ok: false, retryable: true, errorCategory: "transient" });
+  });
+});

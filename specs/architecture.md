@@ -177,6 +177,16 @@ All model keys and messaging credentials server-side.
   `{"relay":"reachable"}` in production. Wrangler 4.155 required (v3 schema
   lacks DO-container `containers[]`). Still needs: real SMTP send against a
   user-provided test mailbox.
+- Speed design (2026-10-29): one shared relay (no per-user spin-up); queue
+  batches group same-connection mail into one `/send-batch` call over a
+  single SMTP connection (provider `sendMany`, per-item outcomes, failures
+  retry individually); cron pings `/health` before enqueueing only while
+  SMTP work is pending (no 24/7 idle burn); `sleepAfter 30m`. OPS GOTCHA:
+  Docker Desktop buildkit cache served a stale `server.js` layer across
+  wrangler builds (proven by image/disk hash mismatch); fix was
+  `docker builder prune -f` + rebuild. Relay image changes must be verified
+  live via `/api/relay-health` uptime fields, never assumed from a green
+  deploy.
 - O-5: Google OAuth verification for public Gmail users (post-hackathon only).
 
 ## 11. Acceptance of this spec (DoD)
@@ -196,3 +206,6 @@ approval in `progress.md`.
 - v0.3 (2026-10-29): container SMTP relay live (binding-only, standard-1,
   /api/relay-health); O-4 resolved. Rationale: universal SMTP without the
   Workers port-25 block.
+- v0.4 (2026-10-29): bulk SMTP transport (/send-batch, sendMany grouping,
+  keep-warm, uptime reporting) + container build-cache gotcha. Rationale:
+  amortize cold start + SMTP handshake over whole batches.

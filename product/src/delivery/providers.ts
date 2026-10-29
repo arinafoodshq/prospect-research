@@ -41,6 +41,9 @@ export interface DeliveryProvider {
   id: ProviderId;
   verify(creds: ConnCreds): Promise<VerifyResult>;
   send(creds: ConnCreds, req: SendRequest): Promise<SendResult>;
+  /** Optional bulk path: one transport call for N requests, results in order.
+   *  The batch consumer groups same-connection messages onto this. */
+  sendMany?(creds: ConnCreds, reqs: SendRequest[]): Promise<SendResult[]>;
 }
 
 // --- mock (tests + controlled demo; no network) -------------------------------
@@ -274,6 +277,49 @@ export function smtpProvider(relay: SmtpRelayClient): DeliveryProvider {
       } catch (e) {
         const detail = e instanceof Error ? e.message.slice(0, 160) : "relay unreachable";
         return { ok: false, status: "failed", retryable: true, errorCategory: "transient", errorDetail: detail };
+      }
+    },
+    async sendMany(creds, reqs) {
+      const sec = parse(creds.secret);
+      if (!sec) {
+        return reqs.map((): SendResult => ({
+          ok: false, status: "failed", retryable: false,
+          errorCategory: "auth", errorDetail: "secret needs {host, port, username, password}",
+        }));
+      }
+      const transientAll = (errorDetail: string): SendResult[] => reqs.map(() => ({
+        ok: false, status: "failed", retryable: true, errorCategory: "transient", errorDetail,
+      }));
+      try {
+        const r = await relay.post("/send-batch", {
+          ...sec, from: creds.senderEmail, ...(creds.senderName ? { fromName: creds.senderName } : {}),
+          messages: reqs.map((q) => ({
+            from: q.fromEmail, ...(q.fromName ? { fromName: q.fromName } : {}),
+            to: q.to, subject: q.subject, text: q.text,
+            ...(q.replyTo ? { replyTo: q.replyTo } : {}),
+            ...(q.unsubUrl ? { unsubUrl: q.unsubUrl } : {}),
+          })),
+        });
+        const results = r.json && Array.isArray(r.json["results"]) ? r.json["results"] as unknown[] : null;
+        if (!r.json || r.json["ok"] !== true || !results || results.length !== reqs.length) {
+          return transientAll(String((r.json && r.json["error"]) || `relay HTTP ${r.status}`).slice(0, 160));
+        }
+        const valid: ErrorCategory[] = ["auth", "validation", "rate_limit", "transient", "permanent", "policy"];
+        return results.map((item): SendResult => {
+          const o = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
+          if (o["ok"] === true) {
+            const mid = o["messageId"];
+            return { ok: true, status: "sent", retryable: false, ...(typeof mid === "string" ? { providerMessageId: mid } : {}) };
+          }
+          const cat = o["category"] as ErrorCategory | undefined;
+          return {
+            ok: false, status: "failed", retryable: o["retryable"] === true,
+            errorCategory: cat && valid.includes(cat) ? cat : "transient",
+            errorDetail: String(o["error"] || "batch item failed").slice(0, 160),
+          };
+        });
+      } catch (e) {
+        return transientAll(e instanceof Error ? e.message.slice(0, 160) : "relay unreachable");
       }
     },
   };

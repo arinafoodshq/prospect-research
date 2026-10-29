@@ -383,3 +383,25 @@ Tests 177/177 + tsc clean; vitest stubs cloudflare:workers and
 3.114 to 4.155 (containers schema) + workers-types v5. Not yet proven:
 real SMTP send (needs user test mailbox + recipient). Next: SMTP test
 mailbox credentials, then UI smtp connect form.
+
+## 2026-10-29 - SMTP batch transport + keep-warm + build-cache fix
+
+Speed: relay /send-batch (1-50 msgs, one SMTP connection, sequential,
+per-item results); Worker DeliveryProvider.sendMany + consumer groups
+same-connection jobs into one relay call (processor split into
+prepare/apply; other providers unchanged); cron warmSmtpRelay pings
+/health before enqueue only while connected SMTP senders have open
+recipients; shared singleton container (no per-user spin-up), sleepAfter
+30m; /api/relay-health passes startedAt/uptimeSec. Tests: relay 5/5
+node --test, worker 185/185 vitest, tsc clean.
+Ops: Docker Desktop buildkit served STALE server.js across wrangler
+builds (green build+deploy, old code live; proven by image/disk hash
+mismatch). Fix: docker builder prune -f + rebuild (manifest 66fdc0...,
+worker v41fa6a95). Direct registry push rejected (cross-repo blob
+mount). Rule: verify relay changes via live uptime fields. New doc:
+product/smtp-relay/README.md. Disk: removed 6 local test/version tags.
+Live verified: uptimeSec 0 then 101 with same startedAt 07:00:19Z -
+new image serving and instance stays warm across 100s gap.
+Needs: Gmail app password (smtp.gmail.com:587, user + 16-char app
+password) + test recipient for first real SMTP send; then UI smtp
+connect form.

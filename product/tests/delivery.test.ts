@@ -617,3 +617,104 @@ describe("contact tracking", () => {
   });
 });
 
+describe("bulk grouping", () => {
+  async function seedBulk() {
+    const mod = await import("../src/delivery/processor");
+    const { db, tables } = makeMockDb();
+    const now = new Date().toISOString();
+    const blob = await sealSecret("{}", TEST_KEY);
+    tables["sender_connection"].push({ id: "conn_1", provider: "mock", label: "M", sender_email: "me@co.ng", sender_name: null, status: "connected", secret_blob: JSON.stringify(blob), metadata_json: "{}", last_verified_at: now, last_error: null, created_at: now, updated_at: now });
+    tables["campaign"].push({ id: "cmp_1", run_id: null, name: "c", connection_id: "conn_1", status: "scheduled", scheduled_at_utc: new Date(Date.now() - 1000).toISOString(), timezone: "UTC", approved_at: now, stats_json: "{}", created_at: now, updated_at: now });
+    return { mod, db, tables, now };
+  }
+  function claimed(tables: Record<string, any[]>, now: string, id: string, campaignId: string, email: string, claim: string) {
+    tables["campaign_recipient"].push({ id, campaign_id: campaignId, prospect_id: null, email, subject_snapshot: "s", body_snapshot: "b", status: "sending", attempts: 0, provider_message_id: null, idempotency_key: id, last_error: null, next_attempt_at: null, sent_at: null, created_at: now, updated_at: claim });
+  }
+  const msgs = (jobs: any[], acked: string[]) => jobs.map((body) => ({ body, attempts: 1, ack: () => { acked.push(body.recipientId); }, retry: () => {} }));
+  const bulkProvider = (sendMany: any, send?: any) => ({
+    id: "mock", verify: async () => ({ ok: true }),
+    send: send ?? (async () => ({ ok: true, status: "sent", retryable: false })),
+    sendMany,
+  });
+
+  it("groups same-connection messages into one sendMany call", async () => {
+    const { mod, db, tables, now } = await seedBulk();
+    claimed(tables, now, "rcpt_1", "cmp_1", "a@x.co", "claim-1");
+    claimed(tables, now, "rcpt_2", "cmp_1", "b@x.co", "claim-2");
+    const sendMany = vi.fn(async (_c: any, reqs: any[]) => reqs.map((_r, i) => ({ ok: true, providerMessageId: `m${i}`, status: "sent", retryable: false })));
+    const send = vi.fn(async () => ({ ok: true, status: "sent", retryable: false }));
+    const acked: string[] = [];
+    await mod.consumeDeliveryBatch(db, { credKeyB64: TEST_KEY, unsubBaseUrl: "", providers: { mock: bulkProvider(sendMany, send) } },
+      msgs([{ recipientId: "rcpt_1", campaignId: "cmp_1", claim: "claim-1" }, { recipientId: "rcpt_2", campaignId: "cmp_1", claim: "claim-2" }], acked));
+    expect(sendMany).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(sendMany.mock.calls[0][1]).toHaveLength(2);
+    expect(tables["campaign_recipient"].every((r) => r.status === "sent")).toBe(true);
+    expect(acked.sort()).toEqual(["rcpt_1", "rcpt_2"]);
+  });
+
+  it("splits groups by connection", async () => {
+    const { mod, db, tables, now } = await seedBulk();
+    const blob = await sealSecret("{}", TEST_KEY);
+    tables["sender_connection"].push({ id: "conn_2", provider: "mock", label: "M2", sender_email: "me2@co.ng", sender_name: null, status: "connected", secret_blob: JSON.stringify(blob), metadata_json: "{}", last_verified_at: now, last_error: null, created_at: now, updated_at: now });
+    tables["campaign"].push({ id: "cmp_2", run_id: null, name: "c2", connection_id: "conn_2", status: "scheduled", scheduled_at_utc: new Date(Date.now() - 1000).toISOString(), timezone: "UTC", approved_at: now, stats_json: "{}", created_at: now, updated_at: now });
+    claimed(tables, now, "rcpt_1", "cmp_1", "a@x.co", "claim-1");
+    claimed(tables, now, "rcpt_2", "cmp_2", "b@x.co", "claim-2");
+    const sendMany = vi.fn(async (_c: any, reqs: any[]) => reqs.map(() => ({ ok: true, status: "sent", retryable: false })));
+    const acked: string[] = [];
+    await mod.consumeDeliveryBatch(db, { credKeyB64: TEST_KEY, unsubBaseUrl: "", providers: { mock: bulkProvider(sendMany) } },
+      msgs([{ recipientId: "rcpt_1", campaignId: "cmp_1", claim: "claim-1" }, { recipientId: "rcpt_2", campaignId: "cmp_2", claim: "claim-2" }], acked));
+    expect(sendMany).toHaveBeenCalledTimes(2);
+    expect(sendMany.mock.calls.map((c) => c[1].length)).toEqual([1, 1]);
+    expect(acked.sort()).toEqual(["rcpt_1", "rcpt_2"]);
+  });
+
+  it("applies per-item failures independently within a group", async () => {
+    const { mod, db, tables, now } = await seedBulk();
+    claimed(tables, now, "rcpt_1", "cmp_1", "a@x.co", "claim-1");
+    claimed(tables, now, "rcpt_2", "cmp_1", "b@x.co", "claim-2");
+    const sendMany = vi.fn(async () => [
+      { ok: true, status: "sent", retryable: false },
+      { ok: false, status: "failed", retryable: false, errorCategory: "permanent", errorDetail: "550 mailbox unavailable" },
+    ]);
+    const acked: string[] = [];
+    await mod.consumeDeliveryBatch(db, { credKeyB64: TEST_KEY, unsubBaseUrl: "", providers: { mock: bulkProvider(sendMany) } },
+      msgs([{ recipientId: "rcpt_1", campaignId: "cmp_1", claim: "claim-1" }, { recipientId: "rcpt_2", campaignId: "cmp_1", claim: "claim-2" }], acked));
+    const byId = Object.fromEntries(tables["campaign_recipient"].map((r) => [r.id, r.status]));
+    expect(byId).toEqual({ rcpt_1: "sent", rcpt_2: "failed" });
+    expect(tables["suppression"].map((r) => r.email)).toEqual(["b@x.co"]);
+    expect(acked.sort()).toEqual(["rcpt_1", "rcpt_2"]);
+  });
+});
+
+describe("smtp keep-warm", () => {
+  async function seedSmtpWork() {
+    const { warmSmtpRelay } = await import("../src/delivery/processor");
+    const { db, tables } = makeMockDb();
+    const now = new Date().toISOString();
+    const blob = await sealSecret("{}", TEST_KEY);
+    tables["sender_connection"].push({ id: "conn_1", provider: "smtp", label: "S", sender_email: "me@co.ng", sender_name: null, status: "connected", secret_blob: JSON.stringify(blob), metadata_json: "{}", last_verified_at: now, last_error: null, created_at: now, updated_at: now });
+    tables["campaign"].push({ id: "cmp_1", run_id: null, name: "c", connection_id: "conn_1", status: "scheduled", scheduled_at_utc: new Date(Date.now() - 1000).toISOString(), timezone: "UTC", approved_at: now, stats_json: "{}", created_at: now, updated_at: now });
+    tables["campaign_recipient"].push({ id: "rcpt_1", campaign_id: "cmp_1", prospect_id: null, email: "a@x.co", subject_snapshot: "s", body_snapshot: "b", status: "queued", attempts: 0, provider_message_id: null, idempotency_key: "k1", last_error: null, next_attempt_at: null, sent_at: null, created_at: now, updated_at: now });
+    return { warmSmtpRelay, db };
+  }
+
+  it("pings when connected smtp senders have open recipients", async () => {
+    const { warmSmtpRelay, db } = await seedSmtpWork();
+    const ping = vi.fn(async () => ({}));
+    await expect(warmSmtpRelay(db, ping)).resolves.toBe("warmed");
+    expect(ping).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays idle without smtp work and reports ping failure without throwing", async () => {
+    const { warmSmtpRelay } = await import("../src/delivery/processor");
+    const { db } = makeMockDb();
+    const ping = vi.fn(async () => ({}));
+    await expect(warmSmtpRelay(db, ping)).resolves.toBe("idle");
+    expect(ping).not.toHaveBeenCalled();
+    const seeded = await seedSmtpWork();
+    const failing = vi.fn(async () => { throw new Error("down"); });
+    await expect(seeded.warmSmtpRelay(seeded.db, failing)).resolves.toBe("failed");
+  });
+});
+

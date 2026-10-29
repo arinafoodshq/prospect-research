@@ -1,15 +1,21 @@
 /**
  * smtp-relay/server.js — binding-only SMTP relay (runs in a Cloudflare Container).
  * The Worker (the only caller, via the container binding) POSTs per-request SMTP
- * credentials + message; the relay sends through the USER'S provider and forgets.
+ * credentials + message(s); the relay sends through the USER'S provider and forgets.
  * Nothing secret is stored, logged, or kept at rest. Nodemailer is required only
  * when the server actually runs; tests inject a stub transport factory.
+ *
+ * Speed design: one SMTP transport (one handshake) per request, and /send-batch
+ * carries a whole queue batch over that single connection. The Worker keeps the
+ * container warm with /health pings only while SMTP work is pending.
  */
 "use strict";
 const http = require("node:http");
 
 const PORT = Number(process.env.PORT || 8080);
 const TIMEOUT_MS = 20000;
+const MAX_BATCH = 50;
+const STARTED_AT = new Date().toISOString();
 
 function json(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -17,7 +23,7 @@ function json(res, status, obj) {
   res.end(body);
 }
 
-function readBody(req, limit = 512 * 1024) {
+function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -57,6 +63,24 @@ function checkCreds(b) {
   return null;
 }
 
+function checkMsg(m) {
+  if (!m || typeof m !== "object") return "message must be an object";
+  if (typeof m.to !== "string" || !m.to.includes("@")) return "to must be an email address";
+  if (typeof m.subject !== "string" || typeof m.text !== "string") return "subject and text required";
+  return null;
+}
+
+function buildMsg(from, fromName, m) {
+  return {
+    from: fromName ? `"${String(fromName).replace(/["\r\n]/g, "")}" <${from}>` : from,
+    to: m.to,
+    subject: m.subject,
+    text: m.text,
+    ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+    ...(m.unsubUrl ? { headers: { "List-Unsubscribe": `<${m.unsubUrl}>` } } : {}),
+  };
+}
+
 function withTimeout(promise, ms, what) {
   let timer = null;
   const timeout = new Promise((_, reject) => {
@@ -69,10 +93,13 @@ function createApp(createTransport) {
   const handler = async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/health") {
-        json(res, 200, { ok: true, service: "smtp-relay" });
+        json(res, 200, {
+          ok: true, service: "smtp-relay", startedAt: STARTED_AT,
+          uptimeSec: Math.floor((Date.now() - Date.parse(STARTED_AT)) / 1000),
+        });
         return;
       }
-      if (req.method !== "POST" || (req.url !== "/verify" && req.url !== "/send")) {
+      if (req.method !== "POST" || (req.url !== "/verify" && req.url !== "/send" && req.url !== "/send-batch")) {
         json(res, 404, { ok: false, error: "not found" });
         return;
       }
@@ -94,40 +121,59 @@ function createApp(createTransport) {
         greetingTimeout: TIMEOUT_MS,
         socketTimeout: TIMEOUT_MS,
       });
-      if (req.url === "/verify") {
+      try {
+        if (req.url === "/verify") {
+          try {
+            await withTimeout(transport.verify(), TIMEOUT_MS, "smtp verify");
+            json(res, 200, { ok: true });
+          } catch (err) {
+            const c = categorize(err);
+            json(res, 200, { ok: false, error: c.detail, category: c.category });
+          }
+          return;
+        }
+        if (req.url === "/send-batch") {
+          const msgs = body.messages;
+          if (!Array.isArray(msgs) || msgs.length === 0) {
+            json(res, 400, { ok: false, error: "messages must be a non-empty array" });
+            return;
+          }
+          if (msgs.length > MAX_BATCH) {
+            json(res, 400, { ok: false, error: `messages capped at ${MAX_BATCH}` });
+            return;
+          }
+          for (const m of msgs) {
+            const badMsg = checkMsg(m);
+            if (badMsg) { json(res, 400, { ok: false, error: badMsg }); return; }
+          }
+          // Sequential on one connection: predictable provider rate behavior,
+          // per-message outcomes so the Worker can retry only failures.
+          const results = [];
+          for (const m of msgs) {
+            try {
+              const info = await withTimeout(
+                transport.sendMail(buildMsg(m.from || body.from, m.fromName || body.fromName, m)),
+                TIMEOUT_MS * 2, "smtp send");
+              results.push({ ok: true, messageId: info && info.messageId ? String(info.messageId) : null });
+            } catch (err) {
+              const c = categorize(err);
+              results.push({ ok: false, error: c.detail, category: c.category, retryable: c.retryable });
+            }
+          }
+          json(res, 200, { ok: true, results });
+          return;
+        }
+        // /send
+        const badMsg = checkMsg(body);
+        if (badMsg) { json(res, 400, { ok: false, error: badMsg }); return; }
         try {
-          await withTimeout(transport.verify(), TIMEOUT_MS, "smtp verify");
-          json(res, 200, { ok: true });
+          const info = await withTimeout(transport.sendMail(buildMsg(body.from, body.fromName, body)),
+            TIMEOUT_MS * 2, "smtp send");
+          json(res, 200, { ok: true, messageId: info && info.messageId ? String(info.messageId) : null });
         } catch (err) {
           const c = categorize(err);
-          json(res, 200, { ok: false, error: c.detail, category: c.category });
-        } finally {
-          try { transport.close(); } catch { /* ignore */ }
+          json(res, 200, { ok: false, status: "failed", error: c.detail, category: c.category, retryable: c.retryable });
         }
-        return;
-      }
-      // /send
-      if (typeof body.to !== "string" || !body.to.includes("@")) {
-        json(res, 400, { ok: false, error: "to must be an email address" });
-        return;
-      }
-      if (typeof body.subject !== "string" || typeof body.text !== "string") {
-        json(res, 400, { ok: false, error: "subject and text required" });
-        return;
-      }
-      try {
-        const info = await withTimeout(transport.sendMail({
-          from: body.fromName ? `"${String(body.fromName).replace(/["\r\n]/g, "")}" <${body.from}>` : body.from,
-          to: body.to,
-          subject: body.subject,
-          text: body.text,
-          ...(body.replyTo ? { replyTo: body.replyTo } : {}),
-          ...(body.unsubUrl ? { headers: { "List-Unsubscribe": `<${body.unsubUrl}>` } } : {}),
-        }), TIMEOUT_MS * 2, "smtp send");
-        json(res, 200, { ok: true, messageId: info && info.messageId ? String(info.messageId) : null });
-      } catch (err) {
-        const c = categorize(err);
-        json(res, 200, { ok: false, status: "failed", error: c.detail, category: c.category, retryable: c.retryable });
       } finally {
         try { transport.close(); } catch { /* ignore */ }
       }

@@ -20,7 +20,7 @@ import {
 import { createMetaClient } from "./meta";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
-import { consumeDeliveryBatch, enqueueDueJobs, type DeliveryJob } from "./delivery/processor";
+import { consumeDeliveryBatch, enqueueDueJobs, warmSmtpRelay, type DeliveryJob } from "./delivery/processor";
 import { containerRelay, smtpProvider } from "./delivery/providers";
 import type { Container } from "@cloudflare/containers";
 
@@ -616,6 +616,12 @@ export default {
     // Campaign delivery tick (triggers.crons): enqueue due recipients; the
     // queue consumer sends. Same producer as the manual process route.
     if (!env.DELIVERY_QUEUE) return;
+    if (env.SMTP_RELAY) {
+      // Roll the relay warm window while SMTP work is pending; the warmer
+      // no-ops when idle and never blocks enqueueing.
+      const ns = env.SMTP_RELAY;
+      await warmSmtpRelay(env.DB, () => containerRelay(ns).get("/health"));
+    }
     await enqueueDueJobs(env.DB, (job) => env.DELIVERY_QUEUE!.send(job));
   },
   async queue(batch: QueueBatch, _env: Env): Promise<void> {
