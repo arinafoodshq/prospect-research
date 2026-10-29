@@ -11,7 +11,7 @@
 import type { Evidence, Prospect } from "./db";
 import type { AssessProposal, DraftProposal, MetaClient, SearchHit } from "./research/phases";
 import {
-  buildPlanGoal, buildSearchGoal, renderBriefPrompt, validateBrief,
+  buildBriefGoal, buildPlanGoal, buildSearchGoal, renderBriefPrompt, validateBrief,
   type CommercialBrief,
 } from "./research/commercial";
 
@@ -282,7 +282,13 @@ const VERSION_NUM = /\bv?\d+\.\d+(\.\d+)?\b/;
 /** Flag emoji (regional indicators): stripped, residue validates. */
 const FLAG_STRIP = /[\p{Regional_Indicator}]/gu;
 /** "List of ..." directory pages are never a business. */
-const LIST_OF_LEAD = /^\s*lists?\s+of\b/i;
+const LIST_OF_LEAD = /^\s*(full|complete|comprehensive|the|a)?\s*lists?\s+of\b/i;
+/** Numbered listicles ("The 10 best X", "10 best X") are rankings, not businesses. */
+const NUMBERED_LISTICLE = /^\s*(the\s+)?\d+\s+best\b/i;
+/** Meta explainers ("Types of hr jobs") are articles, not businesses. */
+const TYPES_OF = /^\s*types?\s+of\b/i;
+/** About pages ("About X Services Limited") describe a business; they aren't one. */
+const ABOUT_COMPANY = /^\s*about\s+\w+.*\b(limited|ltd|inc|services|company)\b/i;
 /** Possessive product lines ("Men's Straight Jeans") are departments, not businesses. */
 const POSSESSIVE_PRODUCT = /\b(men'?s|women'?s|kids'?|unisex)\b.{0,24}\b(jeans|shirts?|dresses|shoes|sneakers|gowns|wigs?|bags?|watches|phones?|laptops?|trousers|jackets|suits)\b/i;
 /** Property listings ("Shops for Sale in Ikota") are never a business. */
@@ -338,7 +344,8 @@ const GENERIC_WORDS = new Set(
     "fashion fashions luxury luxuries verified " +
     "privacy policy policies terms conditions condition cookies cookie copyright " +
     "storelocator locator faq faqs frequently asked questions question " +
-    "food foods " +
+    "food foods law laws legal firm firms commercial criminal human rights search " +
+    "training providers detached duplexes terrace terraces " +
     "grocery groceries supermarket supermarkets bookshop bookshops " +
     "private primary nursery international preschool college lagos ikeja nigeria nigerian " +
     "omole ogba opebi allen gra maryland yaba surulere lekki ikoyi island " +
@@ -446,6 +453,9 @@ export function isPlausibleName(raw: string): boolean {
   if (CONTACT_US.test(trimmed)) return false; // contact page, not a business
   if (FREE_DOWNLOAD.test(trimmed)) return false; // software spam, not a business
   if (VERSION_NUM.test(trimmed)) return false; // version number, not a business
+  if (NUMBERED_LISTICLE.test(trimmed)) return false; // ranked listicle, not a business
+  if (TYPES_OF.test(trimmed)) return false; // meta explainer, not a business
+  if (ABOUT_COMPANY.test(trimmed)) return false; // about page, not a business
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
   if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
@@ -697,18 +707,7 @@ function extractVisibleText(html: string): string {
     name: string; website_url: string; description: string;
     target_market: string; service_area_note: string; constraints_note: string;
   }): Promise<CommercialBrief> {
-    const goal = [
-      "Build a commercial brief for B2B prospecting. Reply ONLY JSON, no other text.",
-      `Business: ${profile.name}. ${profile.description}`,
-      `Website: ${profile.website_url || "none"}. Target market: ${profile.target_market || "unknown"}.`,
-      `Service area: ${profile.service_area_note || "unknown"}. Constraints: ${profile.constraints_note || "none stated"}.`,
-      'Shape: {"version":1,"offer":{"description":string,"geography":string,"outcomes":[3 strings]},',
-      '"primary_segment":{"label":string,"industries":[1-3],"geos":[1-3],"sizes":[1-2],"use_cases":[1-3],"inclusions":[2-5 observable traits],"exclusions":[2-6 categories to never target]},',
-      '"secondary_segments":[],"pains":[{"job":string,"obstacle":string,"workaround":string,"trigger_hints":[2-4],"falsifiable_by":string}],',
-      '"buyer_roles":[{"role":string,"concerns":[1-3]}],"statements":[{"text":string,"provenance":"user_fact|source_verified|inference|hypothesis|unknown"}],',
-      '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty]}.',
-      "Rules: exactly one primary segment; exclusions must name concrete categories; every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
-    ].join("\n");
+    const goal = buildBriefGoal(profile);
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: `${profile.name}. ${profile.description}`,

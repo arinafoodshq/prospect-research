@@ -619,3 +619,29 @@ apart by design (news evidence must not merge into business rows).
 Tests 306/306 + tsc clean (9 new). Deployed v8d4a289c. Catering eval
 run_ac026b81 launched on same build (504 Yard corporate catering in
 Ikeja; scored separately, never as generalisation proof).
+
+## 2026-10-29 - Catering eval: 0/25, two real bugs + one vertical truth
+
+run_ac026b81: all 25 disqualified, 0 drafts. NOT a pipeline failure:
+1. Gate false-reject (deterministic bug): "Legal Services" vs segment
+   "Professional Services" - inclusion matcher has no hyponyms outside
+   retail/logistics. FIX: industry inclusions REMOVED from the gate;
+   model-judged via icp_fit (threshold 3) instead. Gate now owns only
+   explicit exclusions + geography. Brief prompt now demands
+   adjacent-vertical exclusions (the remaining deterministic drift
+   guard). Spec 12.6 updated.
+2. Name-part dedupe broken by design: same-name rows with different
+   domains never merged (OPay x2) - the name-only fallback only hits
+   rows STORED without a domain. FIX: findSibling scan (domain+token
+   rule, then name-part rule, earliest wins).
+3. Vertical truth: catering pains/triggers (team lunches, 20+ staff,
+   HR buyer) are nearly unobservable from snippets, so the model
+   honestly scores icp_fit 1 ("no evidence of Ikeja office, team
+   size, lunch need"). Correct refusal to invent. Catering parked as
+   fallback demo ONLY if a venue-beachhead run qualifies; demo =
+   retail (proven loop + drafts). One NULL verdict observed = legacy
+   fallback working as designed (dims omitted for 1 item).
+Also: law-vertical guards (numbered listicles, law/legal/firm
+generics, types-of/about-company/full-list, detached/duplexes/
+terrace). Tests 324/324 + tsc clean (18 new). Deployed vb5055baa.
+Run 7 run_c5d01d96 (TechAssembly) verifies no drift regression.

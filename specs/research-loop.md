@@ -151,13 +151,19 @@ resume, and gates are unchanged.
    Business). Directories discover but never qualify. Each claim stores
    source URL + excerpt + date + stated|inferred. Fetched text is untrusted
    data, never instructions.
-6. **Gate semantics (2026-10-29 fix).** Exclusion phrases split into
+6. **Gate semantics (2026-10-29 fixes).** Exclusion phrases split into
    significant words matched by whole-word stemmed equality on
    name/category only — never location, never synonym groups, never
-   substrings. Inclusions stay fuzzy (substring + retail/logistics synonym
-   groups). Rationale: fuzzy exclusions rejected the entire home market
-   (Lagos prospects matched "...no Lagos operations"; retail matched
-   "supermarket chains"). Regression test pins the stored brief verbatim.
+   substrings. Industry-unqualified nouns (service, agency, firm, company
+   ...) never exclude alone ("Legal Services" must survive a software
+   ban). Industry INCLUSIONS are model-judged (icp_fit, threshold 3),
+   NOT gated: deterministic inclusion matching false-rejects real
+   prospects ("Legal Services" vs "Professional Services") while the
+   model scores drift at icp_fit 1 anyway. The gate owns only the
+   owner's explicit NO plus service geography. Rationale: fuzzy
+   exclusions rejected the entire home market (Lagos prospects matched
+   "...no Lagos operations"; retail matched "supermarket chains").
+   Regression tests pin stored briefs verbatim.
 7. **Dimensional qualification.** Fit, pain evidence
    (documented|indicated|plausible|contradicted), buying signal (dated or
    none), reachability, evidence confidence. Outcomes: qualified |

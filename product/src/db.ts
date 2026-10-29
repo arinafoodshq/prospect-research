@@ -180,21 +180,27 @@ export function normMergeDomain(d: string): string {
 }
 
 /**
- * Same-domain sibling: same normalized domain + same first distinctive
- * token ("Supermart.ng" vs "Supermart Online Groceries"). Platform domains
- * only merge when the brand token matches, so distinct vendors stay apart.
+ * Cross-key sibling scan (earliest wins). Rule 1: same normalized domain +
+ * same first distinctive token ("Supermart.ng" vs "Supermart Online
+ * Groceries"); platform domains only merge on brand-token match. Rule 2:
+ * same normalized name-part whatever the domain ("OPay" via opay.com vs
+ * example.com) — the key-lookup fallback only matches rows STORED without
+ * a domain, so same-name rows with different domains otherwise never merge.
  */
-async function findDomainSibling(db: Db, run_id: string, name: string, domain: string): Promise<string | null> {
-  const mine = normMergeDomain(domain);
-  const myToken = firstDistinctiveToken(name);
-  if (!mine || !myToken) return null;
+async function findSibling(db: Db, run_id: string, name: string, domain?: string): Promise<string | null> {
   const { results } = await db.prepare("SELECT id, name, dedupe_key, created_at FROM prospect WHERE run_id = ?")
     .bind(run_id).all<{ id: string; name: string; dedupe_key: string; created_at: string }>();
-  const sibs = (results ?? [])
-    .filter((r) => normMergeDomain((r.dedupe_key.split("::")[1] ?? "")) === mine)
-    .filter((r) => firstDistinctiveToken(r.name) === myToken)
-    .sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
-  return sibs[0]?.id ?? null;
+  const rows = (results ?? []).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  const mine = domain ? normMergeDomain(domain) : "";
+  const myToken = firstDistinctiveToken(name);
+  if (mine && myToken) {
+    const sib = rows.find((r) =>
+      normMergeDomain((r.dedupe_key.split("::")[1] ?? "")) === mine &&
+      firstDistinctiveToken(r.name) === myToken);
+    if (sib) return sib.id;
+  }
+  const myNamePart = dedupeKey(name);
+  return rows.find((r) => (r.dedupe_key.split("::")[0] ?? "") === myNamePart)?.id ?? null;
 }
 
 /**
@@ -263,8 +269,8 @@ export async function saveCandidate(
     ).bind(input.run_id, lookup).first<string>("id");
     if (existing) break;
   }
-  if (!existing && input.domainOrHandle) {
-    existing = await findDomainSibling(db, input.run_id, input.name, input.domainOrHandle);
+  if (!existing) {
+    existing = await findSibling(db, input.run_id, input.name, input.domainOrHandle);
   }
   if (existing) {
     const row = await db.prepare("SELECT evidence_ids FROM prospect WHERE id = ?").bind(existing)

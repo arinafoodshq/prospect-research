@@ -312,6 +312,35 @@ describe("dedupe", () => {
     expect(await listProspects(db, RUN_ID)).toHaveLength(1);
   });
 
+  it("merges same-name rows across different domains (OPay x2, catering eval)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const ev1 = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "OPay exists", quote: "opay",
+      source_url: "https://opay.com/", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const r1 = await saveCandidate(db, {
+      run_id: RUN_ID, name: "OPay", category: "Fintech", location: {},
+      domainOrHandle: "opay.com", evidence_ids: [ev1],
+    });
+    expect(r1.merged).toBe(false);
+    const ev2 = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "OPay offices", quote: "offices",
+      source_url: "https://example.com/opay-offices", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const r2 = await saveCandidate(db, {
+      run_id: RUN_ID, name: "OPay", category: "Fintech", location: {},
+      domainOrHandle: "example.com", evidence_ids: [ev2],
+    });
+    expect(r2.merged).toBe(true);
+    expect(r2.prospect_id).toBe(r1.prospect_id);
+    expect(await listProspects(db, RUN_ID)).toHaveLength(1);
+  });
+
   it("does not merge different businesses sharing a platform domain", async () => {
     const { db, tables } = makeMockDb();
     seedRun(tables);

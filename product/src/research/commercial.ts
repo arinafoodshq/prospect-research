@@ -252,6 +252,9 @@ const EXCLUSION_STOP = new Set([
   "business", "businesses", "operation", "operations",
   "company", "companies", "enterprise", "enterprises", "corporate",
   "firm", "firms", "organization", "organisation",
+  // Industry-unqualified nouns: "services" alone must not exclude "Legal
+  // Services" via a software-services ban (catering-eval regression).
+  "service", "services", "servicing", "agency", "agencies",
 ]);
 
 /**
@@ -306,13 +309,12 @@ export function checkHardConstraints(
       }
     }
   }
-  const cat = norm(p.category);
-  if (cat !== "" && cat !== "unclassified" && cat !== "unknown") {
-    const inIndustry = icp.hard_inclusions.industries.some((ind) => termHit(p.category, ind) || termHit(p.name, ind));
-    if (!inIndustry) {
-      return { ok: false, reason: `outside primary segment: ${JSON.stringify(p.category)} matches none of ${icp.hard_inclusions.industries.join(", ")}` };
-    }
-  }
+  // Industry fit is model-judged (icp_fit, thresholded at 3), NOT gated
+  // here. A deterministic inclusion check false-rejects real prospects
+  // ("Legal Services" vs "Professional Services" on the catering eval)
+  // while the model scores drift at icp_fit 1 anyway. This gate owns only
+  // the owner's explicit NO (exclusions) plus service geography.
+  void icp.hard_inclusions.industries;
   const locValues = Object.values(p.location).filter((v) => v.trim() !== "");
   if (locValues.length > 0) {
     const inGeo = icp.hard_inclusions.geos.some((g) => locValues.some((v) => termHit(v, g)));
@@ -386,6 +388,25 @@ export function decideVerdict(
     return { verdict: "needs_research", fit_rating: score, reason: "fit and signal ok, no usable contact route yet" };
   }
   return { verdict: "qualified", fit_rating: score, reason: "fit, evidence, signal, and route all meet the bar" };
+}
+
+/** Brief-burst goal: pure helper so prompt adherence is unit-testable. */
+export function buildBriefGoal(profile: {
+  name: string; website_url: string; description: string;
+  target_market: string; service_area_note: string; constraints_note: string;
+}): string {
+  return [
+    "Build a commercial brief for B2B prospecting. Reply ONLY JSON, no other text.",
+    `Business: ${profile.name}. ${profile.description}`,
+    `Website: ${profile.website_url || "none"}. Target market: ${profile.target_market || "unknown"}.`,
+    `Service area: ${profile.service_area_note || "unknown"}. Constraints: ${profile.constraints_note || "none stated"}.`,
+    'Shape: {"version":1,"offer":{"description":string,"geography":string,"outcomes":[3 strings]},',
+    '"primary_segment":{"label":string,"industries":[1-3],"geos":[1-3],"sizes":[1-2],"use_cases":[1-3],"inclusions":[2-5 observable traits],"exclusions":[2-6 categories to never target]},',
+    '"secondary_segments":[],"pains":[{"job":string,"obstacle":string,"workaround":string,"trigger_hints":[2-4],"falsifiable_by":string}],',
+    '"buyer_roles":[{"role":string,"concerns":[1-3]}],"statements":[{"text":string,"provenance":"user_fact|source_verified|inference|hypothesis|unknown"}],',
+    '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty]}.',
+    "Rules: exactly one primary segment; exclusions must name concrete categories INCLUDING adjacent-but-out-of-scope verticals (e.g. schools for a retail brief — industry fit is model-judged, so the exclusion list is the only deterministic drift guard); every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
+  ].join("\n");
 }
 
 /** Plan-burst goal: brief-driven, exclusion-preserving, no hardcoded vertical. */

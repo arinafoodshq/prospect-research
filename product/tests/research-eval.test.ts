@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildBriefGoal,
   buildPlanGoal,
   buildSearchGoal,
   checkHardConstraints,
@@ -108,6 +109,16 @@ describe("prompt segment adherence (retail brief must not drift)", () => {
     expect(goal).toContain("Jiji");
   });
 
+  it("brief goal demands explicit adjacent-vertical exclusions (catering: gate owns exclusions only)", () => {
+    const goal = buildBriefGoal({
+      name: "TechAssembly", website_url: "", description: "ops system",
+      target_market: "retail", service_area_note: "Lagos", constraints_note: "",
+    });
+    expect(goal).toContain("TechAssembly");
+    expect(goal).toContain("adjacent");
+    expect(goal).toContain("exclusions");
+  });
+
   it("search goal preserves segment, geography, and exclusions per query", () => {
     const goal = buildSearchGoal(retailBrief(), "retail shops with branches in Ikeja");
     expect(goal).toContain("retail");
@@ -179,10 +190,24 @@ describe("hard-constraint gate", () => {
     expect(checkHardConstraints(icp, {
       name: "Softcom IT Services", category: "Software", location: lagos,
     }).ok).toBe(false);
-    // A school is outside the segment entirely (inclusion branch rejects it).
+    // Industry fit is model-judged (icp_fit), NOT gated: a school passes
+    // here and dies in assess (proven live: drift scores icp_fit 1). The
+    // gate owns only explicit exclusions + geography.
     expect(checkHardConstraints(icp, {
       name: "Greenfield Schools", category: "School", location: lagos,
-    }).ok).toBe(false);
+    })).toEqual({ ok: true });
+    // Catering-eval regression: "Legal Services" must not be rejected
+    // against a "Professional Services" segment (model knows the hyponym).
+    const officeIcp = icpFromBrief({
+      ...brief,
+      primary_segment: {
+        ...brief.primary_segment,
+        industries: ["Professional Services", "Financial Services"],
+      },
+    });
+    expect(checkHardConstraints(officeIcp, {
+      name: "Jacobs and Bigaels", category: "Legal Services", location: lagos,
+    })).toEqual({ ok: true });
     // Substring lookalikes are NOT exclusions.
     expect(checkHardConstraints(icp, {
       name: "Riverbank Fashion", category: "Fashion retail", location: lagos,
@@ -285,6 +310,20 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "FAQs",
     "Frequently Asked Questions",
     "Food Retailers",
+    // run_ac026b81 junk (catering eval): numbered listicles, category
+    // labels, meta patterns (types/about/full-list), property leftovers.
+    "The 10 best Employer Lawyers & Law Firms",
+    "10 best schools in Lagos",
+    "LAW FIRMS IN LAGOS STATE",
+    "COMMERCIAL LAW FIRMS",
+    "The Law Firm",
+    "Search Law Firms & Legal Services Companies",
+    "Training providers in Ikeja, Lagos State",
+    "Types of hr jobs",
+    "About OPay Digital Services Limited (OPay Wallet)",
+    "Full list of Opay Offices",
+    "Luxury 4 Bedroom Terrace Duplex",
+    "Detached Duplexes",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -309,7 +348,7 @@ describe("business-name guards (live-run junk fixtures)", () => {
     expect(isPlausibleName("GIFT ORDER 🎁")).toBe(false);
   });
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart", "Maucare Pharmacy", "Walexfabrics", "The Flair Store"];
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart", "Maucare Pharmacy", "Walexfabrics", "The Flair Store", "Jacobs and Bigaels Legal Practitioners", "Tope Adebayo LP", "First City Monument Bank", "NAYZER Consulting"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);
