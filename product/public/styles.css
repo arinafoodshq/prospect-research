@@ -188,10 +188,25 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 /* Drafts */
 .draft { border: 1px solid var(--border); background: var(--surface-deep); border-radius: var(--radius-sm); padding: 0.8rem; margin-bottom: 0.8rem; }
 .draft textarea { min-height: 7rem; }
-.draft .decision { font-weight: 700; }
-.draft .decision.approved { color: var(--success); }
-.draft .decision.rejected { color: var(--danger); }
-.draft .decision.pending { color: var(--warn); }
+
+/* Message studio (PDF screen 5) */
+.studio h2 .decision { font-weight: 700; font-size: 1rem; }
+.studio .decision.approved { color: var(--success); }
+.studio .decision.rejected { color: var(--danger); }
+.studio .decision.pending { color: var(--warn); }
+.studio .decision.deferred { color: var(--muted); }
+.studio-pager { margin: 0.8rem 0; }
+.studio-card { margin: 1rem 0; }
+.studio-card .kicker { margin-top: 0; }
+.studio-subject { font-weight: 700; font-size: 1.05rem; }
+.studio-text p { margin: 0.5rem 0; }
+.studio-editor { margin-top: 0.8rem; }
+.studio-editor textarea { min-height: 9rem; }
+.why { margin: 1.2rem 0 0.4rem; }
+.why .kicker { margin-top: 0; }
+.why h4 { margin: 0.8rem 0 0.15rem; font-size: 0.95rem; }
+.why p { margin: 0.15rem 0; }
+.why a { color: var(--accent); }
 
 /* Status board */
 .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }

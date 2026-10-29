@@ -305,26 +305,47 @@ await tick();
 ok(els["shortlist-count"].textContent === "5 selected · nothing is sent yet", "unticking updates the sticky count");
 
 await fire(els["btn-to-drafts"], "click", evt());
-await tick(); await tick();
+await tick(); await tick(); await tick();
 ok(visible("view-drafts"), "shortlist -> drafts view");
-ok(els["draft-list"].children.length === 3, "drafts view lists 3 drafts for 5 selected, saw " + els["draft-list"].children.length);
+ok(els["draft-list"].children.length === 1, "studio shows one message at a time");
+{
+  const html = els["draft-list"].children[0].innerHTML;
+  ok(/MESSAGE 1 OF 3/.test(html), "studio pager counts the filtered drafts");
+  ok(/Your note to Kingsway Tech Hub/.test(html), "studio names the first selected pick");
+  ok(/Why this message/.test(html) && /A fact we found/.test(html), "studio explains the message");
+  ok(/Approve and schedule/.test(html) && /Skip this one/.test(html), "studio has approve + skip actions");
+  ok(/words\. (Short enough|Room for context)/.test(html), "studio counts words with guidance");
+}
 ok(/5 selected picks/.test(els["drafts-note"].textContent), "drafts note explains the filter");
 ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-note"].textContent),
   "drafts note names selected picks without drafts");
 
 {
-  const drafts = els["draft-list"].children;
-  const clickOn = async (div, act) => {
+  const studio = () => els["draft-list"].children[0];
+  const clickOn = async (act, extra) => {
+    const div = studio();
     const fns = div._listeners.click || [];
-    for (const fn of fns) await fn.call(div, { target: { dataset: { act } } });
-    await tick();
+    for (const fn of fns) await fn.call(div, { target: { dataset: Object.assign({ act }, extra || {}) } });
+    await tick(); await tick();
   };
-  await clickOn(drafts[0], "approve");
-  await clickOn(drafts[1], "reject");
-  const badge0 = drafts[0].querySelector(".decision").textContent;
-  const badge1 = drafts[1].querySelector(".decision").textContent;
-  ok(/approved/.test(badge0), "first draft badge shows approved (" + badge0 + ")");
-  ok(/rejected/.test(badge1), "second draft badge shows rejected (" + badge1 + ")");
+  await clickOn("approve");
+  ok(/approved/.test(studio().querySelector(".decision").textContent), "approve marks the draft approved");
+  await clickOn("studio-next");
+  ok(/MESSAGE 2 OF 3/.test(studio().innerHTML), "pager advances to the next message");
+  ok(/Your note to St. Raphael Clinic/.test(studio().innerHTML), "pager shows the next pick");
+  await clickOn("studio-tab", { id: "whatsapp" });
+  ok(/No whatsapp version/.test(studio().innerHTML), "off-channel tab stays honest about the single variant");
+  await clickOn("studio-tab", { id: "email" });
+  ok(/Weekday lunches for/.test(studio().innerHTML), "email tab shows the subject line");
+  await clickOn("studio-edit");
+  studio().querySelector('[data-field="body"]').value = "Edited message body for the test.";
+  await clickOn("studio-save");
+  await tick();
+  ok(/Edited message body for the test/.test(studio().innerHTML), "saved edit refreshes the draft text");
+  await clickOn("skip");
+  ok(/deferred/.test(studio().querySelector(".decision").textContent), "skip defers the draft");
+  await clickOn("studio-prev");
+  ok(/MESSAGE 1 OF 3/.test(studio().innerHTML), "pager goes back");
 }
 
 await fire(els["btn-to-status"], "click", evt());
@@ -343,7 +364,7 @@ ok(visible("view-status"), "drafts -> status board view");
   ok(!/Nothing here\./.test(all), "no dead-end 'Nothing here.' microcopy");
   const followCol = cols.find((c) => /Follow-ups/.test(c.innerHTML));
   ok(!!followCol, "follow-ups column exists");
-  const approvedName = els["draft-list"].children[0].innerHTML.match(/To: ([^<]*)/)[1].trim();
+  const approvedName = els["draft-list"].children[0].innerHTML.match(/Your note to ([^.]*)/)[1].trim();
   const occurrences = followCol.innerHTML.split(approvedName).length - 1;
   ok(occurrences === 1, "approved draft appears exactly once as a manual follow-up (saw " + occurrences + ")");
   ok(/manual/i.test(followCol.innerHTML), "follow-ups column is honest that nothing is sent");
@@ -389,7 +410,7 @@ ok(visible("view-profile"), "stop returns to the brief");
     "GET /api/runs/run_9": [{ id: "run_9", status: "discovering" }, { id: "run_9", status: "awaiting_approval" }],
     "GET /api/runs/run_9/prospects": { run_id: "run_9", prospects: [{ id: "pr_9", run_id: "run_9", name: "Brightline Ltd", category: "Logistics", location: { area: "Ikeja GRA" }, status: "shortlisted", rank: 1 }] },
     "GET /api/prospects/pr_9": { prospect: { id: "pr_9", name: "Brightline Ltd" }, assessments: [{ fit_rating: 4, supporting_evidence_ids: ["ev_9"], rationale: "Strong fit: lunch rota", verdict: "qualified", dimensions: { icp_fit: 5, problem: 4, readiness: 4, reachability: 3, confidence: 4 }, uncertainties: ["budget"], missing_info: ["decision maker"] }], evidence: [{ id: "ev_9", quote: "weekday lunch rota", source_url: "https://brightline.ng/about", source_type: "fetched_page" }], contact_routes: [{ channel: "email", value: "admin@brightline.ng", verification: "public_listing" }] },
-    "GET /api/runs/run_9/drafts": { run_id: "run_9", drafts: [{ id: "dr_9", prospect_id: "pr_9", subject: "Lunches", body: "Hi [ev_9]", status: "draft" }] },
+    "GET /api/runs/run_9/drafts": { run_id: "run_9", drafts: [{ id: "dr_9", prospect_id: "pr_9", channel_suggestion: "email", subject: "Lunches", body: "Hi [ev_9]", next_action: "Offer a trial week.", status: "draft" }] },
     "PATCH /api/drafts/dr_9": { draft: { id: "dr_9", status: "draft", edited_by_human: 1 } },
     "POST /api/drafts/dr_9/decision": { draft: { id: "dr_9", status: "approved" } },
   };
@@ -458,6 +479,8 @@ ok(visible("view-profile"), "stop returns to the brief");
   const dl = await api.getDrafts("run_9");
   ok(dl.drafts.length === 1 && dl.drafts[0].id === "dr_9" && dl.drafts[0].prospectId === "pr_9", "getDrafts keeps draft id + prospect id");
   ok(dl.drafts[0].status === "pending", "undecided server draft maps to pending");
+  ok(dl.drafts[0].channel === "email" && dl.drafts[0].next_action === "Offer a trial week.",
+    "getDrafts maps channel suggestion + next action for the studio");
 
   await api.decideDraft("dr_9", "edited", { subject: "S", body: "B", edited: true });
   ok(calls.some((c) => c.key === "PATCH /api/drafts/dr_9"), "save-edit PATCHes the draft");

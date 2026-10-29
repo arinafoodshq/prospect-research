@@ -588,6 +588,57 @@
     api.logContact(ds.id, payload).then(function () { selectProspect(ds.id); });
   }
 
+  var STUDIO_TABS = ["whatsapp", "email", "dm"];
+  var STUDIO_TAB_LABEL = { whatsapp: "WhatsApp", email: "Email", dm: "Direct message" };
+  var STUDIO_SENDER = {
+    whatsapp: "Sends from your own WhatsApp Business number, at a time you choose.",
+    email: "Sends from your connected email sender, at a time you choose.",
+    dm: "Sends from an account you connect, at a time you choose."
+  };
+
+  /** Map a route-style suggestion onto a studio tab (short notes read as DMs). */
+  function studioTabFor(channel) {
+    if (channel === "phone") return "whatsapp";
+    if (channel === "email") return "email";
+    if (channel === "social_profile") return "dm";
+    return "dm";
+  }
+
+  function studioSuggestionLabel(channel) {
+    return ROUTE_LABELS[channel] || "Contact";
+  }
+
+  function countWords(s) {
+    var t = String(s || "").trim();
+    return t ? t.split(/\s+/).length : 0;
+  }
+
+  function wordGuidance(n) {
+    if (n <= 40) return "Short enough to read in one glance.";
+    if (n <= 80) return "Room for context, still under 80 words.";
+    return "Over 80 words — shorter usually earns the reply.";
+  }
+
+  function rationaleRemainder(rationale) {
+    var parts = String(rationale || "").split(/[.?!]\s/);
+    if (parts.length < 2) return "";
+    return parts.slice(1).join(". ").trim().slice(0, 200);
+  }
+
+  function profileOffer() {
+    var fields = (state.profile && state.profile.fields) || [];
+    var offer = fields.filter(function (f) { return f.key === "Offer"; })[0];
+    var v = offer ? String(offer.value || "").trim() : "";
+    return v ? v.slice(0, 140) : "The offer on your business profile.";
+  }
+
+  function sourceLink(url, label) {
+    if (/^https?:\/\//i.test(String(url || ""))) {
+      return "<a href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noreferrer\">View source: " + esc(label) + "</a>";
+    }
+    return "View source: " + esc(label);
+  }
+
   function renderDrafts() {
     return api.getDrafts(state.runId).then(function (res) {
       state.drafts = res.drafts.map(function (d) {
@@ -596,8 +647,6 @@
       });
       var sel = state.selectedIds || state.drafts.map(function (d) { return d.prospectId; });
       var drafts = state.drafts.filter(function (d) { return sel.indexOf(d.prospectId) >= 0; });
-      var wrap = $("draft-list");
-      wrap.innerHTML = "";
       var notes = [];
       if (drafts.length < state.drafts.length) notes.push("Showing drafts for your " + sel.length + " selected picks.");
       var missing = sel.filter(function (id) {
@@ -608,33 +657,148 @@
       });
       if (missing.length) notes.push("No draft yet for " + missing.join(", ") + " — the research did not write one.");
       $("drafts-note").textContent = notes.join(" ");
-      drafts.forEach(function (d) {
-        var p = state.prospects.filter(function (x) { return x.id === d.prospectId; })[0];
+      var wrap = $("draft-list");
+      wrap.innerHTML = "";
+      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {} };
+      if (!drafts.length) {
+        wrap.innerHTML = "<p class=\"hint\">No drafts for your selected picks yet. The research may still be writing, or nothing qualified.</p>";
+        showView("drafts");
+        return;
+      }
+      return Promise.all(drafts.map(function (d) {
+        return api.getEvidence(d.prospectId).then(function (r) { return r; }, function () { return null; });
+      })).then(function (all) {
+        all.forEach(function (r, i) { state.studio.evidence[drafts[i].prospectId] = r; });
         var div = document.createElement("div");
-        div.className = "draft";
-        div.dataset.id = d.prospectId;
-        div.innerHTML = "<h3>To: " + esc(p ? p.name : d.prospectId) + " <span class=\"decision " + esc(d.status) + "\">[" + esc(d.status) + "]</span></h3>" +
-          "<label>Subject <input data-field=\"subject\" value=\"" + esc(d.subject) + "\" /></label>" +
-          "<label>Message <textarea data-field=\"body\">" + esc(d.body) + "</textarea></label>" +
-          "<div class=\"row\">" +
-          "<button data-act=\"approve\" type=\"button\">Approve</button>" +
-          "<button data-act=\"save-edit\" type=\"button\" class=\"secondary\">Save edit</button>" +
-          "<button data-act=\"reject\" type=\"button\" class=\"danger\">Reject</button>" +
-          "</div>";
-        div.addEventListener("click", function (e) {
-          var act = e.target && e.target.dataset ? e.target.dataset.act : null;
-          if (act) decideDraft(d.prospectId, act, div);
-        });
+        div.className = "studio";
+        div.addEventListener("click", onStudioClick);
+        state.studio.el = div;
         wrap.appendChild(div);
+        renderStudioInner();
+        showView("drafts");
       });
-      showView("drafts");
     });
+  }
+
+  function studioDraft() {
+    return state.studio.list[state.studio.idx];
+  }
+
+  function studioProspect(d) {
+    return state.prospects.filter(function (x) { return x.id === d.prospectId; })[0] || null;
+  }
+
+  function studioNav(step) {
+    var n = state.studio.list.length;
+    state.studio.idx = Math.min(n - 1, Math.max(0, state.studio.idx + step));
+    state.studio.tab = null;
+    state.studio.editing = false;
+    renderStudioInner();
+  }
+
+  function onStudioClick(e) {
+    var ds = e.target && e.target.dataset ? e.target.dataset : {};
+    var act = ds.act;
+    if (!act || !state.studio || !state.studio.el) return;
+    var d = studioDraft();
+    if (act === "studio-prev") { studioNav(-1); return; }
+    if (act === "studio-next") { studioNav(1); return; }
+    if (act === "studio-tab" && ds.id) {
+      state.studio.tab = ds.id;
+      state.studio.editing = false;
+      renderStudioInner();
+      return;
+    }
+    if (act === "studio-edit") { state.studio.editing = true; renderStudioInner(); return; }
+    if (act === "studio-cancel") { state.studio.editing = false; renderStudioInner(); return; }
+    if (act === "studio-save") {
+      var el = state.studio.el;
+      decideDraft(d.prospectId, "save-edit", el).then(function () {
+        d.subject = el.querySelector('[data-field="subject"]').value;
+        d.body = el.querySelector('[data-field="body"]').value;
+        state.studio.editing = false;
+        renderStudioInner();
+      });
+      return;
+    }
+    if (act === "studio-sender") { renderSendersView("drafts"); return; }
+    if (act === "approve" || act === "save-edit" || act === "reject" || act === "skip") {
+      decideDraft(d.prospectId, act, state.studio.el);
+    }
+  }
+
+  function renderStudioInner() {
+    var st = state.studio;
+    var d = studioDraft();
+    var p = studioProspect(d);
+    var pname = p ? p.name : d.prospectId;
+    if (!st.tab) st.tab = studioTabFor(d.channel);
+    var primary = studioTabFor(d.channel);
+    var dec = decisionOf(d);
+    var tabs = STUDIO_TABS.map(function (t) {
+      return "<button role=\"tab\" type=\"button\" data-act=\"studio-tab\" data-id=\"" + t + "\" aria-selected=\"" +
+        (st.tab === t ? "true" : "false") + "\">" + STUDIO_TAB_LABEL[t] + "</button>";
+    }).join("");
+    var bodyHtml;
+    if (st.tab === primary) {
+      var subj = st.tab === "email" && d.subject ? "<p class=\"studio-subject\">" + esc(d.subject) + "</p>" : "";
+      var paras = esc(d.body).split("\n").map(function (line) {
+        return "<p>" + (line || "&nbsp;") + "</p>";
+      }).join("");
+      bodyHtml = subj + "<div class=\"studio-text\">" + paras + "</div>" +
+        "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
+    } else {
+      bodyHtml = "<p class=\"hint\">No " + esc(STUDIO_TAB_LABEL[st.tab].toLowerCase()) + " version for this pick — " +
+        "the research wrote one " + esc(studioSuggestionLabel(d.channel).toLowerCase()) + " draft.</p>";
+    }
+    var n = countWords(d.body);
+    var editor = "<div class=\"studio-editor\"" + (st.editing ? "" : " hidden") + ">" +
+      "<label>Subject <input data-field=\"subject\" value=\"" + esc(d.subject || "") + "\" /></label>" +
+      "<label>Message <textarea data-field=\"body\" rows=\"6\">" + esc(d.body) + "</textarea></label>" +
+      "<div class=\"row\"><button type=\"button\" data-act=\"studio-save\">Save</button>" +
+      "<button type=\"button\" class=\"secondary\" data-act=\"studio-cancel\">Cancel</button></div></div>";
+    // Hidden mirror keeps decideDraft + smoke working when the editor is closed.
+    var mirror = st.editing ? "" : "<div hidden><input data-field=\"subject\" value=\"" + esc(d.subject || "") +
+      "\" /><textarea data-field=\"body\">" + esc(d.body) + "</textarea></div>";
+    var ev = (st.evidence[d.prospectId] && st.evidence[d.prospectId].evidence) || [];
+    var fact = ev[0];
+    var hypothesis = (p && p.hypothesis) || rationaleRemainder(p && p.rationale) ||
+      "The research flagged no separate hypothesis.";
+    var why = "<div class=\"card why\"><p class=\"kicker\">Why this message</p>" +
+      "<h4>A fact we found</h4>" +
+      (fact ? "<p>" + esc(fact.quote) + "</p><p class=\"muted small\">" +
+        sourceLink(fact.source, sourceLabel(fact.source)) + "</p>"
+        : "<p class=\"muted\">No linked evidence for this draft.</p>") +
+      "<h4>Our hypothesis, not confirmed</h4><p>" + esc(hypothesis) + "</p>" +
+      "<h4>Your offer</h4><p>" + esc(profileOffer()) + "</p>" +
+      "<h4>A small ask</h4><p>" + esc(d.next_action || "Ask for a quick reply.") + "</p></div>" +
+      "<p class=\"hint\">We never claim a problem we have not confirmed. If the facts change, the message says so too.</p>";
+    st.el.innerHTML =
+      "<p class=\"kicker\">MESSAGE " + (st.idx + 1) + " OF " + st.list.length + "</p>" +
+      "<h2>Your note to " + esc(pname) + ". <span class=\"decision " + esc(dec) + "\">[" + esc(dec) + "]</span></h2>" +
+      "<div class=\"row studio-pager\"><button type=\"button\" class=\"secondary\" data-act=\"studio-prev\"" +
+      (st.idx === 0 ? " disabled" : "") + ">← Previous</button>" +
+      "<button type=\"button\" class=\"secondary\" data-act=\"studio-next\"" +
+      (st.idx === st.list.length - 1 ? " disabled" : "") + ">Next →</button></div>" +
+      "<div role=\"tablist\" aria-label=\"Message channel\" class=\"tabs\">" + tabs + "</div>" +
+      "<div class=\"card studio-card\"><p class=\"kicker\">Draft</p>" + bodyHtml + editor + mirror +
+      "<p class=\"muted small\">" + n + " words. " + esc(wordGuidance(n)) + "</p></div>" +
+      "<p>" + esc(STUDIO_SENDER[st.tab]) + " Every message includes a way to opt out. " +
+      "<button type=\"button\" class=\"linklike\" data-act=\"studio-sender\">Change sender</button></p>" +
+      "<div class=\"row\"><button type=\"button\" data-act=\"approve\">Approve and schedule</button>" +
+      "<button type=\"button\" class=\"secondary\" data-act=\"skip\">Skip this one</button>" +
+      "<button type=\"button\" class=\"linklike\" data-act=\"reject\">Reject instead</button></div>" +
+      why;
+    if (st.editing) {
+      var ta = st.el.querySelector('[data-field="body"]');
+      if (ta && ta.focus) ta.focus();
+    }
   }
 
   function decideDraft(prospectId, act, divEl) {
     var subject = divEl.querySelector('[data-field="subject"]').value;
     var body = divEl.querySelector('[data-field="body"]').value;
-    var decision = act === "approve" ? "approved" : (act === "reject" ? "rejected" : "pending");
+    var decision = act === "approve" ? "approved" : act === "reject" ? "rejected" : act === "skip" ? "deferred" : "pending";
     if (act === "save-edit") {
       state.decisions[prospectId] = { decision: decision === "pending" ? (state.decisions[prospectId] ? state.decisions[prospectId].decision : "pending") : decision, body: subject + "\n\n" + body };
     }

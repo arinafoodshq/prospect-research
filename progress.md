@@ -789,3 +789,24 @@ node --check clean, headless full-journey drive 0 console errors 0
 failed requests 0px overflow, desktop + 390px screenshots viewed.
 Note: stale :8000 screenshot servers keep surviving terminate; killed
 by PID again before driving.
+
+## 2026-10-29 - Revamp P1 DONE: message studio + restyle (PDF screen 8)
+
+No backend changes (freeze holds). Drafts view rebuilt as a one-message
+studio: MESSAGE N OF M pager, channel tabs (WhatsApp/Email/DM mapped
+from channel_suggestion; off-channel tabs honestly state the single
+variant), tap-to-edit inline editor with save/cancel, tiered word
+guidance (40/80), per-channel sender line + opt-out + Change sender
+(returns to drafts), Approve and schedule / Skip this one (defer) /
+Reject instead, and a WHY THIS MESSAGE panel (fact quote + view-source
+link when http, hypothesis, profile offer, next_action ask) with the
+honesty footer. Mock drafts vary by channel (short hook vs fuller
+email) with hypotheses + next actions; live adapter maps
+channel_suggestion/next_action. Deliberately omitted under the freeze:
+tone rewrite buttons and Send-a-test (no endpoints; faking either
+would be dishonest). Remaining screens (profile/status/campaigns/
+senders) got brand header rows; h2s were already serif.
+Verified: smoke PASS (pager/tabs/edit/save/skip/defer, why panel,
+live mapping), 349/349 vitest green, node --check clean, headless
+full-journey drive 0 console errors 0 failed requests 0px overflow,
+desktop + 390px screenshots viewed.

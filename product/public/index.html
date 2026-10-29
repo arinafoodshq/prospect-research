@@ -228,6 +228,10 @@
 
     <!-- View 2: profile confirm -->
     <section id="view-profile" class="view" hidden aria-label="Confirm business profile">
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <p class="kicker">CONFIRM</p>
+      </div>
       <h2>Confirm what we understood</h2>
       <p class="hint">Check each fact. Sources: <strong>you said</strong>, <strong>from your site</strong>, or <strong>our guess</strong> (edit guesses before confirming).</p>
       <dl id="profile-fields"></dl>
@@ -297,20 +301,25 @@
       </div>
     </section>
 
-    <!-- View 5a: draft review -->
-    <section id="view-drafts" class="view" hidden aria-label="Draft review">
-      <h2>Review outreach drafts</h2>
-      <p class="hint">Approve, edit, or reject each draft. Only approved drafts move to the status board.</p>
+    <!-- View 5a: message studio (PDF screen 5: one message, channel tabs, why panel) -->
+    <section id="view-drafts" class="view" hidden aria-label="Message studio">
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <button id="btn-back-shortlist" type="button" class="linklike">Back to shortlist</button>
+      </div>
       <p class="hint" id="drafts-note"></p>
       <div id="draft-list"></div>
       <div class="row">
-        <button id="btn-back-shortlist" type="button" class="secondary">Back to shortlist</button>
         <button id="btn-to-status" type="button">Open status board</button>
       </div>
     </section>
 
     <!-- View 5b: status board -->
     <section id="view-status" class="view" hidden aria-label="Status board">
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <p class="kicker">STATUS</p>
+      </div>
       <h2>Status board</h2>
       <div class="board" id="status-board"></div>
       <div class="row">
@@ -320,12 +329,20 @@
     </section>
     <!-- View 7: campaigns -->
     <section id="view-campaigns" class="view" aria-label="Email campaigns">
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <p class="kicker">CAMPAIGNS</p>
+      </div>
       <h2>Schedule a campaign</h2>
       <p class="hint">Pick approved prospects, review each message, choose a sender, and approve. Nothing sends until you say so.</p>
       <div id="campaign-wizard"><p class="hint">Loading…</p></div>
     </section>
     <!-- View 8: senders -->
     <section id="view-senders" class="view" hidden aria-label="Email senders">
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <p class="kicker">SENDERS</p>
+      </div>
       <h2>Email senders</h2>
       <p class="hint">Connect the address your campaigns send from. We test every sender before it can be used.</p>
       <div id="senders-wrap"><p class="hint">Loading…</p></div>

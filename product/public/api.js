@@ -11,6 +11,7 @@
       summary: "45 staff, weekday lunch rota, admin orders catering weekly.",
       verdict: "qualified", readiness: 4,
       rationale: "Runs a weekday lunch rota for 45 staff, and the admin reorders every Monday.",
+      hypothesis: "A fixed weekly schedule beats ad-hoc ordering for them.",
       uncertainties: ["Whether they use a regular supplier today"],
       routes: [{ channel: "website_form", value: "https://brightline.ng/contact" }],
       evidence: [
@@ -21,6 +22,7 @@
       summary: "200 members, daily lunch vendor slots, paid by hub.",
       verdict: "qualified", readiness: 4,
       rationale: "200 members eat on site daily and the hub pays vendors weekly.",
+      hypothesis: "One hub contract is simpler than many vendor deals.",
       uncertainties: ["Who signs off new vendors"],
       routes: [{ channel: "email", value: "hello@kingswayhub.com" }],
       evidence: [
@@ -31,6 +33,7 @@
       summary: "60 staff across shifts, patient meals outsourced.",
       verdict: "no_signal", readiness: 1,
       rationale: "60 staff across shifts with outsourced patient meals.",
+      hypothesis: "Staff meals get decided together with patient meals.",
       uncertainties: ["Whether staff meals are tendered with patient meals"],
       routes: [{ channel: "website_form", value: "https://straphael-ikeja.ng/contact" }],
       evidence: [
@@ -41,6 +44,7 @@
       summary: "800 pupils, term-time lunch contract, decision by bursar.",
       verdict: "no_signal", readiness: 2,
       rationale: "800 pupils on a term-time lunch programme.",
+      hypothesis: "Early outreach lands before the vendor list opens.",
       uncertainties: ["When next term's vendor list opens"],
       routes: [{ channel: "email", value: "bursar@coralschools.ng" }],
       evidence: [
@@ -69,13 +73,29 @@
       ] }
   ];
 
+  var DRAFT_CHANNEL = { p01: "phone", p02: "email", p03: "email", p04: "phone" };
+  var DRAFT_NEXT = {
+    p01: "Offer a one-week trial.",
+    p02: "Ask for a ten-minute call.",
+    p03: "Ask who plans the staff meals.",
+    p04: "Ask when the vendor list opens."
+  };
+
   function demoDraftFor(p) {
+    var ch = DRAFT_CHANNEL[p.id] || "email";
+    var body = ch === "phone"
+      ? "Hello " + p.name + " team. We deliver office lunch packs around " + p.area +
+        " before noon. Could we run a one-week trial for your team? — Adaeze Catering, 0803 000 1234"
+      : "Hello " + p.name + " team,\n\nWe deliver office lunch packs around " + p.area +
+        " before noon, 20–200 portions. Teams your size usually want a fixed weekly schedule so lunch just arrives. " +
+        "Could we run a one-week trial for your team?\n\n— Adaeze Catering Services\n0803 000 1234";
     return {
       id: "dd-" + p.id,
       prospectId: p.id,
+      channel: ch,
       subject: "Weekday lunches for " + p.name,
-      body: "Hello " + p.name + " team,\n\nWe deliver office lunch packs around " + p.area +
-        " before noon, 20–200 portions. Could we run a one-week trial for your team?\n\n— Adaeze Catering Services\n0803 000 1234",
+      body: body,
+      next_action: DRAFT_NEXT[p.id] || "Ask for a quick reply.",
       status: "pending"
     };
   }
@@ -489,7 +509,13 @@
     return this._req("/api/runs/" + encodeURIComponent(runId) + "/drafts").then(function (res) {
       return {
         drafts: (res.drafts || []).map(function (d) {
-          return { id: d.id, prospectId: d.prospect_id, subject: d.subject || "(no subject)", body: d.body, status: d.status === "draft" ? "pending" : d.status };
+          return {
+            id: d.id, prospectId: d.prospect_id,
+            channel: d.channel_suggestion || "other",
+            subject: d.subject || "(no subject)", body: d.body,
+            next_action: d.next_action || "",
+            status: d.status === "draft" ? "pending" : d.status
+          };
         })
       };
     });
