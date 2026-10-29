@@ -405,3 +405,26 @@ new image serving and instance stays warm across 100s gap.
 Needs: Gmail app password (smtp.gmail.com:587, user + 16-char app
 password) + test recipient for first real SMTP send; then UI smtp
 connect form.
+
+## 2026-10-29 - First real SMTP sends + guided Senders UI
+
+E2E proven with Gmail app password (smtp.gmail.com:587): connection
+created via API, relay verify -> connected, campaign of 3 approved,
+process -> queue -> ONE sendMany batch -> all 3 sent first attempt with
+Gmail message IDs, campaign complete {sent:3}. Recipients:
+maryodidi2@gmail.com, sam@techassembly.io, info@techassembly.io.
+Bug found live: enqueueDueJobs availability gate called bare
+providerFor(smtp) which throws by design -> campaign failed with
+"provider smtp unavailable". Fix: injected[] param; cron + process
+route vouch for smtp when relay bound. Tests 187/187, tsc clean.
+UI: new Senders view (nav 8) - provider choice (Gmail/Business/Resend),
+Gmail app-password guide with verified Google links, business-email
+SMTP finder (Zoho/cPanel/M365) + copy-message-for-developer, plain-
+language errors, test/disconnect, mobile stacking. API: _req now
+surfaces server error detail (HTTP 501 check preserved).
+App-password recommendation: YES for all users - Google blocks normal
+passwords with 2SV anyway; app passwords are revocable and least-
+privilege. UI never asks for a Google password and says so.
+Live: worker v699af034, senders section + JS verified on prod.
+Test connection conn_a12e... (Gmail) left connected for reuse.
+Next: user confirms inbox delivery; demo video script + polish.

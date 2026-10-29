@@ -82,6 +82,7 @@ async function claimRecipient(db: Db, id: string, from: string, stamp: string): 
  */
 export async function enqueueDueJobs(
   db: Db, send: (job: DeliveryJob) => Promise<void>, nowOverride?: string, batch = 10,
+  injected: ProviderId[] = [],
 ): Promise<{ enqueued: number; skipped: number }> {
   const out = { enqueued: 0, skipped: 0 };
   const now = nowOverride ?? nowIso();
@@ -117,7 +118,9 @@ export async function enqueueDueJobs(
       continue;
     }
     try {
-      providerFor(conn.provider);
+      // Injected providers (smtp via the relay client) are unavailable to the
+      // bare registry by design; the caller vouches for them explicitly.
+      if (!injected.includes(conn.provider)) providerFor(conn.provider);
     } catch {
       await db.prepare("UPDATE campaign SET status = ?, stats_json = ?, updated_at = ? WHERE id = ?")
         .bind("failed", JSON.stringify({ error: `provider ${conn.provider} unavailable` }), now, campaignId).run();

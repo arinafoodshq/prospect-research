@@ -123,9 +123,26 @@
     return Promise.resolve({ id: "demo-ce-1", prospect_id: prospectId, channel: payload.channel, note: payload.note || null });
   };
   MockApi.prototype.listConnections = function () {
-    return Promise.resolve({ connections: [
+    this._conns = this._conns || [
       { id: "demo-conn-1", provider: "mock", label: "Demo sender", sender_email: "sender@example.ng", status: "connected" }
-    ] });
+    ];
+    return Promise.resolve({ connections: this._conns.slice() });
+  };
+  MockApi.prototype.createConnection = function (payload) {
+    this._conns = this._conns || [];
+    var conn = { id: "demo-conn-" + (this._conns.length + 1), provider: payload.provider,
+      label: payload.label || "Demo sender", sender_email: payload.sender_email, status: "pending" };
+    this._conns.push(conn);
+    return Promise.resolve(conn);
+  };
+  MockApi.prototype.verifyConnection = function (id) {
+    var found = (this._conns || []).filter(function (c) { return c.id === id; })[0];
+    if (found) found.status = "connected";
+    return Promise.resolve(found || { id: id, status: "connected" });
+  };
+  MockApi.prototype.disconnectConnection = function (id) {
+    this._conns = (this._conns || []).filter(function (c) { return c.id !== id; });
+    return Promise.resolve({ id: id, status: "disconnected" });
   };
   MockApi.prototype.getProspectDetail = function (id) {
     var self = this;
@@ -149,7 +166,19 @@
   RealApi.prototype.mode = "live";
   RealApi.prototype._req = function (path, opts) {
     return fetch(this.base + path, Object.assign({ headers: { "content-type": "application/json" } }, opts || {}))
-      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+      .then(function (r) {
+        if (r.ok) return r.json();
+        return r.text().then(function (text) {
+          var err = new Error("HTTP " + r.status);
+          err.status = r.status;
+          err.body = text;
+          try {
+            var parsed = JSON.parse(text);
+            if (parsed && (parsed.message || parsed.error)) err.detail = parsed.message || parsed.error;
+          } catch (e) { /* keep status-only error */ }
+          throw err;
+        });
+      });
   };
 
   function profileFields(row) {
@@ -332,6 +361,15 @@
 
   RealApi.prototype.listConnections = function () {
     return this._req("/api/connections");
+  };
+  RealApi.prototype.createConnection = function (payload) {
+    return this._req("/api/connections", { method: "POST", body: JSON.stringify(payload) });
+  };
+  RealApi.prototype.verifyConnection = function (id) {
+    return this._req("/api/connections/" + encodeURIComponent(id) + "/verify", { method: "POST", body: "{}" });
+  };
+  RealApi.prototype.disconnectConnection = function (id) {
+    return this._req("/api/connections/" + encodeURIComponent(id) + "/disconnect", { method: "POST", body: "{}" });
   };
   RealApi.prototype.getProspectDetail = function (id) {
     return this._req("/api/prospects/" + encodeURIComponent(id));

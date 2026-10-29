@@ -718,3 +718,36 @@ describe("smtp keep-warm", () => {
   });
 });
 
+describe("smtp enqueue gate", () => {
+  async function seedSmtpCampaign() {
+    const { enqueueDueJobs } = await import("../src/delivery/processor");
+    const { db, tables } = makeMockDb();
+    const now = new Date().toISOString();
+    const blob = await sealSecret("{}", TEST_KEY);
+    tables["sender_connection"].push({ id: "conn_1", provider: "smtp", label: "S", sender_email: "me@co.ng", sender_name: null, status: "connected", secret_blob: JSON.stringify(blob), metadata_json: "{}", last_verified_at: now, last_error: null, created_at: now, updated_at: now });
+    tables["campaign"].push({ id: "cmp_1", run_id: null, name: "c", connection_id: "conn_1", status: "scheduled", scheduled_at_utc: new Date(Date.now() - 1000).toISOString(), timezone: "UTC", approved_at: now, stats_json: "{}", created_at: now, updated_at: now });
+    tables["campaign_recipient"].push({ id: "rcpt_1", campaign_id: "cmp_1", prospect_id: null, email: "a@x.co", subject_snapshot: "s", body_snapshot: "b", status: "queued", attempts: 0, provider_message_id: null, idempotency_key: "k1", last_error: null, next_attempt_at: null, sent_at: null, created_at: now, updated_at: now });
+    return { enqueueDueJobs, db, tables };
+  }
+
+  it("fails an smtp campaign when no relay is injected", async () => {
+    const { enqueueDueJobs, db, tables } = await seedSmtpCampaign();
+    const jobs: any[] = [];
+    const out = await enqueueDueJobs(db, async (job) => { jobs.push(job); });
+    expect(out).toEqual({ enqueued: 0, skipped: 0 });
+    expect(jobs).toHaveLength(0);
+    expect(tables["campaign"][0].status).toBe("failed");
+    expect(JSON.parse(tables["campaign"][0].stats_json).error).toContain("provider smtp unavailable");
+  });
+
+  it("enqueues when the caller vouches for the injected relay", async () => {
+    const { enqueueDueJobs, db, tables } = await seedSmtpCampaign();
+    const jobs: any[] = [];
+    const out = await enqueueDueJobs(db, async (job) => { jobs.push(job); }, undefined, 10, ["smtp"]);
+    expect(out).toEqual({ enqueued: 1, skipped: 0 });
+    expect(jobs).toHaveLength(1);
+    expect(tables["campaign_recipient"][0].status).toBe("sending");
+    expect(tables["campaign"][0].status).toBe("sending");
+  });
+});
+

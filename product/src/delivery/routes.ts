@@ -476,7 +476,8 @@ export async function postProcessCampaign(_req: Request, env: DeliveryEnv, param
   }
   if (!env.DELIVERY_QUEUE) return err("queue_unavailable", 501, "delivery queue not bound");
   const queue = env.DELIVERY_QUEUE;
-  const summary = await enqueueDueJobs(env.DB, (job) => queue.send(job));
+  const summary = await enqueueDueJobs(env.DB, (job) => queue.send(job),
+    undefined, 10, env.SMTP_RELAY ? ["smtp"] : []);
   return json({ summary, campaign: await campaignDetail(env.DB, params["id"]) });
 }
 

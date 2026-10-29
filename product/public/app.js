@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  var VIEWS = ["onboard", "profile", "progress", "shortlist", "drafts", "status"];
+  var VIEWS = ["onboard", "profile", "progress", "shortlist", "drafts", "status", "senders"];
   var state = {
     profile: null,
     prospects: [],
@@ -349,6 +349,247 @@
     api.cancelCampaign(ds.id).then(function () { renderStatuses(); });
   }
 
+  var sendersReturn = "status";
+  var senderChoice = "gmail";
+  var senderNotice = "";
+
+  function providerName(p) {
+    return { smtp: "SMTP", resend: "Resend", gmail: "Gmail", mock: "Demo" }[p] || String(p);
+  }
+
+  function senderStatusPill(status) {
+    var cls = status === "connected" ? "extracted" : "assumed";
+    return "<span class=\"prov " + cls + "\">" + esc(status) + "</span>";
+  }
+
+  function renderSendersView(returnTo) {
+    sendersReturn = returnTo || "status";
+    showView("senders");
+    var wrap = $("senders-wrap");
+    wrap.innerHTML = "<p class=\"hint\">Loading…</p>";
+    wrap.onclick = onSendersClick;
+    api.listConnections().then(function (res) {
+      renderSendersList(wrap, res.connections || []);
+    }, function () {
+      wrap.innerHTML = "<p>Could not load senders. Check your connection and try again.</p>" +
+        "<div class=\"row\"><button type=\"button\" class=\"secondary\" data-act=\"sender-back\">Back</button></div>";
+    });
+  }
+
+  function choiceBtn(key, label, sub) {
+    return "<button type=\"button\" class=\"" + (senderChoice === key ? "" : "secondary") + "\" data-act=\"sender-choice\" data-id=\"" + key + "\">" +
+      esc(label) + "<br/><small>" + esc(sub) + "</small></button>";
+  }
+
+  function renderSendersList(wrap, conns) {
+    var notice = senderNotice;
+    senderNotice = "";
+    senderCache = conns;
+    var cards = conns.map(function (c) {
+      var actions = c.status === "connected"
+        ? "<button type=\"button\" class=\"secondary\" data-act=\"sender-test\" data-id=\"" + esc(c.id) + "\">Test again</button> " +
+          "<button type=\"button\" class=\"secondary\" data-act=\"sender-disconnect\" data-id=\"" + esc(c.id) + "\">Disconnect</button>"
+        : "<button type=\"button\" data-act=\"sender-test\" data-id=\"" + esc(c.id) + "\">Test &amp; connect</button> " +
+          "<button type=\"button\" class=\"secondary\" data-act=\"sender-disconnect\" data-id=\"" + esc(c.id) + "\">Remove</button>";
+      return "<div class=\"campaign\"><h4>" + esc(c.label || c.sender_email) + " " + senderStatusPill(c.status) + "</h4>" +
+        "<p class=\"meta\">" + esc(c.sender_email) + " · " + esc(providerName(c.provider)) + "</p>" +
+        "<div class=\"row\">" + actions + "</div></div>";
+    }).join("");
+    wrap.innerHTML = (notice ? "<p>" + esc(notice) + "</p>" : "") +
+      (cards || "<p class=\"hint\">No senders yet — connect one below.</p>") +
+      "<h3>Connect a sender</h3>" +
+      "<p class=\"hint\">Where do you send email from?</p>" +
+      "<div class=\"choice-row\" role=\"group\" aria-label=\"Email provider\">" +
+      choiceBtn("gmail", "Gmail", "A @gmail.com address") +
+      choiceBtn("smtp", "Business email", "Zoho, cPanel, Microsoft 365…") +
+      choiceBtn("resend", "Resend", "API key (developers)") +
+      "</div>" +
+      "<p class=\"form-error\" id=\"sender-error\" hidden></p>" +
+      "<div id=\"sender-form\"></div>" +
+      "<div class=\"row\"><button type=\"button\" class=\"secondary\" data-act=\"sender-back\">Back</button></div>";
+    renderSenderForm();
+  }
+
+  var GMAIL_TWOSV = "https://myaccount.google.com/signinoptions/twosv";
+  var GMAIL_APPPW = "https://myaccount.google.com/apppasswords";
+
+  function renderSenderForm() {
+    var box = $("sender-form");
+    if (!box) return;
+    if (senderChoice === "gmail") {
+      box.innerHTML =
+        "<div class=\"help-box\">" +
+        "<strong>Use a Google app password — never your normal password.</strong>" +
+        "<p>Your normal Google password will not work here, and you should never type it into another website. " +
+        "An app password is a separate 16-letter code that can only send email. You can delete it any time without changing your Google login.</p>" +
+        "<ol>" +
+        "<li>Turn on 2-Step Verification first (the option does not appear without it): " +
+        "<a href=\"" + GMAIL_TWOSV + "\" target=\"_blank\" rel=\"noopener\">myaccount.google.com/…/twosv</a></li>" +
+        "<li>Create the app password here: " +
+        "<a href=\"" + GMAIL_APPPW + "\" target=\"_blank\" rel=\"noopener\">myaccount.google.com/apppasswords</a></li>" +
+        "<li>Type a name (for example “Prospect Research”) and click Create.</li>" +
+        "<li>Google shows the 16 characters once. Copy them straight away. You can ignore the spaces.</li>" +
+        "</ol></div>" +
+        "<label>Your Gmail address <input data-field=\"snd-email\" type=\"email\" autocomplete=\"email\" placeholder=\"you@gmail.com\" /></label>" +
+        "<label>16-letter app password <input data-field=\"snd-password\" type=\"password\" autocomplete=\"new-password\" placeholder=\"xxxx xxxx xxxx xxxx\" /></label>" +
+        "<label>Label (optional) <input data-field=\"snd-label\" placeholder=\"Gmail\" /></label>" +
+        "<div class=\"row\"><button type=\"button\" data-act=\"sender-submit\">Test &amp; connect</button></div>" +
+        "<p class=\"hint\">We store it encrypted and only use it to send campaigns you approve. Testing sends nothing.</p>";
+    } else if (senderChoice === "smtp") {
+      box.innerHTML =
+        "<label>Sender email <input data-field=\"snd-email\" type=\"email\" autocomplete=\"email\" placeholder=\"you@yourbusiness.com\" /></label>" +
+        "<label>Mail server (host) <input data-field=\"snd-host\" placeholder=\"e.g. smtp.zoho.com\" /></label>" +
+        "<label>Port <input data-field=\"snd-port\" inputmode=\"numeric\" value=\"587\" /></label>" +
+        "<label>Username <input data-field=\"snd-user\" autocomplete=\"username\" placeholder=\"Usually the same as the sender email\" /></label>" +
+        "<label>Password <input data-field=\"snd-password\" type=\"password\" autocomplete=\"new-password\" /></label>" +
+        "<label>Label (optional) <input data-field=\"snd-label\" placeholder=\"Business email\" /></label>" +
+        "<details><summary>Where do I find these settings?</summary>" +
+        "<p>Your email provider publishes them. Search their help site for “SMTP settings”. Common ones:</p>" +
+        "<ul><li><strong>Zoho Mail:</strong> help.zoho.com → “SMTP settings” (usually smtp.zoho.com, port 587).</li>" +
+        "<li><strong>cPanel hosting:</strong> your hosting control panel → Email Accounts → Connect Devices (uses your domain's mail server).</li>" +
+        "<li><strong>Microsoft 365:</strong> usually outlook.office365.com, port 587 — your IT admin can confirm.</li></ul>" +
+        "<p>No luck? Ask the person who set up your email or website. Copy this message to them:</p>" +
+        "<div class=\"row\"><button type=\"button\" class=\"secondary\" data-act=\"sender-copydev\">Copy message for my developer</button></div>" +
+        "</details>" +
+        "<div class=\"row\"><button type=\"button\" data-act=\"sender-submit\">Test &amp; connect</button></div>" +
+        "<p class=\"hint\">We store it encrypted and only use it to send campaigns you approve. Testing sends nothing.</p>";
+    } else {
+      box.innerHTML =
+        "<label>Sender email <input data-field=\"snd-email\" type=\"email\" autocomplete=\"email\" placeholder=\"you@yourbusiness.com\" /></label>" +
+        "<label>Resend API key <input data-field=\"snd-key\" type=\"password\" autocomplete=\"new-password\" placeholder=\"re_…\" /></label>" +
+        "<label>Label (optional) <input data-field=\"snd-label\" placeholder=\"Resend\" /></label>" +
+        "<div class=\"row\"><button type=\"button\" data-act=\"sender-submit\">Test &amp; connect</button></div>" +
+        "<p class=\"hint\">Find it at resend.com → API Keys. We store it encrypted and only use it to send campaigns you approve.</p>";
+    }
+  }
+
+  function senderErrorText(e, choice) {
+    var detail = (e && e.detail) || "";
+    if (/password|login|535|Username|auth/i.test(detail)) {
+      return choice === "gmail"
+        ? "Google rejected that code. It must be a 16-letter app password, not your normal Google password — follow the steps above to make one."
+        : "The mail server rejected that username or password. Check both — some providers need an app password, not the login password.";
+    }
+    if (/ECONN|ENOTFOUND|ETIMEDOUT|timed out|reach|EAI_AGAIN/i.test(detail)) {
+      return "We could not reach that mail server. Check the host and port, then try again.";
+    }
+    if (/blocked.*25|port 25/i.test(detail)) {
+      return "Port 25 is blocked. Use port 587 (or 465) instead.";
+    }
+    if (detail) return "Could not connect: " + detail;
+    return "Could not connect. Check the details and try again.";
+  }
+
+  function setSenderBusy(busy, label) {
+    var wrap = $("senders-wrap");
+    if (!wrap) return;
+    var btns = wrap.querySelectorAll("button");
+    btns.forEach(function (b) { b.disabled = busy; });
+    var submit = wrap.querySelector('[data-act="sender-submit"]');
+    if (submit && busy) submit.textContent = label || "Testing… (can take 20 seconds)";
+  }
+
+  function submitSender() {
+    var wrap = $("senders-wrap");
+    var get = function (sel) { var el = wrap.querySelector(sel); return el ? el.value.trim() : ""; };
+    var err = $("sender-error");
+    var fail = function (msg) { err.textContent = msg; err.hidden = false; };
+    err.hidden = true;
+    var email = get('[data-field="snd-email"]');
+    if (!email || email.indexOf("@") < 0) { fail("Enter the email address this sender sends from."); return; }
+    var payload = null;
+    if (senderChoice === "gmail") {
+      var pw = get('[data-field="snd-password"]').replace(/\s+/g, "");
+      if (pw.length !== 16) { fail("That does not look like a 16-letter app password. Open the steps above and copy the code Google showed you."); return; }
+      payload = { provider: "smtp", label: get('[data-field="snd-label"]') || "Gmail", sender_email: email,
+        secret: { host: "smtp.gmail.com", port: 587, username: email, password: pw } };
+    } else if (senderChoice === "smtp") {
+      var host = get('[data-field="snd-host"]');
+      var port = parseInt(get('[data-field="snd-port"]') || "587", 10);
+      var user = get('[data-field="snd-user"]');
+      var pass = get('[data-field="snd-password"]');
+      if (!host) { fail("Enter the mail server host — see “Where do I find these settings?” above."); return; }
+      if (!user || !pass) { fail("Enter the username and password for that mail server."); return; }
+      payload = { provider: "smtp", label: get('[data-field="snd-label"]') || email, sender_email: email,
+        secret: { host: host, port: port, username: user, password: pass } };
+    } else {
+      var key = get('[data-field="snd-key"]');
+      if (!key) { fail("Paste your Resend API key (it starts with “re_”)."); return; }
+      payload = { provider: "resend", label: get('[data-field="snd-label"]') || "Resend", sender_email: email,
+        secret: { api_key: key } };
+    }
+    setSenderBusy(true);
+    // Replace a stale pending/error row for the same sender instead of piling up dupes.
+    api.listConnections().then(function (res) {
+      var stale = (res.connections || []).filter(function (c) {
+        return c.provider === payload.provider && c.sender_email === payload.sender_email && c.status !== "connected";
+      })[0];
+      return stale ? api.disconnectConnection(stale.id) : null;
+    }).then(function () {
+      return api.createConnection(payload);
+    }).then(function (conn) {
+      return api.verifyConnection(conn.id);
+    }).then(function () {
+      senderNotice = "Connected — the test passed and this sender is ready for campaigns.";
+      renderSendersView(sendersReturn);
+    }, function (e) {
+      setSenderBusy(false);
+      fail(senderErrorText(e, senderChoice));
+    });
+  }
+
+  var DEV_MSG = "Hello! To connect our email sender in Prospect Research, please send me our SMTP settings: (1) SMTP host, (2) port, (3) username, and (4) password or app password. Thank you!";
+
+  function copyDevMessage(btn) {
+    var done = function () { btn.textContent = "Copied — paste it anywhere."; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(DEV_MSG).then(done, function () { btn.textContent = "Copy failed — long-press the text below."; });
+    } else {
+      var ta = document.createElement("textarea");
+      ta.value = DEV_MSG;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); done(); } catch (e) { btn.textContent = "Copy failed in this browser."; }
+      document.body.removeChild(ta);
+    }
+  }
+
+  function onSendersClick(e) {
+    var t = e.target || {};
+    var ds = t.dataset || {};
+    if (ds.act === "sender-choice") { senderChoice = ds.id; renderSendersList($("senders-wrap"), senderCache); return; }
+    if (ds.act === "sender-back") {
+      if (sendersReturn === "campaigns") renderCampaignView();
+      else showView(sendersReturn);
+      return;
+    }
+    if (ds.act === "sender-submit") { submitSender(); return; }
+    if (ds.act === "sender-copydev") { copyDevMessage(t); return; }
+    if (ds.act === "sender-test" && ds.id) {
+      setSenderBusy(true, "Testing… (can take 20 seconds)");
+      api.verifyConnection(ds.id).then(function () {
+        senderNotice = "Test passed — this sender is connected.";
+        renderSendersView(sendersReturn);
+      }, function (err) {
+        setSenderBusy(false);
+        var el = $("sender-error");
+        el.textContent = senderErrorText(err, "smtp");
+        el.hidden = false;
+      });
+      return;
+    }
+    if (ds.act === "sender-disconnect" && ds.id) {
+      if (!window.confirm("Disconnect this sender? Campaigns using it will not be able to send.")) return;
+      api.disconnectConnection(ds.id).then(function () {
+        senderNotice = "Sender disconnected.";
+        renderSendersView(sendersReturn);
+      });
+      return;
+    }
+  }
+
+  var senderCache = [];
+
   function renderCampaignView() {
     showView("campaigns");
     var wiz = $("campaign-wizard");
@@ -357,7 +598,8 @@
     api.listConnections().then(function (creds) {
       var conns = (creds.connections || []).filter(function (c) { return c.status === "connected"; });
       if (!conns.length) {
-        wiz.innerHTML = "<p>No verified sender yet. Connect one first, then come back.</p>";
+        wiz.innerHTML = "<p>No verified sender yet. Connect one first, then come back.</p>" +
+          "<div class=\"row\"><button type=\"button\" data-act=\"go-senders\">Connect a sender</button></div>";
         return;
       }
       return api.getDrafts(state.runId).then(function (res) {
@@ -431,6 +673,7 @@
     var t = e.target || {};
     var ds = t.dataset || {};
     if (ds.act === "create-campaign") submitCampaign();
+    if (ds.act === "go-senders") renderSendersView("campaigns");
   }
 
   function restart() {
@@ -468,6 +711,13 @@
         $("f-q3").value = btn.getAttribute("data-q3") || "";
       });
     });
+    var stepNav = $("step-nav");
+    if (stepNav) {
+      stepNav.addEventListener("click", function (e) {
+        var li = e.target && e.target.closest ? e.target.closest("li[data-view]") : null;
+        if (li && li.getAttribute("data-view") === "senders") renderSendersView("status");
+      });
+    }
     $("onboard-form").addEventListener("submit", submitOnboard);
     $("evidence-body").addEventListener("click", onEvidenceClick);
     $("status-board").addEventListener("click", onBoardClick);

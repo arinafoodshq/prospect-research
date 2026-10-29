@@ -622,7 +622,8 @@ export default {
       const ns = env.SMTP_RELAY;
       await warmSmtpRelay(env.DB, () => containerRelay(ns).get("/health"));
     }
-    await enqueueDueJobs(env.DB, (job) => env.DELIVERY_QUEUE!.send(job));
+    await enqueueDueJobs(env.DB, (job) => env.DELIVERY_QUEUE!.send(job),
+      undefined, 10, env.SMTP_RELAY ? ["smtp"] : []);
   },
   async queue(batch: QueueBatch, _env: Env): Promise<void> {
     // Queue consumer: one attempt per message; handled outcomes ACK, crashes

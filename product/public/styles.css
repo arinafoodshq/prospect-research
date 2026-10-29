@@ -90,3 +90,17 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .campaign .meta { color: var(--muted); font-size: 0.85rem; }
 .campaign ul { list-style: none; padding: 0; margin: 0.4rem 0; font-size: 0.88rem; }
 .site-logo { height: 2.2rem; width: auto; align-self: center; }
+.choice-row { display: flex; gap: 0.6rem; margin: 0.8rem 0; flex-wrap: wrap; }
+.choice-row button { flex: 1 1 9rem; text-align: left; }
+.choice-row small { font-weight: 400; opacity: 0.85; }
+.help-box { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; background: #fbfcff; margin: 0.8rem 0; }
+.help-box p { margin: 0.5rem 0; }
+.help-box ol, .help-box ul { margin: 0.5rem 0; padding-left: 1.2rem; }
+.help-box li { margin-bottom: 0.35rem; }
+#step-nav li[data-view="senders"] { cursor: pointer; }
+#sender-form details { border: 1px solid var(--line); border-radius: 8px; margin-top: 1rem; padding: 0.6rem 0.8rem; }
+#sender-form summary { cursor: pointer; font-weight: 700; }
+@media (max-width: 800px) {
+  .choice-row button { flex-basis: 100%; }
+  .row { flex-wrap: wrap; }
+}

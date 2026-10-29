@@ -209,3 +209,6 @@ approval in `progress.md`.
 - v0.4 (2026-10-29): bulk SMTP transport (/send-batch, sendMany grouping,
   keep-warm, uptime reporting) + container build-cache gotcha. Rationale:
   amortize cold start + SMTP handshake over whole batches.
+- v0.5 (2026-10-29): live SMTP E2E (Gmail app password, 3/3 sent via one
+  batch), enqueue injected-provider gate fix, guided Senders UI.
+  Rationale: users connect senders themselves with layman-safe help.
