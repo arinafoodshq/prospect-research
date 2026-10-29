@@ -108,9 +108,13 @@ class FakeEl {
 }
 
 const IDS = [
-  "view-onboard", "view-profile", "view-progress", "view-shortlist", "view-drafts", "view-status",
+  "view-landing", "view-onboard", "view-profile", "view-progress", "view-shortlist",
+  "view-drafts", "view-status", "view-campaigns", "view-senders",
   "step-nav", "onboard-error", "onboard-form",
-  "f-businessName", "f-site", "f-description", "f-q1", "f-q2", "f-q3", "f-q4", "f-q5",
+  "f-businessName", "f-description",
+  "ob-first", "ob-chat", "ob-step", "ob-yousaid-text", "ob-question-wrap", "ob-question",
+  "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
+  "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first",
   "profile-fields", "progress-steps", "progress-label", "progress-fill", "progress-budget",
   "prospect-list", "evidence-body", "evidence-hint", "draft-list", "status-board",
   "demo-banner", "mode-line",
@@ -129,6 +133,7 @@ els["step-nav"].querySelectorAll = () => ["onboard", "profile", "progress", "sho
   classList: makeClassList(),
 }));
 
+const startBtn = new FakeEl("button", "landing-cta");
 const documentStub = new Proxy({
   getElementById(id) {
     if (!els[id]) fail("getElementById(" + JSON.stringify(id) + ") is outside the known DOM surface");
@@ -137,7 +142,14 @@ const documentStub = new Proxy({
   createElement(tag) { return new FakeEl(tag); },
   readyState: "complete",
   addEventListener() {},
-  querySelectorAll() { return []; },
+  querySelector(sel) {
+    if (sel === ".site-header") return null; // header hidden-toggle is guarded
+    fail("querySelector(" + sel + ") hit unimplemented stub on document");
+  },
+  querySelectorAll(sel) {
+    if (sel === "[data-start]") return [startBtn];
+    return [];
+  },
 }, {
   get(t, p) {
     if (p in t) return t[p];
@@ -172,21 +184,46 @@ function visible(id) { return els[id].hidden === false; }
 const evt = (extra) => Object.assign({ preventDefault() {}, target: {} }, extra || {});
 
 /* ---- Walk the flow. */
-ok(visible("view-onboard"), "boots on the onboard view");
+ok(visible("view-landing"), "boots on the landing view");
+await fire(startBtn, "click", evt());
+ok(visible("view-onboard"), "landing CTA -> onboard view");
 
+const DESCRIPTION = "We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.";
 els["f-businessName"].value = "Adaeze Catering Services";
-els["f-site"].value = "";
-els["f-description"].value = "Office lunch packs for 20-200 staff around Ikeja GRA.";
-els["f-q1"].value = "";
-els["f-q3"].value = "";
+els["f-description"].value = DESCRIPTION;
 await fire(els["onboard-form"], "submit", evt());
 await tick(); await tick();
-ok(visible("view-profile"), "submit onboard -> profile confirm view");
+ok(els["ob-first"].hidden === true && els["ob-chat"].hidden === false, "submit description -> chat view");
+ok(els["ob-yousaid-text"].textContent === DESCRIPTION, "chat shows the first message back");
+ok(/says yes/.test(els["ob-question"].textContent), "first follow-up asks the decision maker (" + els["ob-question"].textContent + ")");
+ok(/data-chip="HR manager"/.test(els["ob-chips"].innerHTML), "answer chips render");
+ok(/Asking you now/.test(els["ob-fields"].innerHTML), "understood panel marks the live question");
+
+await fire(els["btn-ob-edit-first"], "click", evt());
+ok(els["ob-first"].hidden === false && els["f-description"].value === DESCRIPTION, "Edit returns to the first message, text kept");
+await fire(els["onboard-form"], "submit", evt());
+await tick(); await tick();
+
+els["ob-answer"].value = "HR manager";
+await fire(els["btn-ob-continue"], "click", evt());
+await tick(); await tick();
+ok(/budget range/.test(els["ob-question"].textContent), "answering moves to the next missing fact (" + els["ob-question"].textContent + ")");
+ok(/HR manager/.test(els["ob-fields"].innerHTML), "answer lands in the understood panel");
+
+await fire(els["btn-ob-skip"], "click", evt());
+await tick(); await tick();
+ok(els["ob-done-wrap"].hidden === false, "skip on the last fact ends the chat");
+ok(/Marked as a guess/.test(els["ob-fields"].innerHTML), "skipped field marked as a guess");
+ok(/a guess/.test(els["ob-fields"].innerHTML), "inferred fields labelled a guess");
+
+await fire(els["btn-ob-finish"], "click", evt());
+await tick(); await tick();
+ok(visible("view-profile"), "finish -> profile confirm view");
 
 {
   const guesses = els["profile-fields"].querySelectorAll("input[data-idx]");
-  ok(guesses.length >= 2, guesses.length + " assumed field(s) editable inline");
-  guesses[0].value = "Ikeja + Yaba (edited inline)";
+  ok(guesses.length >= 1, guesses.length + " assumed field(s) editable inline");
+  guesses[0].value = "No site given (edited inline)";
 }
 // Capture what confirmBrief receives to prove inline edits stick.
 let confirmedProfile = null;
@@ -201,7 +238,7 @@ let confirmedProfile = null;
 await fire(els["btn-confirm-profile"], "click", evt());
 await new Promise((r) => setTimeout(r, 2100)); // mock runProgress ticks (~1.75s)
 await tick(); await tick();
-ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "Ikeja + Yaba (edited inline)"),
+ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site given (edited inline)"),
   "inline guess edit reaches confirmBrief");
 ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
 ok(els["prospect-list"].children.length === 6, "shortlist shows 6 prospects, saw " + els["prospect-list"].children.length);
@@ -260,6 +297,7 @@ ok(visible("view-shortlist"), "drafts -> back to shortlist");
 {
   const calls = [];
   const canned = {
+    "POST /api/onboard/turn": { fields: { offering: { value: "lunches", label: "inferred" } }, question: null, done: true, followups_used: 1 },
     "POST /api/profiles": { id: "bp_9", name: "Adaeze Catering", website_url: null, description: "Office lunch packs",
       services: [], value_proposition: "", target_market: "Office admin", service_area: { note: "Ikeja" },
       constraints: { order_size: "20-200", exclusions: "" },
@@ -292,6 +330,11 @@ ok(visible("view-shortlist"), "drafts -> back to shortlist");
   vm.runInContext(apiSrc, liveSandbox, { filename: "api.js/live" });
   const api = liveSandbox.ApiLayer.selectApi();
   ok(api.mode === "live", "selectApi picks RealApi on ?live=1");
+
+  const turn = await api.onboardTurn({ text: "We deliver lunches", fields: {}, followups_used: 0 });
+  const turnPost = calls.find((c) => c.key === "POST /api/onboard/turn");
+  ok(turnPost && turnPost.body.text === "We deliver lunches" && turnPost.body.followups_used === 0, "onboardTurn posts text + fields + usage");
+  ok(turn.done === true && turn.fields.offering.value === "lunches", "onboardTurn returns the turn result");
 
   const created = await api.createProfile({ businessName: "Adaeze Catering", site: "", description: "Office lunch packs", q1: "Ikeja", q2: "20-200", q3: "Office admin", q4: "", q5: "" });
   const profilePost = calls.find((c) => c.key === "POST /api/profiles");
@@ -331,5 +374,5 @@ ok(visible("view-shortlist"), "drafts -> back to shortlist");
   ok(dec && dec.body.decision === "approved", "approve POSTs the decision");
 }
 
-console.log("SMOKE PASS: onboard->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters");
+console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters");
 process.exit(0);

@@ -46,11 +46,19 @@
     });
   }
 
+  var OB_LABELS = {
+    offering: "You sell", ideal_customer: "To", service_area: "Where",
+    order_size: "Typical order", decision_maker: "Decision maker",
+    timeline: "Timing", budget: "Price range", exclusions: "Not for"
+  };
+  var OB_CORE = ["offering", "ideal_customer", "service_area", "decision_maker", "budget"];
+
+  var ob = null;
+
   function submitOnboard(event) {
     event.preventDefault();
     var err = $("onboard-error");
     var businessName = $("f-businessName").value.trim();
-    var site = $("f-site").value.trim();
     var description = $("f-description").value.trim();
     if (!businessName || !description) {
       err.textContent = "Please add your business name and a one-line description.";
@@ -58,16 +66,202 @@
       return false;
     }
     err.hidden = true;
-    var input = {
-      businessName: businessName, site: site, description: description,
-      q1: $("f-q1").value.trim(), q2: $("f-q2").value.trim(),
-      q3: $("f-q3").value.trim(), q4: $("f-q4").value.trim(),
-      q5: $("f-q5").value.trim()
+    ob = {
+      businessName: businessName, firstText: description,
+      fields: {}, followupsUsed: 0, question: null,
+      done: false, busy: false, editingKey: null
     };
+    $("ob-first").hidden = true;
+    $("ob-chat").hidden = false;
+    $("ob-yousaid-text").textContent = description;
+    renderObChat();
+    return obSend(description, {});
+  }
+
+  function obSend(text, extra) {
+    if (ob.busy) return Promise.resolve(false);
+    ob.busy = true;
+    obError(null);
+    setObButtons(true);
+    var payload = { text: text, fields: ob.fields, followups_used: ob.followupsUsed };
+    if (extra.skip_key) payload.skip_key = extra.skip_key;
+    if (extra.edit_key) { payload.edit_key = extra.edit_key; payload.edit_value = extra.edit_value; }
+    return api.onboardTurn(payload).then(function (res) {
+      ob.busy = false;
+      ob.fields = res.fields || {};
+      ob.followupsUsed = res.followups_used || 0;
+      ob.question = res.question || null;
+      ob.done = !!res.done || !ob.question;
+      setObButtons(false);
+      renderObChat();
+      return true;
+    }, function (e) {
+      ob.busy = false;
+      setObButtons(false);
+      obError(friendlyObError(e));
+      return false;
+    });
+  }
+
+  function friendlyObError(e) {
+    var detail = e && e.detail ? String(e.detail) : "";
+    if (detail === "model_not_configured") return "The assistant is not connected. Please try the demo instead, or come back later.";
+    if (detail === "model_error" || (e && e.status === 502)) return "The assistant did not reply. Check your connection and try again.";
+    if (detail === "text_too_long") return "That message is too long. Please shorten it and try again.";
+    return "Something went wrong. Please try again.";
+  }
+
+  function obError(msg) {
+    var el = $("ob-error");
+    if (!msg) { el.hidden = true; el.textContent = ""; return; }
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  function setObButtons(disabled) {
+    ["btn-ob-continue", "btn-ob-skip", "btn-ob-finish"].forEach(function (id) {
+      var b = $(id);
+      if (b) b.disabled = disabled;
+    });
+    var ans = $("ob-answer");
+    if (ans) ans.disabled = disabled;
+  }
+
+  function obContinue() {
+    if (!ob || ob.busy || ob.done) return false;
+    var v = $("ob-answer").value.trim();
+    if (!v) { obError("Type your answer, or skip to mark it as a guess."); return false; }
+    return obSend(v, {});
+  }
+
+  function obSkip() {
+    if (!ob || ob.busy || ob.done || !ob.question) return false;
+    return obSend("Skipped.", { skip_key: ob.question.key });
+  }
+
+  function obChipClick(e) {
+    var t = e.target || {};
+    var v = t.getAttribute ? t.getAttribute("data-chip") : null;
+    if (!v || !ob || ob.busy || ob.done) return;
+    if (/not sure/i.test(v)) { obSkip(); return; }
+    $("ob-answer").value = v;
+    obContinue();
+  }
+
+  function renderObChat() {
+    var step = $("ob-step");
+    if (ob.done) {
+      step.textContent = "Step 2 of 3 · done";
+      $("ob-question-wrap").hidden = true;
+      $("ob-done-wrap").hidden = false;
+    } else {
+      var left = Math.max(12, 40 - ob.followupsUsed * 12);
+      step.textContent = "Step 2 of 3 · about " + left + " seconds left";
+      $("ob-question-wrap").hidden = false;
+      $("ob-done-wrap").hidden = true;
+      $("ob-question").textContent = ob.question ? ob.question.prompt : "Thinking…";
+      $("ob-answer").value = "";
+      renderObChips();
+    }
+    renderObFields();
+  }
+
+  function renderObChips() {
+    var chips = (ob.question && ob.question.chips) || [];
+    $("ob-chips").innerHTML = chips.map(function (c) {
+      return '<button type="button" data-chip="' + esc(c) + '">' + esc(c) + "</button>";
+    }).join("");
+  }
+
+  function renderObFields() {
+    var qkey = ob.question ? ob.question.key : null;
+    var keys = Object.keys(OB_LABELS).filter(function (k) {
+      if (OB_CORE.indexOf(k) >= 0) return true;
+      if (ob.fields[k] && (ob.fields[k].value || ob.fields[k].locked)) return true;
+      return k === qkey;
+    });
+    $("ob-fields").innerHTML = keys.map(function (k) { return obFieldRow(k, qkey); }).join("");
+  }
+
+  function obFieldRow(k, qkey) {
+    var label = OB_LABELS[k];
+    var f = ob.fields[k];
+    var head = '<div class="ob-row"><dt>' + esc(label) + "</dt>";
+    if (ob.editingKey === k) {
+      return head + '<dd><input data-obedit="' + esc(k) + '" value="' + esc(f ? f.value : "") +
+        '" maxlength="280" /> <button type="button" data-obsave="' + esc(k) + '">Save</button> ' +
+        '<button type="button" data-obcancel class="linklike">Cancel</button></dd></div>';
+    }
+    var editBtn = ' <button type="button" data-obedit-btn="' + esc(k) + '" class="linklike">Edit</button>';
+    if (f && f.value) {
+      var guess = (f.label === "inferred" || f.label === "unknown") ? ' <span class="guess">a guess</span>' : "";
+      return head + "<dd>" + esc(f.value) + guess + editBtn + "</dd></div>";
+    }
+    if (f && f.locked) {
+      return head + '<dd><span class="muted">Marked as a guess</span>' + editBtn + "</dd></div>";
+    }
+    if (k === qkey) {
+      return head + '<dd><span class="muted">Asking you now</span></dd></div>';
+    }
+    return head + '<dd><span class="muted">Optional, you can add it later</span>' + editBtn + "</dd></div>";
+  }
+
+  function onObFieldsClick(e) {
+    var t = e.target || {};
+    var g = function (a) { return t.getAttribute ? t.getAttribute(a) : null; };
+    if (!ob) return;
+    var editBtn = g("data-obedit-btn");
+    if (editBtn) {
+      ob.editingKey = editBtn;
+      renderObFields();
+      var input = $("ob-fields").querySelector('[data-obedit="' + editBtn + '"]');
+      if (input && input.focus) input.focus();
+      return;
+    }
+    if (g("data-obcancel") !== null) { ob.editingKey = null; renderObFields(); return; }
+    var save = g("data-obsave");
+    if (save) {
+      var field = $("ob-fields").querySelector('[data-obedit="' + save + '"]');
+      var v = field ? field.value.trim() : "";
+      ob.editingKey = null;
+      // Edits lock locally at once; the next turn carries them to the server.
+      if (v) ob.fields[save] = { value: v.slice(0, 280), label: "user-provided", locked: true };
+      renderObFields();
+    }
+  }
+
+  function obEditFirst() {
+    if (!ob || ob.busy) return;
+    $("ob-chat").hidden = true;
+    $("ob-first").hidden = false;
+    $("f-businessName").value = ob.businessName;
+    $("f-description").value = ob.firstText;
+    ob = null;
+    $("ob-step").textContent = "Step 2 of 3 · about 40 seconds left";
+  }
+
+  function obFinish() {
+    if (!ob || ob.busy || !ob.done) return false;
+    var fv = function (k) { return (ob.fields[k] && ob.fields[k].value) || ""; };
+    var desc = fv("offering") || ob.firstText;
+    if (fv("ideal_customer")) desc += " for " + fv("ideal_customer");
+    if (fv("timeline")) desc += ". Timing: " + fv("timeline");
+    if (fv("budget")) desc += ". Budget per order: " + fv("budget");
+    var input = {
+      businessName: ob.businessName, site: "", description: desc,
+      q1: fv("service_area"), q2: fv("order_size"), q3: fv("decision_maker"),
+      q4: fv("exclusions"), q5: fv("ideal_customer")
+    };
+    setObButtons(true);
     return api.createProfile(input).then(function (res) {
+      setObButtons(false);
       state.profile = res.profile;
       renderProfileConfirm(res.profile);
       showView("profile");
+    }, function () {
+      setObButtons(false);
+      obError("Could not save your profile. Please try again.");
+      return false;
     });
   }
 
@@ -691,6 +885,13 @@
   function restart() {
     state.profile = null; state.prospects = []; state.selectedId = null;
     state.drafts = []; state.decisions = {}; state.runId = null;
+    ob = null;
+    var first = $("ob-first");
+    if (first) first.hidden = false;
+    var chat = $("ob-chat");
+    if (chat) chat.hidden = true;
+    var step = $("ob-step");
+    if (step) step.textContent = "Step 2 of 3 · about 40 seconds left";
     showView("onboard");
   }
 
@@ -724,9 +925,8 @@
     try { chips = document.querySelectorAll("[data-preset]") || []; } catch (e) { chips = []; }
     Array.prototype.forEach.call(chips, function (btn) {
       btn.addEventListener("click", function () {
+        $("f-businessName").value = btn.getAttribute("data-name") || "";
         $("f-description").value = btn.getAttribute("data-description") || "";
-        $("f-q1").value = btn.getAttribute("data-q1") || "";
-        $("f-q3").value = btn.getAttribute("data-q3") || "";
       });
     });
     var stepNav = $("step-nav");
@@ -737,6 +937,16 @@
       });
     }
     $("onboard-form").addEventListener("submit", submitOnboard);
+    $("ob-answer").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); obContinue(); }
+    });
+    $("ob-chips").addEventListener("click", obChipClick);
+    $("ob-fields").addEventListener("click", onObFieldsClick);
+    $("btn-ob-continue").addEventListener("click", obContinue);
+    $("btn-ob-skip").addEventListener("click", obSkip);
+    $("btn-ob-finish").addEventListener("click", obFinish);
+    $("btn-ob-exit").addEventListener("click", function () { showView("landing"); });
+    $("btn-ob-edit-first").addEventListener("click", obEditFirst);
     $("evidence-body").addEventListener("click", onEvidenceClick);
     $("status-board").addEventListener("click", onBoardClick);
     $("btn-back-onboard").addEventListener("click", function () { showView("onboard"); });

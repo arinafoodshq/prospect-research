@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cleanBusinessName, createMetaClient, isDirectoryHost, isPlausibleName, normUrl, parseResponsesResponse, serviceAreaFromGeos } from "../src/meta";
+import { cleanBusinessName, createMetaClient, isDirectoryHost, isPlausibleName, normUrl, parseResponsesResponse, serviceAreaFromGeos, validateOnboardTurn } from "../src/meta";
 import s0Fixture from "./fixtures/s0_ikeja_venues.json";
 
 describe("parseResponsesResponse", () => {
@@ -602,5 +602,54 @@ describe("createMetaClient", () => {
     await expect(missing.fetchPage!("https://example.com/", 50)).resolves.toMatchObject({ failure: "empty" });
     const down = createMetaClient({ apiKey: "k", fetchImpl: (async () => { throw new Error("boom"); }) as any });
     await expect(down.fetchPage!("https://example.com/", 50)).resolves.toMatchObject({ failure: "timeout" });
+  });
+
+  it("onboardTurn parses one burst and sends a tool-free structured request", async () => {
+    const burst = {
+      fields: { offering: { value: "pastries", label: "inferred" } },
+      question: { key: "order_size", prompt: "Typical order size?", chips: ["20-50", "50-200"] },
+      done: false,
+    };
+    const fetchImpl = stubFetch({
+      id: "resp_onboard",
+      output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(burst), annotations: [] }] }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    const out = await client.onboardTurn!({ text: "I sell pastries", known: [], followups_used: 0 });
+    expect(out).toEqual(burst);
+    const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
+    expect(sent.tools).toEqual([]);
+    expect(sent.input[1].content).toContain("New business onboarding");
+  });
+});
+
+describe("validateOnboardTurn", () => {
+  it("drops unknown keys, forces inferred labels, caps chips", () => {
+    const out = validateOnboardTurn({
+      fields: {
+        offering: { value: "pastries", label: "user-provided" },
+        favourite_colour: { value: "blue", label: "inferred" },
+        budget: { value: "", label: "inferred" },
+      },
+      question: { key: "order_size", prompt: "Size?", chips: ["a", "b", "c", "d", 42] },
+      done: false,
+    });
+    // Model-claimed user-provided is coerced; invented keys and empties go.
+    expect(out.fields).toEqual({ offering: { value: "pastries", label: "inferred" } });
+    expect(out.question).toEqual({ key: "order_size", prompt: "Size?", chips: ["a", "b", "c"] });
+    expect(out.done).toBe(false);
+  });
+
+  it("ends the conversation on an unusable question and throws on garbage", () => {
+    const ended = validateOnboardTurn({
+      fields: {},
+      question: { key: "favourite_colour", prompt: "-uline?", chips: [] },
+      done: false,
+    });
+    expect(ended.done).toBe(true);
+    expect(ended.question).toBeNull();
+    expect(() => validateOnboardTurn(null)).toThrow("did not return an object");
+    expect(() => validateOnboardTurn("just chatter")).toThrow("did not return an object");
   });
 });

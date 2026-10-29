@@ -718,3 +718,31 @@ the campaigns-visible bug); landing hides app header; data-start ->
 onboard, data-sample -> mock shortlist (live without run -> onboard).
 Verified: desktop + 390px screenshots viewed (0px overflow, single
 column), CTA click asserts pass, console clean, 339 tests green.
+
+## 2026-10-29 - Revamp P0.3 DONE: conversational onboarding (PDF screen 2)
+
+Endpoint POST /api/onboard/turn (stateless; client holds the field
+map): free text + prior fields -> validated merge + max 1 next
+question, follow-up cap 3 enforced server-side (no model call at cap),
+8-key allowlist, labels user-provided/inferred/unknown, skip/edit lock
+and always win, model output coerced (unknown keys dropped, labels
+forced inferred, chips capped 3), fail-closed 500 no-key / 502
+model_error. Meta burst via existing buildPhaseRequest tool-free
+structured pattern. Feeds existing createProfile (q1-q5 mapping);
+timeline/budget fold into description; profile view kept as the
+confirm step (PDF has none; streamline later if time allows).
+UI: state A (name + free text + presets) -> state B chat (YOU SAID +
+Edit, serif question, helper, answer + chips, Continue, Skip-link,
+understood panel with guess chips + inline edit, step countdown,
+Save-and-exit); mock mirrors server merge rules; "not sure" chips
+skip. Fixed smoke.mjs P0.2 rot (was red at baseline: missing
+view-landing/campaigns/senders ids, boot view, document.querySelector
+stub) and extended it to walk the chat + live onboardTurn adapter.
+Verified: 349/349 vitest green (+10: 7 route, 3 meta), smoke PASS
+(chat ask/answer/skip/edit-first/finish + full flow + live adapters),
+node --check clean, headless drive (question/chips/countdown/panel/
+profile asserts) 0 console errors 0 failed requests 0px overflow,
+desktop + 390px screenshots viewed (stacked, no clipping).
+NOT deployed: live worker still v75f1dba7 without this route; deploy
+rides with the end-of-revamp release. Research logic untouched
+(freeze holds).

@@ -322,3 +322,42 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   .shift-list li { grid-template-columns: 1fr; gap: 0.3rem; }
   .landing-links { display: none; }
 }
+
+/* Onboarding chat (PDF screen 2). */
+.ob-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.2rem; }
+.ob-head .brand { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; margin: 0; }
+.ob-head .linklike { margin-left: auto; }
+.linklike {
+  background: transparent; color: var(--muted);
+  padding: 0.7rem 0.2rem; min-height: var(--touch);
+  font-weight: 600; text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linklike:hover { color: var(--text); }
+#view-onboard h3 { font-family: var(--font-display); font-size: 1.5rem; margin: 1.2rem 0 0.2rem; }
+#ob-chat > * + * { margin-top: 1.2rem; }
+.ob-said { display: flex; gap: 1rem; align-items: flex-start; }
+.ob-said > div { flex: 1; min-width: 0; }
+.ob-said .kicker { margin-top: 0; }
+.ob-said p { margin: 0.2rem 0; }
+.ob-said .linklike { flex: 0 0 auto; }
+#ob-chips { margin-top: 0.6rem; }
+#ob-chips:empty { display: none; }
+.ob-got .kicker { margin-top: 0; }
+#ob-fields { margin: 0.6rem 0; display: grid; gap: 0.55rem; }
+.ob-row { display: grid; grid-template-columns: 11rem 1fr; gap: 0.8rem; align-items: baseline; }
+.ob-row dt { margin: 0; color: var(--muted); font-weight: 600; }
+.ob-row dd { margin: 0; }
+.ob-row dd input { min-height: 2.6rem; padding: 0.45rem 0.7rem; }
+.guess {
+  font-size: 0.78rem; font-weight: 600;
+  color: var(--warn); border: 1px dashed var(--warn);
+  border-radius: var(--radius-pill); padding: 0.1rem 0.55rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+  .ob-row { grid-template-columns: 1fr; gap: 0.1rem; }
+  .ob-said { flex-direction: column; }
+  .ob-said .linklike { align-self: flex-start; padding-top: 0; }
+}

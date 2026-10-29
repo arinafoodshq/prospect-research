@@ -18,6 +18,7 @@ import {
   type RunStatus,
 } from "./db";
 import { createMetaClient } from "./meta";
+import { ONBOARD_FIELD_KEYS } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
 import { consumeDeliveryBatch, enqueueDueJobs, warmSmtpRelay, type DeliveryJob } from "./delivery/processor";
@@ -533,6 +534,84 @@ const getFollowUps: Handler = async ({ env, params }) => {
   return json({ run_id: runId, follow_ups: followUps });
 };
 
+// --- Conversational onboarding (stateless turns; the client holds the field map) ---
+
+const ONBOARD_TEXT_CAP = 2000;
+const ONBOARD_VALUE_CAP = 280;
+const ONBOARD_FOLLOWUP_CAP = 3;
+const ONBOARD_KEYS = new Set<string>(ONBOARD_FIELD_KEYS);
+
+interface OnboardFieldState {
+  value: string;
+  label: string;
+  locked: boolean;
+}
+
+const postOnboardTurn: Handler = async ({ req, env }) => {
+  const parsed = await readJson(req);
+  if (!parsed.ok) return parsed.res;
+  if (!isObj(parsed.body)) return err("invalid_body", 400);
+  const text = parsed.body["text"];
+  if (typeof text !== "string" || text.trim() === "") return err("invalid_body", 400);
+  if (text.length > ONBOARD_TEXT_CAP) return err("text_too_long", 400);
+  const rawFields = parsed.body["fields"];
+  if (!isObj(rawFields)) return err("invalid_body", 400);
+  const fields: Record<string, OnboardFieldState> = {};
+  for (const [key, fv] of Object.entries(rawFields)) {
+    if (!ONBOARD_KEYS.has(key)) return err("unknown_field_key", 400);
+    if (!isObj(fv) || typeof fv["value"] !== "string" || typeof fv["label"] !== "string") {
+      return err("invalid_body", 400);
+    }
+    if ((fv["value"] as string).length > ONBOARD_VALUE_CAP) return err("invalid_body", 400);
+    fields[key] = { value: fv["value"] as string, label: fv["label"] as string, locked: fv["locked"] === true };
+  }
+  const usedRaw = parsed.body["followups_used"];
+  const followupsUsed = typeof usedRaw === "number" && Number.isInteger(usedRaw) && usedRaw >= 0 ? usedRaw : 0;
+  const skipKey = parsed.body["skip_key"];
+  if (skipKey !== undefined && (typeof skipKey !== "string" || !ONBOARD_KEYS.has(skipKey))) {
+    return err("unknown_field_key", 400);
+  }
+  const editKey = parsed.body["edit_key"];
+  const editValue = parsed.body["edit_value"];
+  if (editKey !== undefined && (typeof editKey !== "string" || !ONBOARD_KEYS.has(editKey))) {
+    return err("unknown_field_key", 400);
+  }
+  if (editKey !== undefined && (typeof editValue !== "string" || editValue.trim() === "")) {
+    return err("invalid_body", 400);
+  }
+  // Owner actions apply first and lock: skips and edits always win over the model.
+  if (typeof skipKey === "string") fields[skipKey] = { value: "", label: "unknown", locked: true };
+  if (typeof editKey === "string" && typeof editValue === "string") {
+    fields[editKey] = { value: editValue.slice(0, ONBOARD_VALUE_CAP), label: "user-provided", locked: true };
+  }
+  // Cap owns the conversation end: no model call once exhausted.
+  if (followupsUsed >= ONBOARD_FOLLOWUP_CAP) {
+    return json({ fields, question: null, done: true, followups_used: followupsUsed });
+  }
+  if (!env.MODEL_API_KEY) return err("model_not_configured", 500);
+  const meta = createMetaClient({
+    apiKey: env.MODEL_API_KEY,
+    ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
+  });
+  if (!meta.onboardTurn) return err("model_not_configured", 500);
+  let out;
+  try {
+    out = await meta.onboardTurn({
+      text,
+      known: Object.entries(fields).map(([key, f]) => ({ key, value: f.value, label: f.label })),
+      followups_used: followupsUsed,
+    });
+  } catch {
+    return err("model_error", 502);
+  }
+  for (const [key, fv] of Object.entries(out.fields)) {
+    if (!ONBOARD_KEYS.has(key) || fields[key]?.locked) continue;
+    fields[key] = { value: fv.value, label: fv.label, locked: false };
+  }
+  const used = out.question ? followupsUsed + 1 : followupsUsed;
+  return json({ fields, question: out.question, done: out.done, followups_used: used });
+};
+
 // --- Router ------------------------------------------------------------------
 
 const table: Array<{ method: string; pattern: RegExp; keys: string[]; handler: Handler }> = [];
@@ -553,6 +632,7 @@ route("POST", "/api/profiles", postProfile);
 route("GET", "/api/profiles/:id", getProfileById);
 route("POST", "/api/profiles/:id/answers", postAnswers);
 route("POST", "/api/profiles/:id/confirm", postConfirm);
+route("POST", "/api/onboard/turn", postOnboardTurn);
 route("POST", "/api/runs", postRun);
 route("GET", "/api/runs/:id", getRunById);
 route("POST", "/api/runs/:id/resume", postResume);

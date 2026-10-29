@@ -84,6 +84,46 @@ export interface BriefProfile {
   constraints_note: string;
 }
 
+/** Allowlisted keys for conversational onboarding (server enforces; model cannot invent keys). */
+export const ONBOARD_FIELD_KEYS = [
+  "offering",
+  "ideal_customer",
+  "service_area",
+  "order_size",
+  "decision_maker",
+  "timeline",
+  "budget",
+  "exclusions",
+] as const;
+export type OnboardFieldKey = (typeof ONBOARD_FIELD_KEYS)[number];
+
+/** One extracted fact about the owner's business (model may only produce label "inferred"). */
+export interface OnboardFieldValue {
+  value: string;
+  label: string;
+}
+
+/** Model's single permitted follow-up question (null when done or capped). */
+export interface OnboardQuestion {
+  key: string;
+  prompt: string;
+  chips: string[];
+}
+
+/** Validated output of one onboarding turn. */
+export interface OnboardTurnResult {
+  fields: Record<string, OnboardFieldValue>;
+  question: OnboardQuestion | null;
+  done: boolean;
+}
+
+/** Input the server hands to the model for one onboarding turn. */
+export interface OnboardTurnInput {
+  text: string;
+  known: Array<{ key: string; value: string; label: string }>;
+  followups_used: number;
+}
+
 /** Mockable Meta client surface (no live calls; mocked in tests). */
 export interface MetaClient {
   planQueries?: (briefExcerpt: string) => Promise<string[]>;
@@ -98,6 +138,8 @@ export interface MetaClient {
   setBrief?: (brief: import("./commercial").CommercialBrief) => void;
   /** Model id stamped on assessments (absent in old mocks = default model). */
   modelId?: string;
+  /** One conversational-onboarding turn: extract facts, ask at most one question. */
+  onboardTurn?: (input: OnboardTurnInput) => Promise<OnboardTurnResult>;
 }
 
 export interface BudgetState {

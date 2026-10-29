@@ -9,7 +9,11 @@
  */
 
 import type { Evidence, Prospect } from "./db";
-import type { AssessProposal, DraftProposal, MetaClient, SearchHit } from "./research/phases";
+import type {
+  AssessProposal, DraftProposal, MetaClient, OnboardFieldKey,
+  OnboardTurnInput, OnboardTurnResult, SearchHit,
+} from "./research/phases";
+import { ONBOARD_FIELD_KEYS } from "./research/phases";
 import {
   buildBriefGoal, buildPlanGoal, buildSearchGoal, renderBriefPrompt, validateBrief,
   type CommercialBrief,
@@ -511,6 +515,51 @@ function extractJsonArray(text: string): unknown[] {
   }
 }
 
+const ONBOARD_VALUE_CAP = 280;
+const ONBOARD_PROMPT_CAP = 280;
+const ONBOARD_CHIP_CAP = 40;
+const ONBOARD_MAX_CHIPS = 3;
+const ONBOARD_KEYS = new Set<string>(ONBOARD_FIELD_KEYS);
+
+function isOnboardKey(key: unknown): key is OnboardFieldKey {
+  return typeof key === "string" && ONBOARD_KEYS.has(key);
+}
+
+/**
+ * Validate one onboarding burst. Fail-closed: unknown keys are dropped, every
+ * label is forced to "inferred" (the model can never mint user-provided or
+ * skipped fields), and an unusable question ends the conversation.
+ */
+export function validateOnboardTurn(item: unknown): OnboardTurnResult {
+  if (!isRecord(item)) throw new Error("onboard burst did not return an object");
+  const fields: Record<string, { value: string; label: string }> = {};
+  const rawFields = item["fields"];
+  if (isRecord(rawFields)) {
+    for (const [key, fv] of Object.entries(rawFields)) {
+      if (!isOnboardKey(key) || !isRecord(fv)) continue;
+      const value = fv["value"];
+      if (typeof value !== "string" || value.trim() === "") continue;
+      fields[key] = { value: value.slice(0, ONBOARD_VALUE_CAP), label: "inferred" };
+    }
+  }
+  let question: OnboardTurnResult["question"] = null;
+  const rawQ = item["question"];
+  if (
+    isRecord(rawQ) && isOnboardKey(rawQ["key"])
+    && typeof rawQ["prompt"] === "string" && rawQ["prompt"].trim() !== ""
+  ) {
+    const chips = Array.isArray(rawQ["chips"])
+      ? (rawQ["chips"] as unknown[])
+        .filter((c): c is string => typeof c === "string" && c.trim() !== "")
+        .slice(0, ONBOARD_MAX_CHIPS)
+        .map((c) => c.slice(0, ONBOARD_CHIP_CAP))
+      : [];
+    question = { key: rawQ["key"], prompt: rawQ["prompt"].slice(0, ONBOARD_PROMPT_CAP), chips };
+  }
+  const done = item["done"] === true || question === null;
+  return { fields, question: done ? null : question, done };
+}
+
 /** Live MetaClient: grounded search + structured bursts, all validated. */
 export function createMetaClient(deps: MetaClientDeps): MetaClient {
   const model = deps.modelId ?? MODEL_ID;
@@ -728,6 +777,27 @@ function extractVisibleText(html: string): string {
 
   let activeBrief: CommercialBrief | null = null;
 
+  async function onboardTurn(input: OnboardTurnInput): Promise<OnboardTurnResult> {
+    const known = input.known.map((k) => `${k.key}=${k.value} (${k.label})`).join("; ");
+    const req = buildPhaseRequest({
+      phase: "plan",
+      briefExcerpt: brief || "New business onboarding.",
+      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
+    });
+    req.tools = []; // structured burst: answer in text, no tool loop offered
+    const parsed = await callResponses(req);
+    const raw = parsed.outputText;
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    let item: unknown = null;
+    if (start >= 0 && end > start) {
+      try {
+        item = JSON.parse(raw.slice(start, end + 1)) as unknown;
+      } catch { item = null; }
+    }
+    return validateOnboardTurn(item);
+  }
+
   async function buildBrief(profile: {
     name: string; website_url: string; description: string;
     target_market: string; service_area_note: string; constraints_note: string;
@@ -759,5 +829,5 @@ function extractVisibleText(html: string): string {
     activeBrief = b;
   }
 
-  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, modelId: model };
+  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, modelId: model };
 }

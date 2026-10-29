@@ -160,37 +160,70 @@
       </section>
     </section>
 
-    <!-- View 1: onboard -->
-    <section id="view-onboard" class="view" aria-label="Onboard your business">
-      <h2>What does your business sell?</h2>
-      <p class="hint">Two minutes, three questions. The agent researches buyers from there — it shows its work before anything goes out.</p>
-      <div class="chips" role="group" aria-label="Try an example">
-        <span>Try one:</span>
-        <button type="button" data-preset data-description="Office lunch packs for 20–200 staff, delivered before noon." data-q1="Ikeja, Yaba" data-q3="Office admin">Catering</button>
-        <button type="button" data-preset data-description="Daily office cleaning contracts for 10–50 staff offices, supplies included." data-q1="Abuja" data-q3="Office manager">Cleaning</button>
-        <button type="button" data-preset data-description="Same-day dispatch for documents and parcels under 20kg." data-q1="Lagos mainland" data-q3="Operations lead">Logistics</button>
+    <!-- View 1: onboard (PDF screen 2: conversational, one question at a time) -->
+    <section id="view-onboard" class="view" aria-label="Describe your business">
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <button type="button" id="btn-ob-exit" class="linklike">Save and exit</button>
       </div>
-      <form id="onboard-form">
-        <label>Business name
-          <input name="businessName" id="f-businessName" required maxlength="120" placeholder="e.g. Adaeze Catering Services" />
-        </label>
-        <label>What do you sell, and to whom?
-          <textarea name="description" id="f-description" required rows="3" placeholder="e.g. Office lunch packs for 20–200 staff, delivered before noon."></textarea>
-        </label>
-        <label>Which areas do you serve? <input name="q1" id="f-q1" placeholder="e.g. Ikeja, Yaba, Surulere" /></label>
-        <label>Who usually decides? <input name="q3" id="f-q3" placeholder="e.g. Office admin / HR manager" /></label>
-        <details id="clarify-more">
-          <summary>More details (optional — improves matches)</summary>
-          <label>Website
-            <input name="site" id="f-site" type="url" placeholder="https://example.ng" />
+      <p class="muted small" id="ob-step">Step 2 of 3 · about 40 seconds left</p>
+
+      <div id="ob-first">
+        <h2>Describe what you sell</h2>
+        <p class="hint">Type it like you would say it to a friend. One or two sentences is plenty.</p>
+        <div class="chips" role="group" aria-label="Try an example">
+          <span>Try one:</span>
+          <button type="button" data-preset data-name="Adaeze Catering Services" data-description="We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.">Catering</button>
+          <button type="button" data-preset data-name="Sparkle Office Cleaning" data-description="Daily office cleaning contracts for 10 to 50 staff offices in Abuja, supplies included.">Cleaning</button>
+          <button type="button" data-preset data-name="Swiftline Dispatch" data-description="Same-day dispatch for documents and parcels under 20kg across Lagos mainland.">Logistics</button>
+        </div>
+        <form id="onboard-form">
+          <label>Business name
+            <input name="businessName" id="f-businessName" required maxlength="120" placeholder="e.g. Adaeze Catering Services" />
           </label>
-          <label>Typical order size or budget? <input name="q2" id="f-q2" placeholder="e.g. 30–100 packs per order" /></label>
-          <label>Anything you do NOT do? <input name="q4" id="f-q4" placeholder="e.g. No weddings under 50 guests" /></label>
-          <label>Best existing customer type? <input name="q5" id="f-q5" placeholder="e.g. Tech startups with daily lunch" /></label>
-        </details>
-        <p class="form-error" id="onboard-error" hidden></p>
-        <button type="submit">Find my buyers</button>
-      </form>
+          <label>What do you sell, and to whom?
+            <textarea name="description" id="f-description" required rows="3" maxlength="2000" placeholder="e.g. Office lunch packs for 20 to 200 staff, delivered before noon."></textarea>
+          </label>
+          <p class="form-error" id="onboard-error" hidden></p>
+          <button type="submit">Continue</button>
+        </form>
+      </div>
+
+      <div id="ob-chat" hidden>
+        <div class="card ob-said">
+          <div>
+            <p class="kicker">You said</p>
+            <p id="ob-yousaid-text"></p>
+          </div>
+          <button type="button" id="btn-ob-edit-first" class="linklike">Edit</button>
+        </div>
+
+        <div id="ob-question-wrap" aria-live="polite">
+          <h3 id="ob-question"></h3>
+          <p class="hint">One quick answer helps us find buyers that fit.</p>
+          <label>Your answer
+            <input id="ob-answer" maxlength="280" autocomplete="off" />
+          </label>
+          <div class="chips" id="ob-chips" role="group" aria-label="Suggested answers"></div>
+          <div class="row">
+            <button type="button" id="btn-ob-continue">Continue</button>
+            <button type="button" id="btn-ob-skip" class="linklike">Skip, I will mark it as a guess</button>
+          </div>
+        </div>
+
+        <div id="ob-done-wrap" hidden>
+          <h3>That is everything we need.</h3>
+          <p class="hint">Check the summary below, edit anything, then start the research.</p>
+          <button type="button" id="btn-ob-finish">Review and start research</button>
+        </div>
+
+        <div class="card ob-got">
+          <p class="kicker">What we have understood</p>
+          <dl id="ob-fields"></dl>
+          <p class="muted small">Everything here is editable. Anything we are unsure of is labelled as a guess, never stated as fact.</p>
+        </div>
+        <p class="form-error" id="ob-error" hidden></p>
+      </div>
     </section>
 
     <!-- View 2: profile confirm -->

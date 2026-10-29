@@ -41,6 +41,13 @@ vi.mock("../src/meta", () => ({
         next_action: "Send intro",
         follow_up_days: 7,
       })),
+    // Canned onboarding turn: always extracts decision_maker and always asks
+    // a question, so skip/lock/cap tests prove the handler overrode it.
+    onboardTurn: async () => ({
+      fields: { decision_maker: { value: "HR manager", label: "inferred" } },
+      question: { key: "order_size", prompt: "Typical order size?", chips: ["20-50", "50-200"] },
+      done: false,
+    }),
   }),
 }));
 
@@ -622,5 +629,106 @@ describe("workflow trigger ownership", () => {
     );
     expect(res.status).toBe(201);
     expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("conversational onboarding", () => {
+  it("rejects missing or oversized text with 400", async () => {
+    const db = makeMockDb();
+    const missing = await call(db, "POST", "/api/onboard/turn", { fields: {} });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toBe("invalid_body");
+    const big = await call(db, "POST", "/api/onboard/turn", { text: "x".repeat(2001), fields: {} });
+    expect(big.status).toBe(400);
+    expect(big.body.error).toBe("text_too_long");
+  });
+
+  it("merges one model turn and returns the next question", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/onboard/turn", {
+      text: "I sell pastries to offices",
+      fields: {},
+      followups_used: 0,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.fields.decision_maker.value).toBe("HR manager");
+    expect(res.body.fields.decision_maker.label).not.toBe("user-provided");
+    expect(res.body.question.key).toBe("order_size");
+    expect(res.body.followups_used).toBe(1);
+    expect(res.body.done).toBe(false);
+  });
+
+  it("never calls the model once the follow-up cap is reached", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/onboard/turn", {
+      text: "anything",
+      fields: { offering: { value: "pastries", label: "user-provided", locked: true } },
+      followups_used: 3,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.done).toBe(true);
+    // The mocked model always returns a question, so a null question
+    // proves the handler short-circuited without calling it.
+    expect(res.body.question).toBeNull();
+    expect(res.body.followups_used).toBe(3);
+    expect(res.body.fields.offering.value).toBe("pastries");
+  });
+
+  it("honours skip: locked unknown fields survive model output", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/onboard/turn", {
+      text: "skip",
+      fields: { decision_maker: { value: "", label: "unknown", locked: true } },
+      followups_used: 0,
+      skip_key: "decision_maker",
+    });
+    expect(res.status).toBe(200);
+    // The mocked model returns a decision_maker value; the skip must win.
+    expect(res.body.fields.decision_maker.label).toBe("unknown");
+    expect(res.body.fields.decision_maker.locked).toBe(true);
+  });
+
+  it("honours edit: user-provided locked fields are never overwritten", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/onboard/turn", {
+      text: "actually the office manager decides",
+      fields: { decision_maker: { value: "Office manager", label: "user-provided", locked: true } },
+      followups_used: 0,
+      edit_key: "decision_maker",
+      edit_value: "Office manager",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.fields.decision_maker.value).toBe("Office manager");
+    expect(res.body.fields.decision_maker.label).toBe("user-provided");
+  });
+
+  it("fails closed with 500 when the model key is missing", async () => {
+    const db = makeMockDb();
+    const res = await call(
+      db, "POST", "/api/onboard/turn",
+      { text: "hello", fields: {}, followups_used: 0 },
+      { MODEL_API_KEY: undefined },
+    );
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("model_not_configured");
+  });
+
+  it("rejects unknown field keys and unknown skip keys", async () => {
+    const db = makeMockDb();
+    const bad = await call(db, "POST", "/api/onboard/turn", {
+      text: "hi",
+      fields: { favourite_colour: { value: "blue", label: "user-provided" } },
+      followups_used: 0,
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe("unknown_field_key");
+    const badSkip = await call(db, "POST", "/api/onboard/turn", {
+      text: "skip",
+      fields: {},
+      followups_used: 0,
+      skip_key: "favourite_colour",
+    });
+    expect(badSkip.status).toBe(400);
+    expect(badSkip.body.error).toBe("unknown_field_key");
   });
 });

@@ -78,6 +78,63 @@
   MockApi.prototype.confirmBrief = function () {
     return Promise.resolve({ briefId: "demo-brief-1", runId: "demo-run-1" });
   };
+  // Scripted stand-in for POST /api/onboard/turn: mirrors the server merge
+  // rules (skips/edits lock first, cap ends the chat, one question at a time).
+  MockApi.prototype.onboardTurn = function (payload) {
+    var fields = {};
+    Object.keys(payload.fields || {}).forEach(function (k) {
+      var f = payload.fields[k] || {};
+      fields[k] = { value: f.value || "", label: f.label || "unknown", locked: !!f.locked };
+    });
+    var used = payload.followups_used || 0;
+    if (payload.skip_key) fields[payload.skip_key] = { value: "", label: "unknown", locked: true };
+    if (payload.edit_key) fields[payload.edit_key] = { value: payload.edit_value || "", label: "user-provided", locked: true };
+    if (used >= 3) {
+      this._obq = null;
+      return Promise.resolve({ fields: fields, question: null, done: true, followups_used: used });
+    }
+    var text = (payload.text || "").trim();
+    if (used === 0) {
+      this._obq = null;
+      if (!fields.offering && text) {
+        var first = text.split(/[.\n]/)[0].trim().slice(0, 120) || text.slice(0, 120);
+        fields.offering = { value: first, label: "inferred", locked: false };
+        var areas = text.match(/Ikeja|Yaba|Lagos|Surulere|Abuja|Mainland/gi);
+        if (areas) {
+          var seen = {};
+          var names = areas.filter(function (a) {
+            var k = a.toLowerCase();
+            if (seen[k]) return false;
+            seen[k] = true;
+            return true;
+          });
+          fields.service_area = { value: names.join(" and "), label: "inferred", locked: false };
+        }
+        var size = text.match(/\d+\s*(?:to|-|–)\s*\d+\s*(?:staff|packs|orders|people|guests)?/i);
+        if (size) fields.order_size = { value: size[0].trim(), label: "inferred", locked: false };
+        if (/office/i.test(text)) fields.ideal_customer = { value: "Offices", label: "inferred", locked: false };
+      }
+    } else if (this._obq && text && !(fields[this._obq] && fields[this._obq].locked)) {
+      fields[this._obq] = { value: text.slice(0, 280), label: "user-provided", locked: false };
+      this._obq = null;
+    }
+    var prompts = {
+      decision_maker: { prompt: "Who usually says yes to an order like this?", chips: ["Office admin", "HR manager", "The owner", "I am not sure"] },
+      order_size: { prompt: "What is a typical order size?", chips: ["Under 20", "20 to 50", "Over 50"] },
+      budget: { prompt: "What budget range should we assume per order?", chips: ["Under 50k", "50k to 200k", "I am not sure"] }
+    };
+    var next = ["decision_maker", "order_size", "budget"].filter(function (k) {
+      return !fields[k] || (!fields[k].value && !fields[k].locked);
+    })[0];
+    if (!next) return Promise.resolve({ fields: fields, question: null, done: true, followups_used: used });
+    this._obq = next;
+    return Promise.resolve({
+      fields: fields,
+      question: { key: next, prompt: prompts[next].prompt, chips: prompts[next].chips },
+      done: false,
+      followups_used: used + 1
+    });
+  };
   MockApi.prototype.runProgress = function (runId, onTick) {
     var steps = ["Planning search", "Discovering candidates", "Checking business sites", "Scoring fit", "Writing drafts"];
     var i = 0;
@@ -200,6 +257,12 @@
     ];
   }
 
+  RealApi.prototype.onboardTurn = function (payload) {
+    var body = { text: payload.text, fields: payload.fields || {}, followups_used: payload.followups_used || 0 };
+    if (payload.skip_key) body.skip_key = payload.skip_key;
+    if (payload.edit_key) { body.edit_key = payload.edit_key; body.edit_value = payload.edit_value; }
+    return this._req("/api/onboard/turn", { method: "POST", body: JSON.stringify(body) });
+  };
   RealApi.prototype.createProfile = function (input) {
     var buyer = [input.q3, input.q5].filter(function (s) { return !!s; }).join(" | ");
     var payload = { name: input.businessName, description: input.description };
