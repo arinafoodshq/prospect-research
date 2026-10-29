@@ -430,3 +430,25 @@ Test connection conn_a12e... (Gmail) left connected for reuse.
 Next: user confirms inbox delivery; demo video script + polish.
 
 Inbox confirmed 2026-10-29 (sam@techassembly.io, TLS, unsubscribe footer present). Unsubscribe link exercised live -> 200 + address suppressed, then suppression removed to keep the test address usable.
+
+## 2026-10-29 - Live research evaluation: TechAssembly run (HONEST GAPS)
+
+Ran the product as a real customer (TechAssembly, retail/logistics SMEs
+in Lagos): profile -> confirm -> Workflow run -> awaiting_approval in
+~2 min. Results: 25 prospects, 8 drafts. E2E pipeline works; research
+QUALITY is weak for this vertical:
+1. Vertical drift: brief said retail/logistics; results are schools,
+   clinics, coworking. Retrieval biased to high-web-presence categories.
+2. Snippet-only evidence: 274 search_snippet vs 9 fetched_page. No
+   prospect-site fetching; directory/listicles junk (ngex, top-10 lists);
+   unrelated-company evidence attached (AfricaWorks on Venia).
+3. Junk names: search titles stored as businesses ("dr reddington
+   patient portal"), encoding corruption, duplicates (Venia x2).
+4. Weak bar: 3/5 ratings with poor-fit rationales still "qualified".
+5. Thin contacts: 8/25 prospects have contact routes.
+Bright spot: drafts are well-written and source-cited.
+Fix list (ranked): brief-anchored search plan + vertical guardrail;
+require fetched_page evidence per qualified prospect; name validation
++ dedup + encoding fix; fit-threshold calibration; contact extraction
+pass. Needs user call: quality sprint vs demo-video polish first.
+Run: run_d3f68cbd (profile bp_76b0bee9).
