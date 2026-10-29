@@ -528,3 +528,32 @@ attempt failed transiently, retry clean). Fresh comparison run_5538b2b3
 on identical input (profile bp_ae89ddca). Deferred: location capture
 (needs Lagos containment or geo gate misfires), person-name handling
 (left to dimensional assess).
+
+## 2026-10-29 - Comparison run 3: upgrade ENGAGED, new wall found
+
+run_5538b2b3 verdicts: 15 disqualified + 10 needs_research, ALL with
+dimensions (was 0/25). Hydration fix PROVEN. Segment adherence now
+strong: Style Lagos Boutique, Fabrics by Jadesh (icp_fit 5, "two Lagos
+branches, WhatsApp orders"), Nomad/GoFlow logistics, Julix Fashion -
+real in-segment prospects with cited specifics.
+New findings:
+1. Reachability wall: all 10 needs_research score reachability 1. Root
+   cause: assess burst showed the model claims ONLY (no urls/types),
+   and the deterministic pass saved no url routes - so owned IG/sites
+   (fabricsbyjadesh, julixfashionstore.carrd.co, nomadlogisticsolutions)
+   were invisible as routes. Fix: bursts now include {claim,url,type};
+   reachability rubric counts official site/social as a route;
+   investigate saves owned fetch urls as website_form/social_profile
+   routes; search goal prefers owned sources.
+2. Directory contacts unattributed: 45 phones lifted from directory
+   pages (other businesses' numbers). Fix: directory hosts contribute
+   ZERO routes (extraction + url-route both gated).
+3. Rank/draft froze the run: 0 qualified -> stopped -> dispatch threw
+   -> retries exhausted -> stuck at assessing forever. Fix: honest-empty
+   completion (rank logs breakdown + completes; draft parks at
+   awaiting_approval + completes). Frozen run marked stopped with
+   reason (data preserved for audit).
+4. More junk guards: hashtag soup, +fashion/luxury/verified generics
+   ("Top Verified Boutique", "#aralinelogistics...").
+Tests 274/274 + tsc clean (12 new). Deployed v89e6a8ac. Fresh
+comparison run_de5e566e (profile bp_64d4014d).

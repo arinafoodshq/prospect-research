@@ -29,7 +29,7 @@ import {
   type QualificationDims,
 } from "./commercial";
 import { execFetchPage, type FetchPageDeps } from "./tools";
-import { MODEL_ID } from "../meta";
+import { isDirectoryHost, isSocialHost, MODEL_ID } from "../meta";
 
 // --- Injected deps ----------------------------------------------------------
 
@@ -345,12 +345,25 @@ export async function investigate(
       });
       await attach(evId);
       // Deterministic contact pass: emails/phones lifted from the fetched
-      // page, each bound to this evidence row. Never invented; never fatal.
-      for (const c of extractContacts(res.value.text).slice(0, 5)) {
+      // page, each bound to this evidence row. Directory pages contribute
+      // NOTHING (their numbers belong to other businesses); an owned page
+      // also records its own url as a DM-able route. Never fatal.
+      if (!isDirectoryHost(target.source_url)) {
+        for (const c of extractContacts(res.value.text).slice(0, 5)) {
+          try {
+            await saveRoute(db, { prospect_id: p.id, channel: c.channel, value: c.value, evidence_id: evId });
+          } catch {
+            /* dupes or bad rows: contacts are best-effort, the run continues */
+          }
+        }
         try {
-          await saveRoute(db, { prospect_id: p.id, channel: c.channel, value: c.value, evidence_id: evId });
+          await saveRoute(db, {
+            prospect_id: p.id,
+            channel: isSocialHost(target.source_url) ? "social_profile" : "website_form",
+            value: target.source_url, evidence_id: evId,
+          });
         } catch {
-          /* dupes or bad rows: contacts are best-effort, the run continues */
+          /* url route is best-effort too */
         }
       }
     } else {
@@ -621,7 +634,20 @@ export async function rank(
   }
   const prospects = await listProspects(db, budgets.run_id);
   const qualified = prospects.filter((p) => p.status === "qualified");
-  if (qualified.length === 0) return stopped("no_candidates", "no qualified prospects to rank");
+  // Honest empty: the dimensional bar may qualify nobody (0/25 on
+  // run_5538b2b3). Stopping here throws on the Workflow path and freezes
+  // the run; completing lets draft park visibly with per-prospect reasons.
+  if (qualified.length === 0) {
+    const byStatus = prospects.reduce<Record<string, number>>((m, p) => {
+      m[p.status] = (m[p.status] ?? 0) + 1;
+      return m;
+    }, {});
+    await logActivity(db, {
+      run_id: budgets.run_id, prospect_id: null,
+      event: "shortlisted", note: `empty shortlist: 0 qualified (${JSON.stringify(byStatus)})`,
+    });
+    return completed("empty shortlist: 0 qualified, see per-prospect verdicts");
+  }
   const amap = await fetchAssessmentMap(db, qualified.map((p) => p.id));
   const evs = await listEvidence(db, budgets.run_id);
   const evCount = new Map<string, number>();
@@ -669,7 +695,15 @@ export async function draft(
   if (breach) return stopped(breach, "budget breached before draft");
   const prospects = await listProspects(db, budgets.run_id);
   const targets = prospects.filter((p) => p.status === "shortlisted");
-  if (targets.length === 0) return stopped("no_candidates", "no shortlisted prospects to draft");
+  // Honest empty: nothing shortlisted (rank already logged why). Park at
+  // awaiting_approval like the normal path so the run completes visibly
+  // instead of freezing mid-flight on the Workflow path.
+  if (targets.length === 0) {
+    try {
+      await setRunStatus(db, budgets.run_id, "awaiting_approval");
+    } catch { /* best-effort; gate still waits */ }
+    return completed("0 drafts written; empty shortlist awaiting review");
+  }
   const allEvidence = await listEvidence(db, budgets.run_id);
   let proposals: DraftProposal[];
   try {

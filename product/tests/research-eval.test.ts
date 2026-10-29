@@ -253,6 +253,10 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "Avoid shopping stress with these online grocery platforms",
     "Didi Fashion for exclusive fashion wear (photos)",
     "Clothing (Brands)",
+    // run_5538b2b3 junk (comparison run 3): directory-coined names, hashtag soup.
+    "Top Verified Boutique",
+    "Luxury Fashion Boutique",
+    "#aralinelogistics #businessgrowth #ecommercenigeria #lagosbusiness",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -265,7 +269,7 @@ describe("business-name guards (live-run junk fixtures)", () => {
     expect(isPlausibleName("Teph-store, Ikeja Lagos, Lagos (2026)")).toBe(true);
   });
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng"];
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);

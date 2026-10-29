@@ -407,6 +407,7 @@ export function buildSearchGoal(b: CommercialBrief, query: string): string {
     `Find businesses that match: ${query}.`,
     `Wanted: buying businesses in ${seg.industries.join(", ")} (${seg.label}) near ${seg.geos.join(", ")}.`,
     `Never list: ${seg.exclusions.join(", ")}.`,
+    `Prefer the business's own website, Google Business page, or official social profile as the url; directories and listicles are a last resort.`,
     `Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}].`,
   ].join(" ");
 }

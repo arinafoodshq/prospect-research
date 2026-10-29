@@ -23,6 +23,7 @@ import {
   investigate,
   listAssessments,
   plan,
+  rank,
   type BudgetState,
 } from "../src/research/phases";
 import { dedupeKey } from "../src/db";
@@ -1062,6 +1063,54 @@ describe("investigate per-prospect fetch", () => {
     const values = results.map((r) => r.value).sort();
     expect(values).toContain("hello@shop.ng");
     expect(values).toContain("08031234567");
+  });
+
+  it("saves the owned fetch url as a route but never directory pages (run_5538b2b3)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const mk = async (name: string, url: string) => {
+      const evidenceId = await saveEvidence(db, {
+        run_id: RUN_ID, claim: `${name} exists`, quote: "q", source_url: url,
+        source_type: "search_snippet", retrieved_at: new Date().toISOString(),
+        reliability: "unknown", conflicts_with: null, supersedes: null,
+      });
+      await saveCandidate(db, { run_id: RUN_ID, name, category: "Retail", location: {}, evidence_ids: [evidenceId] });
+    };
+    await mk("Owned Shop", "https://instagram.com/ownedshop");
+    await mk("Listed Shop", "https://www.finelib.com/lagos/listed-shop");
+    await investigate(BRIEF, db, {
+      fetchPage: async () => ({ text: "reach us at hello@example.com today" }),
+    }, budgetsWith());
+    const { results } = await db.prepare("SELECT * FROM contact_route").all<any>();
+    const byValue = new Map(results.map((r) => [r.value, r.channel]));
+    // Owned social profile becomes a DM-able route.
+    expect(byValue.get("https://instagram.com/ownedshop")).toBe("social_profile");
+    // Directory pages contribute no routes at all (no unattributed contacts).
+    expect([...byValue.keys()].some((v) => String(v).includes("finelib"))).toBe(false);
+    expect(results).toHaveLength(2); // email + social route, both for Owned Shop
+  });
+});
+
+describe("honest empty shortlist (run_5538b2b3 froze at assessing)", () => {
+  it("rank completes with zero qualified instead of stopping the run", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    await seedCandidate(db, "Still Researching Co");
+    const out = await rank(BRIEF, db, {}, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect(out.detail ?? "").toContain("0 qualified");
+  });
+
+  it("draft parks at awaiting_approval with zero shortlisted instead of stopping", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    tables["research_run"][0].status = "assessing";
+    await seedCandidate(db, "Still Researching Co");
+    const proposeDrafts = vi.fn(async () => []);
+    const out = await draft(BRIEF, db, { proposeDrafts }, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect(proposeDrafts).not.toHaveBeenCalled();
+    expect(tables["research_run"][0].status).toBe("awaiting_approval");
   });
 });
 

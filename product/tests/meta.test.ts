@@ -484,6 +484,52 @@ describe("createMetaClient", () => {
     expect(sentAssess.tools).toEqual([]);
   });
 
+  it("assess burst shows the model evidence urls + types (run_5538b2b3 reachability blindness)", async () => {
+    const fetchImpl = stubFetch({
+      id: "resp_au",
+      output: [{
+        type: "message",
+        content: [{
+          type: "output_text",
+          text: '[{"prospect_id":"pr_1","fit_rating":4,"supporting_claims":["x"],"rationale":"y","dimensions":{"icp_fit":4,"problem":4,"readiness":3,"reachability":4,"confidence":4}}]',
+          annotations: [],
+        }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    await client.proposeAssessments!(
+      [{ id: "pr_1" } as any],
+      [{ id: "ev_1", claim: "ig page", source_url: "https://instagram.com/shop", source_type: "fetched_page" } as any],
+    );
+    const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
+    const input = JSON.stringify(sent.input);
+    expect(input).toContain("https://instagram.com/shop");
+    expect(input).toContain("fetched_page");
+  });
+
+  it("draft burst shows the model evidence urls for contact grounding", async () => {
+    const fetchImpl = stubFetch({
+      id: "resp_du",
+      output: [{
+        type: "message",
+        content: [{
+          type: "output_text",
+          text: '[{"prospect_id":"pr_1","channel":"social_profile","contact_value":"https://instagram.com/shop","body":"Hi [ev_1]","next_action":"Send"}]',
+          annotations: [],
+        }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    await client.proposeDrafts!(
+      [{ id: "pr_1" } as any],
+      [{ id: "ev_1", claim: "ig page", source_url: "https://instagram.com/shop" } as any],
+    );
+    const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
+    expect(JSON.stringify(sent.input)).toContain("https://instagram.com/shop");
+  });
+
   it("proposeDrafts validates channels and requires an evidence marker", async () => {
     const fetchImpl = stubFetch({
       id: "resp_d",

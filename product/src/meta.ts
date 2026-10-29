@@ -274,6 +274,8 @@ const LISTING_PAREN = /\((photos?|brands?|images?|pictures?)\)/i;
 const HAS_EMOJI = /\p{Extended_Pictographic}/u;
 /** Year-paren listing cruft ("Teph-store, ... (2026)"): stripped, residue validates. */
 const YEAR_PAREN = /\(\s*(19|20)\d{2}\s*\)/g;
+/** Hashtag soup ("#aralinelogistics #businessgrowth ...") is a post, not a business. */
+const HASHTAG_SOUP = /#\w+.*#\w+|^#\w+/;
 
 /** Words that never make a name distinctive (categories, places, fillers). */
 const GENERIC_WORDS = new Set(
@@ -296,6 +298,7 @@ const GENERIC_WORDS = new Set(
     "bedroom bedrooms flat flats apartment apartments duplex bungalow contain self affordable cheap " +
     "shop shops store stores mart marts market markets mall malls plaza plazas boutique boutiques " +
     "stall stalls kiosk kiosks outlet outlets clothing clothes wear wears fabric fabrics " +
+    "fashion fashions luxury luxuries verified " +
     "grocery groceries supermarket supermarkets bookshop bookshops " +
     "private primary nursery international preschool college lagos ikeja nigeria nigerian " +
     "omole ogba opebi allen gra maryland yaba surulere lekki ikoyi island " +
@@ -339,6 +342,17 @@ export function isDirectoryHost(url: string): boolean {
   return DIRECTORY_HOSTS.some((d) => h.includes(d));
 }
 
+/** Social hosts: the profile url itself is a DM-able contact route. */
+const SOCIAL_HOSTS = [
+  "instagram.com", "facebook.com", "fb.com", "tiktok.com", "x.com",
+  "twitter.com", "linkedin.com", "wa.me", "whatsapp.com", "t.me", "telegram.me",
+];
+
+export function isSocialHost(url: string): boolean {
+  const h = hostOf(url).toLowerCase();
+  return SOCIAL_HOSTS.some((d) => h === d || h.endsWith(`.${d}`));
+}
+
 /** Canonicalize for comparing model urls against result urls. */
 export function normUrl(u: string): string {
   try {
@@ -380,6 +394,7 @@ export function isPlausibleName(raw: string): boolean {
   if (THESE_THOSE.test(trimmed)) return false; // headline demonstrative, not a name
   if (LISTING_PAREN.test(trimmed)) return false; // "(photos)/(brands)" leftover, not a business
   if (HAS_EMOJI.test(trimmed)) return false; // emoji title, not a verified name
+  if (HASHTAG_SOUP.test(trimmed)) return false; // hashtag soup, not a business
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
   if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
@@ -490,8 +505,8 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       phase: "assess",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality (1=none),"confidence":1-5 source quality}}]. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence claims: ${JSON.stringify(evidence.slice(0, 30).map((e) => e.claim))}.`
-        : `Rate fit 1-5 for each prospect. Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"..."}]. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence claims: ${JSON.stringify(evidence.slice(0, 30).map((e) => e.claim))}.`,
+        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality: an official site or business social profile counts as a usable route (1=none),"confidence":1-5 source quality}}]. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`
+        : `Rate fit 1-5 for each prospect. Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"..."}]. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
@@ -535,8 +550,8 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       phase: "draft",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims]}]. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim })))}.`
-        : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"...","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}.`,
+        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims]}]. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`
+        : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
