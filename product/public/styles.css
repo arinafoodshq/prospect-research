@@ -130,19 +130,50 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 /* Progress */
 .budget { font-size: 0.88rem; color: var(--muted); }
 
-/* Shortlist */
+/* Shortlist (PDF screen 4: tabs, pick cards, sticky bar) */
+.tabs { display: flex; gap: 0.6rem; margin: 1rem 0; flex-wrap: wrap; }
+.tabs [role="tab"] {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill);
+  padding: 0.55rem 1.1rem; min-height: var(--touch); font-weight: 600;
+}
+.tabs [role="tab"][aria-selected="true"] {
+  color: var(--accent); border-color: var(--accent); font-weight: 700;
+}
 .shortlist-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; }
 #prospect-list { list-style: none; padding: 0; margin: 0; }
-#prospect-list li {
+#prospect-list li.pick {
+  display: flex; gap: 0.8rem; align-items: flex-start;
   border: 1px solid var(--border);
   background: var(--surface-deep);
   border-radius: var(--radius-sm);
-  padding: 0.7rem;
-  margin-bottom: 0.6rem;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.8rem;
   cursor: pointer;
 }
 #prospect-list li[aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(227, 180, 92, 0.25); }
 #prospect-list .score { font-weight: 700; color: var(--success); }
+.pick-tick { flex: 0 0 auto; margin-top: 0.15rem; }
+.pick-tick input[type="checkbox"] { width: 1.4rem; height: 1.4rem; accent-color: var(--accent); cursor: pointer; }
+.pick-body { flex: 1; min-width: 0; }
+.pick-body h4 { margin: 0.7rem 0 0.15rem; font-size: 0.95rem; }
+.pick-body p { margin: 0.15rem 0; }
+.fit {
+  font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+  color: var(--accent); border: 1px solid var(--accent);
+  border-radius: var(--radius-pill); padding: 0.1rem 0.6rem;
+  white-space: nowrap;
+}
+#shortlist-bar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; gap: 1rem;
+  background: var(--surface-deep);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1.1rem; margin-top: 1rem;
+}
+#shortlist-bar p { margin: 0; font-weight: 600; }
+#shortlist-bar button { margin-left: auto; flex: 0 0 auto; }
 #evidence-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.8rem; background: var(--surface-deep); }
 #evidence-panel blockquote {
   background: var(--ground);
@@ -228,6 +259,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   .shortlist-grid, .board { grid-template-columns: 1fr; }
   .choice-row button { flex-basis: 100%; }
   .row { flex-wrap: wrap; }
+  #shortlist-bar { flex-wrap: wrap; }
+  #shortlist-bar button { margin-left: 0; width: 100%; }
 }
 
 @media (max-width: 480px) {

@@ -267,19 +267,33 @@
       <button id="btn-restart-progress" type="button" class="secondary" hidden>Start over</button>
     </section>
 
-    <!-- View 4: shortlist + evidence -->
+    <!-- View 4: shortlist + evidence (PDF screen 4: tabs, cards, sticky bar) -->
     <section id="view-shortlist" class="view" hidden aria-label="Ranked shortlist">
-      <h2>Shortlist — ranked prospects</h2>
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <p class="kicker" id="shortlist-kicker">SAMPLE SHORTLIST</p>
+      </div>
+      <h2 id="shortlist-title">Buyers worth your time.</h2>
+      <p class="hint">Each one made the shortlist. Tick the ones you want, and we write the messages.</p>
+      <div role="tablist" aria-label="Shortlist groups" id="shortlist-tabs" class="tabs">
+        <button role="tab" id="tab-ready" type="button" data-tab="ready" aria-selected="true">Ready now · <span id="tab-ready-n">0</span></button>
+        <button role="tab" id="tab-warm" type="button" data-tab="warm" aria-selected="false">Warm up · <span id="tab-warm-n">0</span></button>
+        <button role="tab" id="tab-look" type="button" data-tab="look" aria-selected="false">Needs a look · <span id="tab-look-n">0</span></button>
+      </div>
       <div class="shortlist-grid">
-        <ol id="prospect-list"></ol>
+        <div>
+          <ol id="prospect-list"></ol>
+          <p class="muted small" id="shortlist-empty" hidden>No picks in this group yet.</p>
+        </div>
         <aside id="evidence-panel" aria-label="Evidence panel" aria-live="polite">
           <h3>Evidence</h3>
           <p class="hint" id="evidence-hint">Select a prospect to see why it was picked, with sources.</p>
           <div id="evidence-body"></div>
         </aside>
       </div>
-      <div class="row">
-        <button id="btn-to-drafts" type="button">Review outreach drafts</button>
+      <div id="shortlist-bar" role="region" aria-label="Selected prospects">
+        <p id="shortlist-count">0 selected · nothing is sent yet</p>
+        <button id="btn-to-drafts" type="button">Write my messages</button>
       </div>
     </section>
 
@@ -287,6 +301,7 @@
     <section id="view-drafts" class="view" hidden aria-label="Draft review">
       <h2>Review outreach drafts</h2>
       <p class="hint">Approve, edit, or reject each draft. Only approved drafts move to the status board.</p>
+      <p class="hint" id="drafts-note"></p>
       <div id="draft-list"></div>
       <div class="row">
         <button id="btn-back-shortlist" type="button" class="secondary">Back to shortlist</button>

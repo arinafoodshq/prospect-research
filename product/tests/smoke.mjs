@@ -120,7 +120,10 @@ const IDS = [
   "stat-found", "stat-opened", "stat-kept",
   "progress-setaside", "progress-setaside-empty", "progress-error",
   "btn-preview-progress", "btn-stop-progress",
-  "prospect-list", "evidence-body", "evidence-hint", "draft-list", "status-board",
+  "prospect-list", "evidence-body", "evidence-hint", "draft-list", "drafts-note", "status-board",
+  "shortlist-kicker", "shortlist-title", "shortlist-tabs", "shortlist-empty",
+  "tab-ready", "tab-warm", "tab-look", "tab-ready-n", "tab-warm-n", "tab-look-n",
+  "shortlist-count",
   "demo-banner", "mode-line",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status",
   "btn-back-shortlist", "btn-back-drafts", "btn-restart", "btn-restart-progress",
@@ -254,18 +257,60 @@ await fire(els["btn-preview-progress"], "click", evt());
 await tick(); await tick();
 ok(visible("view-shortlist"), "preview jumps to results so far mid-run");
 ok(els["prospect-list"].children.length === 2, "preview shows only kept prospects, saw " + els["prospect-list"].children.length);
+ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "0",
+  "preview tab counts match the partial list");
 await runDone; // remaining ticks + completion
 await tick(); await tick();
 ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site given (edited inline)"),
   "inline guess edit reaches confirmBrief");
 ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
-ok(els["prospect-list"].children.length === 6, "shortlist shows 6 prospects, saw " + els["prospect-list"].children.length);
+ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "2" && els["tab-look-n"].textContent === "2",
+  "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent + ")");
+ok(els["shortlist-title"].textContent === "6 buyers worth your time.", "title counts the shortlist");
+ok(els["prospect-list"].children.length === 2, "ready tab lists 2 qualified, saw " + els["prospect-list"].children.length);
+{
+  const card = els["prospect-list"].children[0].innerHTML;
+  ok(/STRONG FIT/.test(card), "card shows the fit badge");
+  ok(/Why now/.test(card) && /How to reach them/.test(card), "card shows why-now and route");
+  ok(/Source:/.test(card), "card cites its source");
+  ok(/Still unconfirmed:/.test(card), "card lists open questions");
+  ok(/Published, not yet checked/.test(card), "card labels the route honestly");
+}
 ok(els["evidence-body"].innerHTML.length > 20, "selecting a prospect shows evidence");
+ok(els["shortlist-count"].textContent === "6 selected · nothing is sent yet", "sticky bar counts all selected");
+
+const tabTarget = (t) => evt({ target: { getAttribute: (k) => (k === "data-tab" ? t : null) } });
+await fire(els["shortlist-tabs"], "click", tabTarget("warm"));
+await tick();
+ok(els["prospect-list"].children.length === 2
+  && /GOOD FIT, NO SIGNAL YET/.test(els["prospect-list"].children[0].innerHTML),
+  "warm tab lists no-signal picks");
+ok(/patient intro/.test(els["prospect-list"].children[0].innerHTML), "warm card suggests a patient intro");
+await fire(els["shortlist-tabs"], "click", tabTarget("look"));
+await tick();
+ok(els["prospect-list"].children.length === 2
+  && /NEEDS A LOOK/.test(els["prospect-list"].children[0].innerHTML),
+  "look tab lists needs-review picks");
+ok(/No published route found yet/.test(els["prospect-list"].children[0].innerHTML), "routeless card stays honest");
+await fire(els["shortlist-tabs"], "click", tabTarget("ready"));
+await tick();
+
+{
+  const li = els["prospect-list"].children[0];
+  const fns = li._listeners.click || [];
+  const untick = { target: { getAttribute: (k) => (k === "data-sel" ? "p01" : null), checked: false } };
+  for (const fn of fns) await fn.call(li, untick);
+}
+await tick();
+ok(els["shortlist-count"].textContent === "5 selected · nothing is sent yet", "unticking updates the sticky count");
 
 await fire(els["btn-to-drafts"], "click", evt());
 await tick(); await tick();
 ok(visible("view-drafts"), "shortlist -> drafts view");
-ok(els["draft-list"].children.length === 4, "drafts view lists 4 drafts, saw " + els["draft-list"].children.length);
+ok(els["draft-list"].children.length === 3, "drafts view lists 3 drafts for 5 selected, saw " + els["draft-list"].children.length);
+ok(/5 selected picks/.test(els["drafts-note"].textContent), "drafts note explains the filter");
+ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-note"].textContent),
+  "drafts note names selected picks without drafts");
 
 {
   const drafts = els["draft-list"].children;
@@ -343,7 +388,7 @@ ok(visible("view-profile"), "stop returns to the brief");
     "POST /api/runs/run_9/start": { id: "run_9", status: "awaiting_approval" },
     "GET /api/runs/run_9": [{ id: "run_9", status: "discovering" }, { id: "run_9", status: "awaiting_approval" }],
     "GET /api/runs/run_9/prospects": { run_id: "run_9", prospects: [{ id: "pr_9", run_id: "run_9", name: "Brightline Ltd", category: "Logistics", location: { area: "Ikeja GRA" }, status: "shortlisted", rank: 1 }] },
-    "GET /api/prospects/pr_9": { prospect: { id: "pr_9", name: "Brightline Ltd" }, assessments: [{ fit_rating: 4, supporting_evidence_ids: ["ev_9"], rationale: "Strong fit: lunch rota" }], evidence: [{ id: "ev_9", quote: "weekday lunch rota", source_url: "https://brightline.ng/about", source_type: "fetched_page" }], contact_routes: [] },
+    "GET /api/prospects/pr_9": { prospect: { id: "pr_9", name: "Brightline Ltd" }, assessments: [{ fit_rating: 4, supporting_evidence_ids: ["ev_9"], rationale: "Strong fit: lunch rota", verdict: "qualified", dimensions: { icp_fit: 5, problem: 4, readiness: 4, reachability: 3, confidence: 4 }, uncertainties: ["budget"], missing_info: ["decision maker"] }], evidence: [{ id: "ev_9", quote: "weekday lunch rota", source_url: "https://brightline.ng/about", source_type: "fetched_page" }], contact_routes: [{ channel: "email", value: "admin@brightline.ng", verification: "public_listing" }] },
     "GET /api/runs/run_9/drafts": { run_id: "run_9", drafts: [{ id: "dr_9", prospect_id: "pr_9", subject: "Lunches", body: "Hi [ev_9]", status: "draft" }] },
     "PATCH /api/drafts/dr_9": { draft: { id: "dr_9", status: "draft", edited_by_human: 1 } },
     "POST /api/drafts/dr_9/decision": { draft: { id: "dr_9", status: "approved" } },
@@ -399,6 +444,12 @@ ok(visible("view-profile"), "stop returns to the brief");
   const short = await api.getShortlist("run_9");
   ok(short.prospects.length === 1 && short.prospects[0].score === 80, "shortlist maps fit_rating 4 to score 80");
   ok(short.prospects[0].area === "Ikeja GRA", "shortlist area comes from prospect location");
+  ok(short.prospects[0].verdict === "qualified" && short.prospects[0].readiness === 4,
+    "shortlist maps verdict + readiness for tabs");
+  ok(short.prospects[0].uncertainties.join("|") === "budget|decision maker", "shortlist joins uncertainties + missing_info");
+  ok(short.prospects[0].routes.length === 1 && short.prospects[0].routes[0].value === "admin@brightline.ng",
+    "shortlist maps contact routes");
+  ok(short.prospects[0].sourceUrl === "https://brightline.ng/about", "shortlist keeps the first evidence url");
 
   const det = await api.getEvidence("pr_9");
   ok(det.prospect.name === "Brightline Ltd", "getEvidence keeps the prospect name");

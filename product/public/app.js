@@ -315,6 +315,9 @@
     }).then(function () {
       return api.getShortlist(state.runId).then(function (res) {
         state.prospects = res.prospects;
+        state.selectedId = null;
+        state.selectedIds = null;
+        state.tab = "ready";
         renderShortlist();
         showView("shortlist");
       });
@@ -372,6 +375,8 @@
     return api.getShortlist(state.runId).then(function (res) {
       state.prospects = res.prospects;
       state.selectedId = null;
+      state.selectedIds = null;
+      state.tab = "ready";
       renderShortlist();
       showView("shortlist");
     });
@@ -382,28 +387,148 @@
     api.getShortlist(state.runId || "sample").then(function (res) {
       state.prospects = res.prospects;
       state.selectedId = null;
+      state.selectedIds = null;
+      state.tab = "ready";
       renderShortlist();
       showView("shortlist");
     });
   }
 
+  function tabOf(p) {
+    if (p.verdict === "qualified") return "ready";
+    if (p.verdict === "no_signal") return "warm";
+    return "look";
+  }
+
+  function shownProspects() {
+    return (state.prospects || []).filter(function (p) { return p.status !== "disqualified"; });
+  }
+
+  function firstSentence(s) {
+    var t = String(s || "").trim();
+    if (!t) return "";
+    var head = t.split(/[.?!]\s/)[0].trim() || t;
+    return head.slice(0, 140);
+  }
+
+  function sourceLabel(url) {
+    var u = String(url || "");
+    if (!u) return "";
+    var low = u.toLowerCase();
+    if (low.indexOf("instagram.com") >= 0) return "their Instagram page";
+    if (low.indexOf("facebook.com") >= 0 || low.indexOf("fb.com") >= 0) return "their Facebook page";
+    if (low.indexOf("career") >= 0 || low.indexOf("hiring") >= 0 || low.indexOf("/jobs") >= 0) return "their careers page";
+    try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u.slice(0, 40); }
+  }
+
+  var ROUTE_LABELS = {
+    website_form: "Contact form", email: "Email address", phone: "Phone number",
+    social_profile: "Social profile", other: "Contact"
+  };
+
+  function whyNowFor(p) {
+    if ((p.readiness || 0) >= 3 && p.rationale) return firstSentence(p.rationale);
+    if (tabOf(p) === "warm") return "No timing signal found. Suggested for a patient intro.";
+    return "No timing signal found yet.";
+  }
+
+  function fitBadge(p) {
+    if (p.verdict === "qualified") return "STRONG FIT";
+    if (p.verdict === "no_signal") return "GOOD FIT, NO SIGNAL YET";
+    return "NEEDS A LOOK";
+  }
+
+  function prospectSource(p) {
+    if (p.sourceUrl) return p.sourceUrl;
+    var ev = (p.evidence || [])[0];
+    return ev ? ev.source || "" : "";
+  }
+
+  function isSelected(id) {
+    if (!state.selectedIds) return true;
+    return state.selectedIds.indexOf(id) >= 0;
+  }
+
   function renderShortlist() {
+    var shown = shownProspects();
+    if (!state.selectedIds) state.selectedIds = shown.map(function (p) { return p.id; });
+    if (!state.tab) state.tab = "ready";
+    $("shortlist-kicker").textContent = api.mode === "live" ? "LIVE SHORTLIST" : "SAMPLE SHORTLIST";
+    $("shortlist-title").textContent = shown.length === 1
+      ? "One buyer worth your time."
+      : shown.length + " buyers worth your time.";
+    var counts = { ready: 0, warm: 0, look: 0 };
+    shown.forEach(function (p) { counts[tabOf(p)] += 1; });
+    ["ready", "warm", "look"].forEach(function (t) {
+      $("tab-" + t + "-n").textContent = String(counts[t]);
+      $("tab-" + t).setAttribute("aria-selected", state.tab === t ? "true" : "false");
+    });
     var list = $("prospect-list");
     list.innerHTML = "";
-    state.prospects.forEach(function (p) {
+    var inTab = shown.filter(function (p) { return tabOf(p) === state.tab; });
+    $("shortlist-empty").hidden = inTab.length > 0;
+    inTab.forEach(function (p) {
       var li = document.createElement("li");
+      li.className = "pick";
       li.setAttribute("tabindex", "0");
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", state.selectedId === p.id ? "true" : "false");
       li.dataset.id = p.id;
-      li.innerHTML = "<strong>" + esc(p.name) + "</strong> <span class=\"score\">" + esc(p.score) + "/100</span><br/>" +
-        "<span>" + esc(p.area) + " · " + esc(p.category) + "</span><br/>" +
-        "<span>" + esc(p.summary) + "</span>";
-      li.addEventListener("click", function () { selectProspect(p.id); });
+      var routes = p.routes || [];
+      var first = routes[0];
+      var routeLine = first
+        ? esc(ROUTE_LABELS[first.channel] || "Contact") + ": " + esc(String(first.value).slice(0, 48)) +
+          (routes.length > 1 ? " (+" + (routes.length - 1) + " more)" : "") +
+          "<br/><span class=\"muted small\">Published, not yet checked</span>"
+        : "<span class=\"muted\">No published route found yet.</span>";
+      var open = (p.uncertainties || []).slice(0, 2);
+      var src = sourceLabel(prospectSource(p));
+      li.innerHTML =
+        "<label class=\"pick-tick\"><input type=\"checkbox\" data-sel=\"" + esc(p.id) + "\"" +
+        (isSelected(p.id) ? " checked" : "") + " aria-label=\"Select " + esc(p.name) + "\" /></label>" +
+        "<div class=\"pick-body\"><strong>" + esc(p.name) + "</strong> " +
+        "<span class=\"fit\">" + esc(fitBadge(p)) + "</span><br/>" +
+        "<span>" + esc(p.category) + " · " + esc(p.area) + "</span>" +
+        "<h4>Why now</h4><p>" + esc(whyNowFor(p)) + "</p>" +
+        (src ? "<p class=\"muted small\">Source: " + esc(src) + "</p>" : "") +
+        "<h4>How to reach them</h4><p>" + routeLine + "</p>" +
+        (open.length ? "<p class=\"muted small\">Still unconfirmed: " + esc(open.join(", ")) + "</p>" : "") +
+        "</div>";
+      li.addEventListener("click", function (e) {
+        var t = e.target || {};
+        if (t.getAttribute && t.getAttribute("data-sel")) {
+          toggleSelected(t.getAttribute("data-sel"), !!t.checked);
+          return;
+        }
+        selectProspect(p.id);
+      });
       li.addEventListener("keydown", function (e) { if (e.key === "Enter") selectProspect(p.id); });
       list.appendChild(li);
     });
-    if (!state.selectedId && state.prospects.length) selectProspect(state.prospects[0].id);
+    if (!state.selectedId && inTab.length) selectProspect(inTab[0].id);
+    renderShortlistBar();
+  }
+
+  function toggleSelected(id, on) {
+    var ids = state.selectedIds || shownProspects().map(function (p) { return p.id; });
+    if (on && ids.indexOf(id) < 0) ids.push(id);
+    if (!on) ids = ids.filter(function (x) { return x !== id; });
+    state.selectedIds = ids;
+    renderShortlistBar();
+  }
+
+  function renderShortlistBar() {
+    var n = (state.selectedIds || shownProspects().map(function (p) { return p.id; })).length;
+    $("shortlist-count").textContent = n === 1
+      ? "1 selected · nothing is sent yet"
+      : n + " selected · nothing is sent yet";
+    $("btn-to-drafts").disabled = n === 0;
+  }
+
+  function switchTab(t) {
+    state.tab = t;
+    state.selectedId = null;
+    renderShortlist();
   }
 
   function selectProspect(id) {
@@ -469,9 +594,21 @@
         if (state.decisions[d.prospectId]) d.status = state.decisions[d.prospectId].decision;
         return d;
       });
+      var sel = state.selectedIds || state.drafts.map(function (d) { return d.prospectId; });
+      var drafts = state.drafts.filter(function (d) { return sel.indexOf(d.prospectId) >= 0; });
       var wrap = $("draft-list");
       wrap.innerHTML = "";
-      state.drafts.forEach(function (d) {
+      var notes = [];
+      if (drafts.length < state.drafts.length) notes.push("Showing drafts for your " + sel.length + " selected picks.");
+      var missing = sel.filter(function (id) {
+        return !state.drafts.some(function (d) { return d.prospectId === id; });
+      }).map(function (id) {
+        var p = state.prospects.filter(function (x) { return x.id === id; })[0];
+        return p ? p.name : id;
+      });
+      if (missing.length) notes.push("No draft yet for " + missing.join(", ") + " — the research did not write one.");
+      $("drafts-note").textContent = notes.join(" ");
+      drafts.forEach(function (d) {
         var p = state.prospects.filter(function (x) { return x.id === d.prospectId; })[0];
         var div = document.createElement("div");
         div.className = "draft";
@@ -1004,6 +1141,15 @@
     $("btn-preview-progress").addEventListener("click", previewProgress);
     $("btn-stop-progress").addEventListener("click", function () { showView("profile"); });
     $("btn-confirm-profile").addEventListener("click", confirmBriefAndRun);
+    $("shortlist-tabs").addEventListener("click", function (e) {
+      var t = e.target || {};
+      var tab = t.getAttribute ? t.getAttribute("data-tab") : null;
+      if (!tab) {
+        var btn = t.closest ? t.closest("[data-tab]") : null;
+        tab = btn && btn.getAttribute ? btn.getAttribute("data-tab") : null;
+      }
+      if (tab) switchTab(tab);
+    });
     $("btn-to-drafts").addEventListener("click", renderDrafts);
     $("btn-to-status").addEventListener("click", renderStatuses);
     $("btn-back-shortlist").addEventListener("click", function () { showView("shortlist"); });

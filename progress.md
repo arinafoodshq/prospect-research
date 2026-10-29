@@ -768,3 +768,24 @@ clean, headless full-journey drive 0 console errors 0 failed requests
 0px overflow, desktop + 390px screenshots viewed. Fixed along the way:
 legacy #progress-steps CSS overriding the new checklist (removed dead
 progress-bar rules); two stale local http.servers colliding on :8000.
+
+## 2026-10-29 - Revamp P0.5 DONE: shortlist tabs + sticky bar (PDF screen 4)
+
+No backend changes (freeze holds). Tabs bucket by verdict (Ready =
+qualified, Warm = no_signal, Look = everything else incl.
+needs_research/manual_review/unscored); disqualified stay excluded
+(set-aside owns them). Cards show fit badge, why-now (readiness>=3 ->
+rationale first sentence, else honest no-signal lines), derived
+source label (their Instagram/Facebook/careers page or hostname),
+first contact route labelled Published not yet checked, and the top 2
+uncertainties; routeless cards say so. Tick selection defaults to all
+and drives the sticky bar count plus a drafts filter with honest
+notes for missing drafts. Mock data enriched to 2/2/2 across tabs;
+live adapter maps verdict/readiness/rationale/uncertainties/routes/
+sourceUrl, reusing the cached evidence adapter.
+Verified: smoke PASS (tab counts/switching, card fields, untick ->
+count, 3-draft filter + notes, live mapping), 349/349 vitest green,
+node --check clean, headless full-journey drive 0 console errors 0
+failed requests 0px overflow, desktop + 390px screenshots viewed.
+Note: stale :8000 screenshot servers keep surviving terminate; killed
+by PID again before driving.

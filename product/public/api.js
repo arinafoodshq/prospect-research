@@ -9,36 +9,60 @@
   var DEMO_PROSPECTS = [
     { id: "p01", name: "Brightline Logistics Ltd", area: "Ikeja GRA", category: "Logistics", score: 87,
       summary: "45 staff, weekday lunch rota, admin orders catering weekly.",
+      verdict: "qualified", readiness: 4,
+      rationale: "Runs a weekday lunch rota for 45 staff, and the admin reorders every Monday.",
+      uncertainties: ["Whether they use a regular supplier today"],
+      routes: [{ channel: "website_form", value: "https://brightline.ng/contact" }],
       evidence: [
         { quote: "Our Ikeja office runs a weekday lunch rota for about 45 staff.", source: "brightline.ng/about", type: "site" },
         { quote: "Office admin requests catering vendors every Monday.", source: "web search: Brightline Ikeja catering", type: "search" }
       ] },
     { id: "p02", name: "Kingsway Tech Hub", area: "Ikeja Allen", category: "Coworking", score: 83,
       summary: "200 members, daily lunch vendor slots, paid by hub.",
+      verdict: "qualified", readiness: 4,
+      rationale: "200 members eat on site daily and the hub pays vendors weekly.",
+      uncertainties: ["Who signs off new vendors"],
+      routes: [{ channel: "email", value: "hello@kingswayhub.com" }],
       evidence: [
         { quote: "Food vendors serve members daily; hub pays weekly.", source: "kingswayhub.com/membership", type: "site" },
         { quote: "Listed among Allen Avenue hubs with in-house lunch service.", source: "web search: Kingsway Tech Hub lunch", type: "search" }
       ] },
     { id: "p03", name: "St. Raphael Clinic", area: "Ikeja Opebi", category: "Healthcare", score: 79,
       summary: "60 staff across shifts, patient meals outsourced.",
+      verdict: "no_signal", readiness: 1,
+      rationale: "60 staff across shifts with outsourced patient meals.",
+      uncertainties: ["Whether staff meals are tendered with patient meals"],
+      routes: [{ channel: "website_form", value: "https://straphael-ikeja.ng/contact" }],
       evidence: [
         { quote: "Shift meal provision for 60 clinical and admin staff.", source: "straphael-ikeja.ng/careers", type: "site" },
         { quote: "Patient catering tender reissued yearly.", source: "web search: St Raphael Ikeja catering tender", type: "search" }
       ] },
     { id: "p04", name: "Coral Schools Ikeja", area: "Ikeja Ogba", category: "Education", score: 76,
       summary: "800 pupils, term-time lunch contract, decision by bursar.",
+      verdict: "no_signal", readiness: 2,
+      rationale: "800 pupils on a term-time lunch programme.",
+      uncertainties: ["When next term's vendor list opens"],
+      routes: [{ channel: "email", value: "bursar@coralschools.ng" }],
       evidence: [
         { quote: "Term-time lunch programme for 800 pupils.", source: "coralschools.ng/admissions", type: "site" },
         { quote: "Bursar invites lunch vendors each term.", source: "web search: Coral Schools lunch vendor", type: "search" }
       ] },
     { id: "p05", name: "Northgate Bank Branch", area: "Ikeja Computer Village", category: "Banking", score: 72,
       summary: "Branch events monthly, approved vendor list via HR.",
+      verdict: "needs_research", readiness: 1,
+      rationale: "Monthly branch events with outside catering, but branch-level choice is unconfirmed.",
+      uncertainties: ["Whether the branch can pick vendors", "Event dates"],
+      routes: [],
       evidence: [
         { quote: "Monthly branch events with outside catering.", source: "northgatebank.ng/branch-events", type: "site" },
         { quote: "HR manages an approved vendor list.", source: "web search: Northgate Ikeja vendor list", type: "search" }
       ] },
     { id: "p06", name: "FitLife Gym Ikeja", area: "Ikeja Adeniyi Jones", category: "Fitness", score: 68,
       summary: "Meal-plan partners wanted for 300 members.",
+      verdict: "manual_review", readiness: 2,
+      rationale: "Wants meal-plan partners for 300 members; the consumer angle needs a human read.",
+      uncertainties: ["Whether they want B2B supply or member perks"],
+      routes: [{ channel: "social_profile", value: "@fitlifeikeja" }],
       evidence: [
         { quote: "Seeking healthy meal partners for members.", source: "fitlifeikeja.ng/notice", type: "site" },
         { quote: "Gym cafes in Adeniyi Jones outsource food prep.", source: "web search: FitLife gym meals", type: "search" }
@@ -420,13 +444,22 @@
           var asmt = details[i].assessments && details[i].assessments[0];
           var rating = asmt ? asmt.fit_rating : 0;
           var loc = p.location || {};
+          var dims = (asmt && asmt.dimensions) || {};
+          var open = ((asmt && asmt.uncertainties) || []).concat((asmt && asmt.missing_info) || []);
+          var firstEv = (details[i].evidence && details[i].evidence[0]) || {};
           return {
             id: p.id, name: p.name,
             area: loc.area || loc.note || loc.city || "Area unconfirmed",
             category: p.category || "unclassified",
             score: rating ? rating * 20 : 0,
             summary: asmt && asmt.rationale ? String(asmt.rationale).slice(0, 140) : "Not scored yet — thin evidence.",
-            status: p.status
+            status: p.status,
+            verdict: asmt ? (asmt.verdict || null) : null,
+            readiness: typeof dims.readiness === "number" ? dims.readiness : 0,
+            rationale: asmt && asmt.rationale ? String(asmt.rationale) : "",
+            uncertainties: open.filter(function (u) { return typeof u === "string" && u; }).slice(0, 3),
+            routes: (details[i].routes || []).map(function (r) { return { channel: r.channel, value: r.value }; }),
+            sourceUrl: firstEv.source || ""
           };
         });
         out.sort(function (a, b) { return b.score - a.score || (a.name < b.name ? -1 : 1); });
@@ -444,7 +477,8 @@
         assessments: res.assessments || [],
         evidence: (res.evidence || []).map(function (e) {
           return { quote: e.quote, source: e.source_url || "model inference", type: e.source_type };
-        })
+        }),
+        routes: res.contact_routes || []
       };
       self._evCache[prospectId] = mapped;
       return mapped;
