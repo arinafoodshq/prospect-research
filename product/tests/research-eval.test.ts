@@ -278,6 +278,13 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "Buy Medicines, Vitamins & Supplements Online",
     "- YouTube",
     "Contact Us | Bismid Cosmetics",
+    // run_9c3a8111 junk (comparison run 6): expansion headlines, software
+    // spam, FAQ pages, generic category labels.
+    "Supermart.ng widens Nigeria coverage",
+    "Supermart Online Groceries 2.0 Free Download",
+    "FAQs",
+    "Frequently Asked Questions",
+    "Food Retailers",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -296,7 +303,13 @@ describe("business-name guards (live-run junk fixtures)", () => {
     expect(cleanBusinessName("24 Pharmacy")).toBe("24 Pharmacy");
   });
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart"];
+  it("strips flag emoji (common in legit Lagos vendor names) but rejects pictographs", () => {
+    expect(cleanBusinessName("Walexfabrics Lagos 🇳🇬")).toBe("Walexfabrics");
+    expect(isPlausibleName("Walexfabrics Lagos 🇳🇬")).toBe(true);
+    expect(isPlausibleName("GIFT ORDER 🎁")).toBe(false);
+  });
+
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart", "Maucare Pharmacy", "Walexfabrics", "The Flair Store"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);

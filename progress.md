@@ -601,3 +601,21 @@ Note: finished_at null on parked runs - minor.
 Tests 297/297 + tsc clean (8 new). Deployed v6bbd7db8 (two transient
 fetch-failed deploys, third clean). Fresh comparison run_9c3a8111
 (profile bp_719a6863).
+
+## 2026-10-29 - Comparison run 6: funnel stable, pharmacy coherence found
+
+run_9c3a8111: 1 qualified (Maucare Pharmacy, Lekki, own online site,
+icp_fit 4 reachability 4 - DEFENSIBLE: brief never excluded pharmacies;
+thin-evidence pharmacies disqualify, owned-evidence ones qualify), 7
+needs_research, 17 disqualified. Funnel now stable across runs 4-6:
+exactly 1 qualified + 5-7 needs_research + 17-19 disqualified, 0 junk
+shortlisted every time.
+Fix round 6 (marginal guards): expansion headline verbs
+(widen/expand/extend/grow), free-download + version numbers, faq/
+frequently/asked/questions + food generics, flag-emoji STRIPPED (kept:
+"Walexfabrics Lagos NG-flag" -> "Walexfabrics"; pictographs still
+rejected). Supermart x5 noted: same-name-different-domain rows stay
+apart by design (news evidence must not merge into business rows).
+Tests 306/306 + tsc clean (9 new). Deployed v8d4a289c. Catering eval
+run_ac026b81 launched on same build (504 Yard corporate catering in
+Ikeja; scored separately, never as generalisation proof).

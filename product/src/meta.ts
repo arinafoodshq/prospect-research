@@ -274,7 +274,13 @@ const PAGE_TYPE_WORDS = /\b(portal|portals|login|logins|archives?|sitemap|homepa
 /** Company-profile page titles ("X Overview, Competitors & Contact Info"). */
 const PROFILE_TITLE = /\b(overview|competitors?|revenue|employees|funding|valuation)\b/i;
 /** Headline verbs observed in live-run junk (extends HEADLINE_VERBS cases). */
-const EXTRA_HEADLINE_VERBS = /\b(dabbles?|dives?|eyes?|bets?|mulls?|weighs?|taps?|opens?|wants?|plans?|seeks?|vows?|hails?)\b/i;
+const EXTRA_HEADLINE_VERBS = /\b(dabbles?|dives?|eyes?|bets?|mulls?|weighs?|taps?|opens?|wants?|plans?|seeks?|vows?|hails?|widens?|expands?|extends?|grows?)\b/i;
+/** Software spam ("X 2.0 Free Download") is never a business. */
+const FREE_DOWNLOAD = /\bfree download\b/i;
+/** Version numbers ("2.0") mark software, never a business name. */
+const VERSION_NUM = /\bv?\d+\.\d+(\.\d+)?\b/;
+/** Flag emoji (regional indicators): stripped, residue validates. */
+const FLAG_STRIP = /[\p{Regional_Indicator}]/gu;
 /** "List of ..." directory pages are never a business. */
 const LIST_OF_LEAD = /^\s*lists?\s+of\b/i;
 /** Possessive product lines ("Men's Straight Jeans") are departments, not businesses. */
@@ -331,7 +337,8 @@ const GENERIC_WORDS = new Set(
     "stall stalls kiosk kiosks outlet outlets clothing clothes wear wears fabric fabrics " +
     "fashion fashions luxury luxuries verified " +
     "privacy policy policies terms conditions condition cookies cookie copyright " +
-    "storelocator locator " +
+    "storelocator locator faq faqs frequently asked questions question " +
+    "food foods " +
     "grocery groceries supermarket supermarkets bookshop bookshops " +
     "private primary nursery international preschool college lagos ikeja nigeria nigerian " +
     "omole ogba opebi allen gra maryland yaba surulere lekki ikoyi island " +
@@ -350,7 +357,7 @@ export function cleanBusinessName(name: string): string {
   let out = name;
   for (let i = 0; i < 3; i += 1) {
     const next = out.replace(CITY_CRUFT, "").replace(DANGLING_PREP, "")
-      .replace(YEAR_PAREN, "").replace(ADDRESS_STRIP, "")
+      .replace(YEAR_PAREN, "").replace(ADDRESS_STRIP, "").replace(FLAG_STRIP, "")
       .replace(LOCATION_TAIL, "").replace(LOCATION_CHAIN, "")
       .replace(/[,;:]+$/, "").replace(/\s+/g, " ").trim();
     if (next === out) break;
@@ -437,6 +444,8 @@ export function isPlausibleName(raw: string): boolean {
   if (DOSAGE.test(trimmed)) return false; // SKU dosage, not a business
   if (IMPERATIVE_LEAD.test(trimmed)) return false; // imperative headline, not a business
   if (CONTACT_US.test(trimmed)) return false; // contact page, not a business
+  if (FREE_DOWNLOAD.test(trimmed)) return false; // software spam, not a business
+  if (VERSION_NUM.test(trimmed)) return false; // version number, not a business
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
   if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
