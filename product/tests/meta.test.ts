@@ -361,6 +361,8 @@ describe("business-name gate", () => {
     expect(isDirectoryHost("https://businesslist.com.ng/company/123")).toBe(true);
     expect(isDirectoryHost("https://ng.indeed.com/viewjob?jk=1")).toBe(true);
     expect(isDirectoryHost("https://en.wikipedia.org/wiki/Lagos")).toBe(true);
+    expect(isDirectoryHost("https://www.konga.com/product/123")).toBe(true);
+    expect(isDirectoryHost("https://www.jumia.com.ng/xyz")).toBe(true);
     expect(isDirectoryHost("https://brightline.ng/about")).toBe(false);
     expect(isDirectoryHost("https://www.coworker.com/lagos/godo-hub")).toBe(false);
   });

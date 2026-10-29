@@ -298,7 +298,15 @@ const DIRECTIONS_LEAD = /^(driving directions|directions|how to get)\b/i;
 /** Profile pages ("X Company Profile") describe a business; they aren't one. */
 const COMPANY_PROFILE = /\bcompany profile\b/i;
 /** Platform-handle titles ("TikTok · X") are accounts, not verified businesses. */
-const PLATFORM_WORD = /\b(tiktok|instagram|facebook|whatsapp|telegram|snapchat|twitter)\b/i;
+const PLATFORM_WORD = /\b(tiktok|instagram|facebook|whatsapp|telegram|snapchat|twitter|youtube|youtu\.be)\b/i;
+/** SKU titles ("... GLUCOSAMINE SULPHATE 750MG X 30") are products, not businesses. */
+const DOSAGE = /\b\d+\s?(mg|ml|mcg)\b/i;
+/** Imperative headlines ("Buy Medicines Online") are CTAs, not businesses. */
+const IMPERATIVE_LEAD = /^(buy|order|find|discover|explore|compare)\b/i;
+/** Contact pages ("Contact Us | X") are site sections, not businesses. */
+const CONTACT_US = /\bcontact us\b/i;
+/** Street addresses (", 32 Randle Avenue ..."): stripped so variants dedupe. */
+const ADDRESS_STRIP = /,?\s*\d+\s+[A-Za-z][A-Za-z .'-]*(street|road|avenue|close|crescent|lane|boulevard|way)\b.*$/i;
 
 /** Words that never make a name distinctive (categories, places, fillers). */
 const GENERIC_WORDS = new Set(
@@ -342,7 +350,8 @@ export function cleanBusinessName(name: string): string {
   let out = name;
   for (let i = 0; i < 3; i += 1) {
     const next = out.replace(CITY_CRUFT, "").replace(DANGLING_PREP, "")
-      .replace(YEAR_PAREN, "").replace(LOCATION_TAIL, "").replace(LOCATION_CHAIN, "")
+      .replace(YEAR_PAREN, "").replace(ADDRESS_STRIP, "")
+      .replace(LOCATION_TAIL, "").replace(LOCATION_CHAIN, "")
       .replace(/[,;:]+$/, "").replace(/\s+/g, " ").trim();
     if (next === out) break;
     out = next;
@@ -360,6 +369,7 @@ const DIRECTORY_HOSTS = [
   "jantareview", "lokercepat", "wikipedia.org", "thesun.ng", "trekafrica",
   "towncriernews", "etimesafrica", "healthlifescienceplus", "edusko", "ischooladvisor",
   "findglocal", "globuya", "projectshelve", "cryptofinancejob", "babymigo", "nearu",
+  "konga.com", "jumia.", "kara.com.ng",
 ];
 
 export function isDirectoryHost(url: string): boolean {
@@ -424,6 +434,9 @@ export function isPlausibleName(raw: string): boolean {
   if (DIRECTIONS_LEAD.test(trimmed)) return false; // map label, not a business
   if (COMPANY_PROFILE.test(trimmed)) return false; // profile page, not a business
   if (PLATFORM_WORD.test(trimmed)) return false; // platform-handle title, not a business
+  if (DOSAGE.test(trimmed)) return false; // SKU dosage, not a business
+  if (IMPERATIVE_LEAD.test(trimmed)) return false; // imperative headline, not a business
+  if (CONTACT_US.test(trimmed)) return false; // contact page, not a business
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
   if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));

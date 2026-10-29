@@ -102,6 +102,12 @@ describe("prompt segment adherence (retail brief must not drift)", () => {
     expect(goal).not.toContain("caterers");
   });
 
+  it("plan goal steers queries to business profiles, not marketplace listings", () => {
+    const goal = buildPlanGoal(retailBrief());
+    expect(goal).toContain("marketplace");
+    expect(goal).toContain("Jiji");
+  });
+
   it("search goal preserves segment, geography, and exclusions per query", () => {
     const goal = buildSearchGoal(retailBrief(), "retail shops with branches in Ikeja");
     expect(goal).toContain("retail");
@@ -266,6 +272,12 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "Konga Group Company Profile",
     "Fkols's Profile",
     "TikTok · Ogunmola Tobibackup",
+    // run_b0675e86 junk (comparison run 5): SKU titles, imperative
+    // headlines, platform leftovers, contact pages.
+    "DAY LEWIS PHARMACY GLUCOSAMINE SULPHATE 750MG X 30",
+    "Buy Medicines, Vitamins & Supplements Online",
+    "- YouTube",
+    "Contact Us | Bismid Cosmetics",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -278,7 +290,13 @@ describe("business-name guards (live-run junk fixtures)", () => {
     expect(isPlausibleName("Teph-store, Ikeja Lagos, Lagos (2026)")).toBe(true);
   });
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics"];
+  it("strips street addresses so variants dedupe (Bismid x2)", () => {
+    expect(cleanBusinessName("Bismid Cosmetics Ltd, 32 Randle Avenue Off Akerele")).toBe("Bismid Cosmetics Ltd");
+    expect(cleanBusinessName("7Up Bottling Company")).toBe("7Up Bottling Company");
+    expect(cleanBusinessName("24 Pharmacy")).toBe("24 Pharmacy");
+  });
+
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);

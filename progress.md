@@ -583,3 +583,21 @@ Note: draft supporting_ids still enforcement-only, not stored on the
 draft row - schema follow-up for the audit-trail UI.
 Tests 289/289 + tsc clean (15 new). Deployed v4eca1288. Fresh
 comparison run_b0675e86 (profile bp_84838089).
+
+## 2026-10-29 - Comparison run 5: first full loop (qualified + draft)
+
+run_b0675e86: 1 qualified (AgroGroom Enterprise, own domain
+agrogroom.com) + 1 DRAFT WRITTEN ("Idea for AgroGroom's WhatsApp +
+shop orders", website_form). 5 needs_research, 19 disqualified. No US
+drift (user_location worked). Precision holds; volume still thin
+(~10/25 slots lost to products/SKUs/marketplaces).
+Fix round 5 (recall): marketplaces (Konga/Jumia/Kara) join directory
+hosts (evidence-only); plan goal bans marketplace listings as sources;
+guards for SKU dosage, imperative headlines, contact pages, youtube,
+street-address stripping (Bismid x2 dedupe).
+Note: cost_usd_est reads 0 on all runs (per-phase ctx never persists;
+known gap) - cost/qualified unmeasurable, bounded by $6/run cap.
+Note: finished_at null on parked runs - minor.
+Tests 297/297 + tsc clean (8 new). Deployed v6bbd7db8 (two transient
+fetch-failed deploys, third clean). Fresh comparison run_9c3a8111
+(profile bp_719a6863).

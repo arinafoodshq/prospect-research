@@ -396,6 +396,7 @@ export function buildPlanGoal(b: CommercialBrief): string {
     `Queries must find BUYING businesses in: ${seg.industries.join(", ")} (${seg.label}), near ${seg.geos.join(", ")}.`,
     `Never list: ${seg.exclusions.join(", ")}.`,
     `In scope when: ${seg.inclusions.join("; ")}.`,
+    "Seek business profiles and official sites, never marketplace product listings (Jiji, Konga, Jumia return products, not buyers).",
     "Qualify each query with the service-area locale. Reply ONLY a JSON array of at most 8 search query strings.",
   ].join(" ");
 }
