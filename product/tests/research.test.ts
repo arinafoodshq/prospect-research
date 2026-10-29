@@ -9,6 +9,7 @@ import type { Db } from "../src/db";
 import {
   listEvidence,
   listProspects,
+  saveAssessment,
   saveCandidate,
   saveEvidence,
   setProspectStatus,
@@ -1128,6 +1129,34 @@ describe("honest empty shortlist (run_5538b2b3 froze at assessing)", () => {
     const out = await rank(BRIEF, db, {}, budgetsWith());
     expect(out.status).toBe("completed");
     expect(out.detail ?? "").toContain("0 qualified");
+  });
+
+  it("shortlists qualified first, then no_signal (run_7: 6 boutiques, no trigger)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const dims = { icp_fit: 5, problem: 4, readiness: 1, reachability: 4, confidence: 3 };
+    const rate = async (name: string, status: "qualified" | "investigating", verdict: string, fit: number) => {
+      const s = await seedCandidate(db, name);
+      await setProspectStatus(db, RUN_ID, s.prospectId, "investigating");
+      if (status === "qualified") await setProspectStatus(db, RUN_ID, s.prospectId, "qualified");
+      await saveAssessment(db, {
+        prospect_id: s.prospectId, fit_rating: fit, supporting_ids: [s.evidenceId],
+        weakening_ids: [], uncertainties: [], missing_info: [], rationale: "r",
+        model_id: "m", dimensions: dims, verdict,
+      });
+      return s.prospectId;
+    };
+    await rate("Qualified Co", "qualified", "qualified", 4);
+    await rate("Steady Co", "investigating", "no_signal", 3);
+    await rate("Thin Co", "investigating", "needs_research", 2);
+    const out = await rank(BRIEF, db, {}, budgetsWith());
+    expect(out.status).toBe("completed");
+    const prospects = await listProspects(db, RUN_ID);
+    const ordered = prospects
+      .filter((p) => p.status === "shortlisted")
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+      .map((p) => p.name);
+    expect(ordered).toEqual(["Qualified Co", "Steady Co"]);
   });
 
   it("draft parks at awaiting_approval with zero shortlisted instead of stopping", async () => {

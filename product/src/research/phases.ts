@@ -583,6 +583,14 @@ async function fetchAssessmentMap(db: Db, prospectIds: string[]): Promise<Map<st
         missing_info: JSON.parse((latest["missing_info"] as string) ?? "[]") as string[],
         rationale: latest["rationale"] as string, model_id: latest["model_id"] as string,
         created_at: latest["created_at"] as string,
+        ...(typeof latest["verdict"] === "string" ? { verdict: latest["verdict"] } : {}),
+        ...(typeof latest["dimensions"] === "string" && latest["dimensions"] !== "null"
+          ? {
+              dimensions: JSON.parse(latest["dimensions"]) as {
+                icp_fit: number; problem: number; readiness: number; reachability: number; confidence: number;
+              },
+            }
+          : {}),
         supporting: JSON.parse((latest["supporting_evidence_ids"] as string) ?? "[]") as string[],
       });
     }
@@ -647,10 +655,17 @@ export async function rank(
   }
   const prospects = await listProspects(db, budgets.run_id);
   const qualified = prospects.filter((p) => p.status === "qualified");
+  // Steady seconds: suitable-but-no-signal prospects (fit + evidence +
+  // route, no dated trigger) join the shortlist after the qualified.
+  // Nigerian SME triggers are rarely published; withholding drafts from
+  // perfect-fit accounts over an unobservable "why now" wastes the run
+  // (run_c5d01d96: 6 boutiques at icp_fit 5, zero shortlisted).
+  const amap = await fetchAssessmentMap(db, prospects.map((p) => p.id));
+  const steady = prospects.filter((p) => p.status === "investigating" && amap.get(p.id)?.verdict === "no_signal");
   // Honest empty: the dimensional bar may qualify nobody (0/25 on
   // run_5538b2b3). Stopping here throws on the Workflow path and freezes
   // the run; completing lets draft park visibly with per-prospect reasons.
-  if (qualified.length === 0) {
+  if (qualified.length === 0 && steady.length === 0) {
     const byStatus = prospects.reduce<Record<string, number>>((m, p) => {
       m[p.status] = (m[p.status] ?? 0) + 1;
       return m;
@@ -661,19 +676,20 @@ export async function rank(
     });
     return completed("empty shortlist: 0 qualified, see per-prospect verdicts");
   }
-  const amap = await fetchAssessmentMap(db, qualified.map((p) => p.id));
   const evs = await listEvidence(db, budgets.run_id);
   const evCount = new Map<string, number>();
   for (const e of evs) evCount.set(e.run_id, (evCount.get(e.run_id) ?? 0) + 1);
-  // Deterministic order: rating desc, then evidence strength desc, then name asc.
+  // Deterministic order: qualified first, then steady; rating desc, then
+  // evidence strength desc, then name asc within each tier.
   const strength = (pid: string): number => amap.get(pid)?.supporting.length ?? 0;
-  const ordered = [...qualified].sort((a, b) => {
+  const byScore = (a: (typeof prospects)[number], b: (typeof prospects)[number]): number => {
     const ra = amap.get(a.id)?.fit_rating ?? 0;
     const rb = amap.get(b.id)?.fit_rating ?? 0;
     if (rb !== ra) return rb - ra;
     if (strength(b.id) !== strength(a.id)) return strength(b.id) - strength(a.id);
     return a.name.localeCompare(b.name);
-  });
+  };
+  const ordered = [...qualified].sort(byScore).concat([...steady].sort(byScore));
   const n = Math.min(opts?.shortlistN ?? 8, 8, ordered.length);
   const shortlist = ordered.slice(0, Math.max(n, Math.min(5, ordered.length)));
   let rationales: Record<string, string> = {};

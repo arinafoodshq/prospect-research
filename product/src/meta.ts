@@ -259,7 +259,7 @@ function nameFromTitle(title: string, url: string): string {
 /** Chatter guard: real business names are short, sentence-free, verb-free. */
 const CHATTER_VERBS = /\b(hunting|pulling|gathering|found|searching|looking|checking|getting|sharing|listing)\b/i;
 const HEADLINE_VERBS = /\b(opened|opening|launch|launched|launches|unveil|unveiled|unveils|announce|announced|introduce|introduced|produce|produces|raise|raises|raised|secure|secures|wins)\b/i;
-const NEVER_NAME_VERBS = /\b(shut|shuts|closes|closed|closure|dies|died|introduce|introduced|introducing|introduction)\b/i;
+const NEVER_NAME_VERBS = /\b(shut|shuts|closes|closed|closure|dies|died|introduce|introduced|introduces|introducing|introduction)\b/i;
 const JOB_WORDS = new Set(
   "staff personnel officer officers administrator administrators assistant assistants warehouse inventory job jobs vacancy vacancies hiring career careers salary intern interns compliance recruitment teachers teacher".split(" "),
 );
@@ -289,6 +289,23 @@ const NUMBERED_LISTICLE = /^\s*(the\s+)?\d+\s+best\b/i;
 const TYPES_OF = /^\s*types?\s+of\b/i;
 /** About pages ("About X Services Limited") describe a business; they aren't one. */
 const ABOUT_COMPANY = /^\s*about\s+\w+.*\b(limited|ltd|inc|services|company)\b/i;
+/** About + ALLCAPS brand ("About KIKKI CLOTHING") is a page title, not a name. Title-case ("About You") is spared. */
+const ABOUT_CAPS = /^\s*[Aa][Bb][Oo][Uu][Tt]\s+[A-Z]{2,}/;
+/** Bare about pages ("About Us") are site sections, not businesses. */
+const ABOUT_BARE = /^\s*about\s+(us|the company|our company)\b/i;
+/** Contact pages ("Contact X Stores") are site sections, not businesses. */
+const CONTACT_LEAD = /^\s*contact\b/i;
+/** Shopping guides ("Where To Buy X") are articles, not businesses. */
+const WHERE_TO_BUY = /^\s*where\s+to\s+buy\b/i;
+/** Haul videos ("MY MAKEUP HAUL FROM ...") need a video word, so "Haul Logistics" survives. */
+const HAUL_WORD = /\bhauls?\b/i;
+const HAUL_VIDEO = /\b(videos?|watch|from|youtube|vlog)\b/i;
+/** FAQ labels ("SLOT Nigeria FAQ") are pages, not businesses. */
+const FAQ_TOKEN = /\bfaqs?\b/i;
+/** "All X Offices/Stores" roundups are lists, not businesses ("All Saints" spared). */
+const ALL_OUTLETS = /^\s*all\s+.*\b(offices?|stores?|branches?|locations?)\b/i;
+/** Story headlines ("Obiwezy: From X to Y") are articles, not businesses. */
+const STORY_HEADLINE = /:\s*from\b/i;
 /** Possessive product lines ("Men's Straight Jeans") are departments, not businesses. */
 const POSSESSIVE_PRODUCT = /\b(men'?s|women'?s|kids'?|unisex)\b.{0,24}\b(jeans|shirts?|dresses|shoes|sneakers|gowns|wigs?|bags?|watches|phones?|laptops?|trousers|jackets|suits)\b/i;
 /** Property listings ("Shops for Sale in Ikota") are never a business. */
@@ -456,8 +473,16 @@ export function isPlausibleName(raw: string): boolean {
   if (NUMBERED_LISTICLE.test(trimmed)) return false; // ranked listicle, not a business
   if (TYPES_OF.test(trimmed)) return false; // meta explainer, not a business
   if (ABOUT_COMPANY.test(trimmed)) return false; // about page, not a business
+  if (ABOUT_CAPS.test(trimmed)) return false; // about + ALLCAPS brand, not a business
+  if (ABOUT_BARE.test(trimmed)) return false; // bare about page, not a business
+  if (CONTACT_LEAD.test(trimmed)) return false; // contact page, not a business
+  if (WHERE_TO_BUY.test(trimmed)) return false; // shopping guide, not a business
+  if (HAUL_WORD.test(trimmed) && HAUL_VIDEO.test(trimmed)) return false; // haul video, not a business
+  if (FAQ_TOKEN.test(trimmed)) return false; // FAQ label, not a business
+  if (ALL_OUTLETS.test(trimmed)) return false; // outlet roundup, not a business
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
-  if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
+  if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list|suppliers?|vendors?|manufacturers?|exporters?)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
+  if (STORY_HEADLINE.test(trimmed)) return false; // story headline, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
   if (lowerWords.includes("at") && lowerWords.some((w) => JOB_WORDS.has(w))) return false; // "<role> at <company>" job post
   const distinctive = words.filter((w) => {

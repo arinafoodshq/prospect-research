@@ -645,3 +645,19 @@ Also: law-vertical guards (numbered listicles, law/legal/firm
 generics, types-of/about-company/full-list, detached/duplexes/
 terrace). Tests 324/324 + tsc clean (18 new). Deployed vb5055baa.
 Run 7 run_c5d01d96 (TechAssembly) verifies no drift regression.
+
+## 2026-10-29 - Comparison run 7: no drift, no_signal debuts, bar too strict
+
+run_c5d01d96: 0 qualified, 6 no_signal (all fashion boutiques, dims
+5/4/1/4/3), 4 needs_research, 15 disqualified. NO DRIFT anywhere -
+gate inversion validated (model holds the segment; brief exclusions
+now name schools/clinics/pharmacies/hospitality explicitly thanks to
+the adjacent-verticals prompt line).
+Product decision: shortlist = qualified + steady no_signal (rank
+change; investigating->shortlisted transition added; verdicts stay
+distinct). Withholding drafts from icp_fit-5 accounts over an
+unobservable trigger wastes runs; drafts use hypothesis timing.
+Also: about/contact/where-buy/haul/FAQ/all-outlets/story guards,
+supplier-vendor colon words, introduces verb. Tests 339/339 + tsc
+clean (15 new). Deployed v75f1dba7. Run 8 run_b84f3af5 expects a
+multi-prospect shortlist (qualified + steady).

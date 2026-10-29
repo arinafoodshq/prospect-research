@@ -116,7 +116,9 @@ const RUN_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
 
 const PROSPECT_TRANSITIONS: Record<ProspectStatus, ProspectStatus[]> = {
   candidate: ["investigating", "disqualified"],
-  investigating: ["qualified", "disqualified"],
+  // investigating -> shortlisted: rank promotes steady no_signal prospects
+  // directly (they never touch status qualified; the verdict stays distinct).
+  investigating: ["qualified", "disqualified", "shortlisted"],
   qualified: ["shortlisted", "disqualified"],
   disqualified: [],
   shortlisted: ["approved", "rejected", "deferred"],

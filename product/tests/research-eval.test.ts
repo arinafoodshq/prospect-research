@@ -324,6 +324,17 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "Full list of Opay Offices",
     "Luxury 4 Bedroom Terrace Duplex",
     "Detached Duplexes",
+    // run_c5d01d96 junk (comparison run 7): about/contact/where-buy pages,
+    // haul videos, supplier titles, FAQ labels, story headlines.
+    "About KIKKI CLOTHING",
+    "Contact Shopkyluxury Fashion Stores",
+    "Where To Buy Iphone 17 Series",
+    "MY MAKEUP HAUL FROM PARIS PURPLE BEAUTY",
+    "Wigmore Trading: Fashion and Beauty Accessories Suppliers",
+    "SLOT Nigeria FAQ",
+    "Slot introduces Electronics Sales",
+    "All Slot Systems Offices",
+    "Obiwezy: From Computer Village to an accelerator",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -348,7 +359,7 @@ describe("business-name guards (live-run junk fixtures)", () => {
     expect(isPlausibleName("GIFT ORDER 🎁")).toBe(false);
   });
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart", "Maucare Pharmacy", "Walexfabrics", "The Flair Store", "Jacobs and Bigaels Legal Practitioners", "Tope Adebayo LP", "First City Monument Bank", "NAYZER Consulting"];
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics", "AgroGroom Enterprise", "Shalom Anziko mini mart", "Maucare Pharmacy", "Walexfabrics", "The Flair Store", "Jacobs and Bigaels Legal Practitioners", "Tope Adebayo LP", "First City Monument Bank", "NAYZER Consulting", "Haul Logistics", "All Saints", "About You", "The Vault NG Boutique", "Obiwezy Experience Center (Ikeja Computer Village)"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);

@@ -184,3 +184,12 @@ in-segment, 0 hard violations, 100% qualified with prospect-owned source,
    from D1 before every phase (`hydrateBriefFromRun`); without this, all
    post-plan phases silently ran legacy prompts (proven: 0/25 dimensional
    verdicts on run_99840398).
+
+10. **Shortlist = qualified + steady no_signal (2026-10-29).** Rank
+    shortlists `qualified` first, then `no_signal` (fit + evidence +
+    route, no dated trigger) by score. Nigerian SME triggers are rarely
+    published; withholding drafts from perfect-fit accounts over an
+    unobservable "why now" wastes runs (run_c5d01d96: 6 boutiques at
+    icp_fit 5, zero shortlisted). `needs_research` / `manual_review`
+    stay draftless (evidence too thin). Drafts for steady prospects use
+    hypothesis wording for timing ("no trigger observed").
