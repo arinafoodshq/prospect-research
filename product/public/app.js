@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  var VIEWS = ["onboard", "profile", "progress", "shortlist", "drafts", "status", "senders"];
+  var VIEWS = ["landing", "onboard", "profile", "progress", "shortlist", "drafts", "status", "campaigns", "senders"];
   var state = {
     profile: null,
     prospects: [],
@@ -26,6 +26,8 @@
       var el = $("view-" + v);
       if (el) el.hidden = (v !== name);
     });
+    var header = document.querySelector(".site-header");
+    if (header) header.hidden = (name === "landing");
     var nav = $("step-nav");
     if (nav) {
       var items = nav.querySelectorAll("li");
@@ -127,6 +129,16 @@
       budget.textContent = "";
       var again = $("btn-restart-progress");
       if (again) again.hidden = false;
+    });
+  }
+
+  function showSampleShortlist() {
+    if (api.mode === "live" && !state.runId) { showView("onboard"); return; }
+    api.getShortlist(state.runId || "sample").then(function (res) {
+      state.prospects = res.prospects;
+      state.selectedId = null;
+      renderShortlist();
+      showView("shortlist");
     });
   }
 
@@ -701,7 +713,13 @@
     api = (typeof window.ApiLayer !== "undefined") ? window.ApiLayer.selectApi() : null;
     if (!api) throw new Error("ApiLayer failed to load");
     setModeBanner();
-    showView("onboard");
+    showView("landing");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
+      btn.addEventListener("click", function () { showView("onboard"); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-sample]"), function (btn) {
+      btn.addEventListener("click", showSampleShortlist);
+    });
     var chips = [];
     try { chips = document.querySelectorAll("[data-preset]") || []; } catch (e) { chips = []; }
     Array.prototype.forEach.call(chips, function (btn) {

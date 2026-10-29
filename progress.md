@@ -708,3 +708,13 @@ CTA, serif headlines, restyled banner), console 0 errors, 0 failed
 requests (fonts load, no CSP issue). Pre-existing bug noted:
 view-campaigns lacks `hidden` on load (visible under onboard);
 fix rides with the P0 view restructure.
+
+## 2026-10-29 - Revamp P0.2 DONE: landing page (PDF screen 1)
+
+New view-landing (verbatim PDF copy, sample content labelled sample):
+nav, hero + floating sample cards, shift rows, engines, 3 steps,
+channel samples, trust, final CTA. VIEWS += landing/campaigns (fixes
+the campaigns-visible bug); landing hides app header; data-start ->
+onboard, data-sample -> mock shortlist (live without run -> onboard).
+Verified: desktop + 390px screenshots viewed (0px overflow, single
+column), CTA click asserts pass, console clean, 339 tests green.
