@@ -7,3 +7,5 @@ __pycache__/
 node_modules/
 dist/
 .wrangler/
+# User-owned reference files kept on disk, never committed
+Prospect Research Revamp.pdf
