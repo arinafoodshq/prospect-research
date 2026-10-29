@@ -122,6 +122,27 @@
   MockApi.prototype.logContact = function (prospectId, payload) {
     return Promise.resolve({ id: "demo-ce-1", prospect_id: prospectId, channel: payload.channel, note: payload.note || null });
   };
+  MockApi.prototype.listConnections = function () {
+    return Promise.resolve({ connections: [
+      { id: "demo-conn-1", provider: "mock", label: "Demo sender", sender_email: "sender@example.ng", status: "connected" }
+    ] });
+  };
+  MockApi.prototype.getProspectDetail = function (id) {
+    var self = this;
+    return Promise.all([self.getShortlist(), self.getDrafts()]).then(function (res) {
+      var prospects = res[0].prospects || [];
+      var p = prospects.filter(function (x) { return x.id === id; })[0] || prospects[0];
+      var drafts = res[1].drafts || [];
+      var d = drafts.filter(function (x) { return x.prospectId === p.id; })[0] || drafts[0] || {};
+      return { prospect: p, routes: [{ channel: "email", value: "demo-" + p.id + "@example.ng" }], draft: d.draft || d };
+    });
+  };
+  MockApi.prototype.createCampaign = function (payload) {
+    return Promise.resolve({ id: "demo-cmp-new", status: "draft", name: payload.name, recipients: payload.recipients });
+  };
+  MockApi.prototype.approveCampaign = function (id, payload) {
+    return Promise.resolve({ id: id, status: "scheduled", scheduled_at_utc: payload.scheduled_at_utc });
+  };
 
   /* RealApi — live Worker routes with UI-shape adapters. */
   function RealApi(base) { this.base = base || ""; this._evCache = {}; }
@@ -306,6 +327,20 @@
   };
   RealApi.prototype.logContact = function (prospectId, payload) {
     return this._req("/api/prospects/" + encodeURIComponent(prospectId) + "/contacts",
+      { method: "POST", body: JSON.stringify(payload) });
+  };
+
+  RealApi.prototype.listConnections = function () {
+    return this._req("/api/connections");
+  };
+  RealApi.prototype.getProspectDetail = function (id) {
+    return this._req("/api/prospects/" + encodeURIComponent(id));
+  };
+  RealApi.prototype.createCampaign = function (payload) {
+    return this._req("/api/campaigns", { method: "POST", body: JSON.stringify(payload) });
+  };
+  RealApi.prototype.approveCampaign = function (id, payload) {
+    return this._req("/api/campaigns/" + encodeURIComponent(id) + "/approve",
       { method: "POST", body: JSON.stringify(payload) });
   };
 

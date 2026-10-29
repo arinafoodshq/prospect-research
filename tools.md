@@ -1,8 +1,8 @@
 # tools.md — Tool Registry
 
-- Status: draft for review (v0.1, 2026-10-28).
+- Status: approved through v0.2 (2026-10-29). v0.1 approved 2026-10-28.
 - Normative for tool names and parameter schemas. Code registries must match
-  (contract-tested). Two separated parts; shared contract format.
+  (contract-tested). Two model-tool parts plus deterministic delivery operations.
 - Global naming rules: lowercase with at most one dot (per Responses API
   constraints); never `browser.*`; `dev.*` reserved for System A,
   `rs.*` reserved for System B. Descriptions steer the model (`tool_choice` is
@@ -11,6 +11,8 @@
 ## Part A — System A tools (local controller, Python execution layer)
 
 Spec owner: `specs/agent-loop.md`. All paths confined to the repo root.
+Implementation: `loop.py` + `controller/` (50/50 harness green; budgets, gates,
+resume, recovery verified over live runs).
 
 ### dev.read_file(path, offset?, limit?) → text window
 
@@ -122,8 +124,45 @@ defined here); these are the developer function tools beside it.
 - Validation: prospect is shortlisted; body references at least one evidence id
   (citation markers checked); else rejected with reason.
 
+## Part C — Deterministic delivery operations (NOT model tools)
+
+Delivery, scheduling, and contact tracking are deterministic HTTP operations by
+design (principle 7, `specs/architecture.md` §2): the model must never send,
+schedule, or touch credentials. No `rs.*` tool exists for these; the contract
+below is the route surface instead (handlers in `product/src/delivery/`,
+registered in `product/src/index.ts`).
+
+- Connections: `POST /api/connections`, `GET /api/connections`,
+  `POST /api/connections/:id/verify`, `POST /api/connections/:id/disconnect`,
+  `GET /api/connections/gmail/auth-url`, `GET /api/connections/gmail/callback`.
+  Secrets sealed with `CRED_KEY`, never returned (`publicConn` tested).
+- Campaigns: `POST /api/campaigns`, `GET /api/campaigns`, `GET /api/campaigns/:id`,
+  `PATCH /api/campaigns/:id` (draft-only), `POST /api/campaigns/:id/approve`,
+  `/cancel`, `/pause`, `/resume`, `/process` (manual producer tick).
+- Execution: cron `*/5 * * * *` → `scheduled()` → `enqueueDueJobs` →
+  `DELIVERY_QUEUE` → `queue()` → `consumeDeliveryBatch`. Batch 10, max 2
+  concurrent consumers, ×5 crash retries then `delivery-dlq`, app backoff + ACK
+  for transient provider errors.
+- Safety: `GET|POST /api/suppressions`, `DELETE /api/suppressions/:email`,
+  `GET /api/unsubscribe?token=` (HMAC, 24h OAuth state TTL for Gmail flow).
+- Assist: `GET /api/assist/mailto`, `GET /api/assist/wa` (validated builders).
+- Tracking: `POST|GET /api/prospects/:id/contacts`,
+  `GET /api/prospects/:id/timeline`; campaign sends auto-log `contact_event`.
+- Provider contract (`DeliveryProvider`): `verify` / `send` with
+  `SendResult{ok, providerMessageId?, status, retryable, errorCategory?,
+  errorDetail?}`; adapters: mock, resend, gmail (graph/smtp throw
+  not-implemented).
+
 ## Contract-compliance rule
 
 Any code change to a tool's name, parameters, or behavior requires the matching
 `tools.md` edit in the same change, plus the contract test update. Drift between
 registry and implementation is a release-blocking defect in both systems.
+Delivery routes follow the same rule (route + shape + test move together).
+
+## Version history
+
+- v0.1 (2026-10-28): initial draft for review.
+- v0.2 (2026-10-29): Part C (deterministic delivery surface), System A
+  implementation note, delivery contract rule. Rationale: hybrid delivery built
+  live; restart-from-docs requirement.

@@ -1,6 +1,6 @@
 # specs/product.md — Prospecting Product Requirements
 
-- Status: draft for review (v0.1, 2026-10-28).
+- Status: approved through v0.2 (2026-10-29). v0.1 approved 2026-10-28.
 - Owner: System B (deployed prospecting product). Design details live in
   `specs/architecture.md` (components), `specs/research-loop.md` (runtime loop),
   `specs/data-model.md` (persistence), `specs/evaluation.md` (tests and metrics).
@@ -12,7 +12,9 @@ An AI prospecting agent for small businesses. The owner describes what the busin
 offers; the agent investigates the business, asks only essential clarification
 questions, discovers candidate customers through public web sources, evaluates and
 ranks them with cited evidence, identifies legitimate public contact routes, and
-prepares personalised outreach drafts for human review. it thinks in layers of various customers group. take a griller for uinstance, threre can be corporates who are organizing events, there can be event organizers.
+prepares personalised outreach drafts for human review. It thinks in buyer layers:
+for a caterer, corporates running events and the event organisers themselves are
+different layers with different pitches.
 
 Central promise: **tell the agent what your business offers; it researches who
 might buy it and explains why.** Key characteristic: every recommendation is
@@ -25,8 +27,10 @@ evidence-backed and human-approved — never a plausible-sounding guess.
 2. **Facts, inferences, and unknowns are labelled.** The system distinguishes
    verified facts, reasonable inferences, conflicting evidence, and missing
    information in storage and display.
-3. **Human approves every outreach.** Drafts only in the MVP; approve/edit/reject
-   per draft; the system never sends, and never claims a message was sent.
+3. **Human approves every outreach.** Drafts and scheduled campaigns are both
+   gated: per-draft approve/edit/reject, then explicit campaign approval. The
+   system sends only approved campaign mail, and never claims a message was
+   sent when it was only drafted, queued, or handed to a provider.
 4. **Minimal owner effort.** Conversational onboarding; extract where possible, ask
    only questions that change the research outcome; never a large form.
 5. **Bounded agent behavior.** Every research run operates inside explicit,
@@ -35,12 +39,17 @@ evidence-backed and human-approved — never a plausible-sounding guess.
    claims carry a verification level and a source; the system never claims a number
    is WhatsApp-enabled or verified without a legitimate verification method
    (none exists in the MVP).
+7. **Deterministic delivery.** The AI researches and drafts; scheduling, sending,
+   retries, and compliance are deterministic application code behind a
+   provider-independent interface. Credentials never reach the model.
 
 ## 3. Target user and problem
 
 - **User:** a small-business owner/operator with no lead list and no research
   capacity. Launch scenario: 504 Yard Grills & Drinks (Ikeja, Lagos) seeking
-  corporate catering/event buyers and events organizers so that they can include the grill to enhan e the event experience.
+  corporate catering/event buyers and event organisers. The product is
+  location- and business-agnostic: Ikeja catering is the demo scenario, never a
+  hardcoded default (verified: zero geography literals in backend runtime).
 - **Problem:** the owner can describe what they sell but cannot systematically
   answer who nearby would buy it, why those buyers fit, how to reach them, or what
   to say — and cannot distinguish a general assistant's confident guesses from facts.
@@ -68,7 +77,19 @@ evidence-backed and human-approved — never a plausible-sounding guess.
    prospect. Exit: owner has reviewed each item.
 7. **Decide.** Owner approves, edits, or rejects each draft. Decisions and reasons
    persist; statuses and follow-ups-due update. Exit: every draft is decided or
-   explicitly deferred. Nothing is sent by the system.
+   explicitly deferred.
+8. **Connect.** Owner optionally connects a sender: mock (demo), Resend API key,
+   or Gmail OAuth. Credentials are sealed server-side and never shown again.
+   Assisted `mailto:`/`wa.me` links always work with no sender. Exit: a verified
+   sender exists, or the owner proceeds assisted-only.
+9. **Campaign.** Owner builds a campaign from researched prospects, reviews/edits
+   each personalised draft, approves explicitly, and schedules a send time.
+   Server sends due mail after the browser closes; per-recipient statuses,
+   attempts, pause/cancel are visible. Exit: campaign complete/cancelled with a
+   full delivery record.
+10. **Track.** Every touch — campaign email or hand-logged WhatsApp call, visit,
+    or reply — lands on the prospect's timeline with channel and date. Exit:
+    the owner can answer "who did we contact, how, and when" for any lead.
 
 ## 5. MVP scope
 
@@ -83,16 +104,23 @@ In scope:
 - One outreach draft + next action per shortlisted prospect; approve/edit/reject.
 - Prospect/draft status tracking; follow-ups-due derivation.
 - Visible run progress, budgets, and clean-stop behavior.
+- Provider-independent email delivery (mock, Resend, Gmail OAuth adapters).
+- Approval-gated scheduled campaigns with per-recipient tracking, retries,
+  suppression/unsubscribe, pause/cancel; queue-based execution.
+- Contact tracking across all channels + per-prospect timeline.
+- Assisted `mailto:`/`wa.me` click-to-send (no sender required).
 
 Explicit non-goals (rejected for MVP, not merely deferred silently):
 
-- Sending any message on any channel, automatically or otherwise.
+- Any sending without explicit human approval per campaign; unsupervised or
+  bulk cold outreach.
 - CSV import as a primary workflow (may return later as optional input).
 - Social-network discovery pillar (FB/IG search) — review-gated and narrow; the
   MVP must impress without it.
-- Multi-user accounts, roles, or auth beyond single-operator demo needs.
-- Analytics dashboards, messaging integrations (WhatsApp/Telegram), paid
-  data providers, or self-hosted large models.
+- Raw-SMTP sending from Workers (port 25 blocked; hand-rolled client rejected);
+  SMTP relay via container is designed, not built.
+- Microsoft Graph adapter, bounce/complaint webhooks, multi-user accounts and
+  roles, analytics dashboards, paid data providers, self-hosted large models.
 
 ## 6. Functional requirements and acceptance criteria
 
@@ -140,7 +168,8 @@ least one cited fact about the prospect; next action is specific (channel + timi
 
 **FR-10 — Approval gate.** Owner can approve, edit (marks edited-by-human), or
 reject each draft; decisions persist with timestamps. Accept: no path from draft
-to "sent" exists in the MVP; all transitions are validated state changes.
+to "sent" exists except through an approved campaign; all transitions are
+validated state changes.
 
 **FR-11 — Status and follow-ups.** Prospect/draft statuses and an activity log
 persist; follow-ups-due derives from approvals plus elapsed time. Accept: status
@@ -151,35 +180,78 @@ consumption (searches, fetches, tokens, cost, elapsed time); hitting any cap sto
 the run cleanly with partial results preserved and resumable. Accept: every stop
 records its reason; partial results remain reviewable.
 
+**FR-13 — Delivery interface.** One server-side contract (verify/send/status)
+behind which providers plug in; campaign code never touches vendor APIs.
+Accept: adding a provider touches one adapter file plus registration.
+
+**FR-14 — Sender connect.** Owner connects mock/Resend/Gmail senders; secrets are
+encrypted at rest and never returned. Accept: no API response, log, or prompt
+ever contains a credential; disconnect wipes the secret.
+
+**FR-15 — Campaign lifecycle.** Create from researched prospects, edit pre-approval,
+explicit approve with schedule, pause/resume/cancel; approval freezes snapshots.
+Accept: unapproved campaigns never send; post-approval edits are rejected;
+cancel prevents all unsent deliveries.
+
+**FR-16 — Scheduled execution.** Due mail sends server-side after the browser
+closes, in bounded batches with idempotent claiming. Accept: approved campaign
+with a past schedule completes without any open browser; no recipient is ever
+sent twice (idempotency keys + claim stamps, tested under overlap).
+
+**FR-17 — Suppression and unsubscribe.** Do-not-contact list enforced at approval
+and send time; every campaign mail carries a working unsubscribe link.
+Accept: suppressed addresses never send; unsubscribe link suppresses + parks.
+
+**FR-18 — Assist links.** Correctly-encoded `mailto:`/`wa.me` links per draft with
+no sender required. Accept: links open the right composer/handoff; UI never
+claims a handoff is a send.
+
+**FR-19 — Contact tracking.** Owner logs any-channel touches (channel, date, note);
+campaign sends auto-log; per-prospect timeline merges all events newest-first.
+Accept: every send appears on the timeline; manual contacts persist with
+user-stated dates.
+
+**FR-20 — Queue guarantees.** Producers enqueue claimed jobs; consumers send one
+attempt each; transient errors requeue with backoff (ACK); crashes retry then
+DLQ. Accept: overlapping producers never double-enqueue (tested); poison
+messages land in the DLQ, never silently dropped.
+
 ## 7. Demo scenario (acceptance in miniature)
 
 504 Yard, no lead list: owner enters name + catering description (+ website if
 available) → agent shows extracted profile → asks ≤5 questions → owner confirms →
 agent researches with visible progress → presents 5–8 ranked Ikeja corporate
 prospects with evidence, uncertainties, contact routes, and drafts → owner edits
-one draft, approves it, rejects another → statuses persist. Must fit a 3-minute
-recording: 30s onboarding, 30s clarification/confirm, 60s research + shortlist,
-60s draft review and decision. Every on-screen claim traceable to a source.
+one draft, approves it, rejects another → connects a sender (or uses assisted
+links) → schedules a campaign to a controlled recipient → watches per-recipient
+status land → logs a WhatsApp follow-up on the winner's timeline. Every
+on-screen claim traceable to a source; every send explicitly approved.
 
 ## 8. Constraints
 
 - Model inference is a documented product dependency (Meta Responses API);
   exact request shapes and history mode are owned by `specs/architecture.md`.
-- All model keys server-side; nothing secret in client, repo, logs, or fixtures.
+- All model keys and messaging credentials server-side; nothing secret in client,
+  repo, logs, prompts, or fixtures.
 - $150 Meta credit budget for the project; development runs on mocks/fixtures
   except explicitly approved live calls.
 - No fabricated prospects, evidence, contact details, or send-status claims.
+- Public repo: compliance note in README; demo sends to controlled recipients only.
 
 ## 9. Open unknowns
 
-- **U-1:** Grounded-search coverage/quality for Nigerian-local queries. Resolution:
-  the approved single-call experiment; owned by M0 verification, scheduled in
-  `specs/evaluation.md`. Does not block spec completion.
-- **U-2:** Availability of usable public contact data in target locales.
-  Resolution: observed during M3 pilot runs; product must degrade gracefully
-  (unknown labels, partial shortlists).
-- **U-3:** Cloudflare plan quotas for the chosen components. Resolution:
-  verified before first deploy in M3; availability already confirmed.
+- **U-1 (RESOLVED 2026-10-29):** grounded-search coverage for Nigerian-local
+  queries is usable (live Ikeja/Abuja runs produced real ranked buyers); zero
+  citations retained, so grounding relies on `results[]` snippets.
+- **U-2 (RESOLVED 2026-10-29):** public contact data is sparse but present;
+  graceful degradation (unknown labels, partial shortlists) implemented.
+- **U-3 (RESOLVED 2026-10-29):** Enterprise quotas verified; Worker + D1 +
+  Workflows + Queues all deployed and live.
+- **U-4:** container SMTP relay operability (image build, cold starts, relay
+  throughput). Resolution: build spike post-MVP; HTTPS adapters carry the demo.
+- **U-5:** Google OAuth verification for public Gmail users. Resolution: not
+  required for single-operator demo (dev-mode consent); verification only if
+  strangers connect Gmail post-hackathon.
 
 ## 10. Acceptance of this spec (DoD)
 
@@ -191,3 +263,7 @@ Evidence: approval recorded in `progress.md`.
 ## 11. Version history
 
 - v0.1 (2026-10-28): initial draft for review.
+- v0.2 (2026-10-29): delivery scope approved and built — journey steps 8–10,
+  FR-13–FR-20, non-goal revisions (approved campaign sending in scope),
+  U-1–U-3 resolved with outcomes, location-agnostic guarantee. Rationale:
+  reviewer-approved hybrid delivery implemented and live-verified.

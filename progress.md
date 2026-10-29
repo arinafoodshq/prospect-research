@@ -154,6 +154,19 @@ Inbox check (TechAssembly) is a user step. Spend $0 (no model calls).
 Next: container SMTP relay build (Docker present, needs @cloudflare/containers
 + image + config) or campaign creation UI + demo polish.
 
+2026-10-29 (GitHub + specs v0.2 + campaign creation UI):
+Pushed to https://github.com/arinafoodshq/prospect-research (public, main;
+hygiene verified: .dev.vars/.runs/node_modules ignored, secret scan clean).
+Specs rewritten to v0.2 (product/architecture/data-model/tools): delivery
+scope, FR-13–FR-20, journey steps 8–10, 6 delivery tables + transitions,
+queue topology, SMTP verdict, OAuth shape, deterministic-ops registry —
+restart-from-docs requirement met. Campaign creation UI live: 7th view with
+sender picker, approved-prospect recipients (email prefilled from routes,
+subject/body from drafts, all editable), schedule picker, one-click
+create+approve; entry from status-board monitor. 167/167 vitest, smoke PASS.
+Spend $0 (no model calls).
+Next: container SMTP relay build, then demo video script + polish.
+
 ## Milestones
 
 - **M0 — specs complete and approved.** Done 2026-10-28 ("go ahead" approval).

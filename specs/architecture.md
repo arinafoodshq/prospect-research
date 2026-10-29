@@ -1,45 +1,53 @@
 # specs/architecture.md — Deployed Product Architecture (System B)
 
-- Status: draft for review (v0.1, 2026-10-28).
+- Status: approved through v0.2 (2026-10-29). v0.1 approved 2026-10-28.
 - Owner: System B only. Detailed loop in `specs/research-loop.md`, persistence in
   `specs/data-model.md`, requirements in `specs/product.md`.
 
 ## 1. Overview
 
-A web application: a TypeScript single-page frontend (conversational onboarding +
-research workspace) backed by one Cloudflare Worker API that orchestrates
-evidence-backed prospect research. Meta Responses API provides reasoning and
-grounded web search; the Worker owns validation, budgets, and approval gates; D1
-holds all runtime state; one Workflow per research run provides durable multi-step
-execution with human-gate pauses. All model keys server-side.
+A web application: a TypeScript single-page frontend (onboarding + research
+workspace + campaign monitor + contact timelines) backed by one Cloudflare Worker
+API that orchestrates evidence-backed prospect research and approval-gated email
+delivery. Meta Responses API provides reasoning and grounded web search; the
+Worker owns validation, budgets, and approval gates; D1 holds all runtime state;
+one Workflow per research run provides durable multi-step execution with
+human-gate pauses; one Queue+cron pipeline provides durable scheduled delivery.
+All model keys and messaging credentials server-side.
 
 ## 2. Principles
 
 1. **Server owns truth.** D1 state, not model memory, is the source of record;
    every phase reads and writes durable state.
 2. **Model decides, code enforces.** Same split as System A: research choices come
-   from the model; schemas, budgets, dedupe, and gates are deterministic code.
-3. **Human gates are structural.** Brief confirmation and draft approval are
-   Workflow wait states, not UI suggestions — the run cannot advance past them.
+   from the model; schemas, budgets, dedupe, gates, scheduling, and sending are
+   deterministic code. Delivery has no model tools by design.
+3. **Human gates are structural.** Brief confirmation, draft approval, and campaign
+   approval are enforced state transitions (Workflow waits / locked statuses),
+   not UI suggestions — the run cannot advance past them.
 4. **Smallest sufficient infrastructure.** Each component below carries a
    one-line justification; anything without one is excluded.
 5. **Phase-scoped model calls.** Human gates break conversations, so each phase
    issues fresh focused requests grounded in D1 state rather than one long
    history. Conversation chaining (`previous_response_id`) is used only inside a
    single tool-loop burst.
+6. **Credentials never flow to the model or client.** Sealed at rest (AES-GCM),
+   decrypted only inside the send path, never logged, returned, or prompted.
 
 ## 3. Components and responsibilities
 
 - **Web frontend (TypeScript SPA).** Conversational onboarding pane; business
   profile review + confirmation; research progress view; ranked shortlist with
-  evidence panel; draft review with approve/edit/reject; status and follow-ups
-  boards. No secrets, no direct model calls. Served from the same Worker project
-  via static assets (exact mechanism verified at scaffold).
+  evidence panel + per-prospect timeline + log-contact form; draft review with
+  approve/edit/reject; status and follow-ups boards; campaign monitor (statuses,
+  per-recipient states, cancel). No secrets, no direct model calls. Served from
+  the same Worker project via static assets.
 - **Worker API (TypeScript).** REST endpoints per journey phase (profile, brief,
-  runs, prospects, evidence, drafts, decisions, statuses); Meta API client;
-  request validation; budget accounting; Workflow triggering and event delivery
-  (`sendEvent` for gate answers). Holds `MODEL_API_KEY` as a Worker secret
-  (dev: untracked `.dev.vars`).
+  runs, prospects, evidence, drafts, decisions, statuses, connections, campaigns,
+  suppressions, contacts, timeline, assist links); Meta API client; request
+  validation; budget accounting; Workflow triggering and event delivery
+  (`get(id).sendEvent` for gate answers). Holds `MODEL_API_KEY`, `CRED_KEY`,
+  and `GOOGLE_CLIENT_*` as Worker secrets (dev: untracked `.dev.vars`).
 - **Meta Responses API client.** Builds phase-scoped requests (`muse-spark-1.3`,
   `web_search` + product function tools, structured output at extraction points);
   parses `web_search_call` / `results` / `url_citation`; counts usage. No other
@@ -53,12 +61,25 @@ execution with human-gate pauses. All model keys server-side.
   orchestration.
 - **D1 database (one, namespaced for this project).** All System B runtime state
   per `specs/data-model.md`. Justification: relational evidence linkage and state
-  machines need transactions and queries; 20 D1 databases already in use on the
-  account proves availability. Limits verified before first deploy.
+  machines need transactions and queries.
 - **Page-fetch helper (inside Worker/Workflow).** Server-side fetch of supplied
   business sites and cited pages with size caps, timeouts, and text extraction.
   Justification: grounding returns snippets only; contact and service details need
   full pages; must respect blocks/failures as explicit states.
+- **Delivery interface + adapters (`DeliveryProvider`).** One server-side contract
+  (verify/send/status mapping, error categories, retryability). Adapters: mock
+  (tests/demo), resend (HTTPS API), gmail (HTTPS Gmail API + OAuth connect flow).
+  Justification: campaign logic must outlive any vendor; adapters are swappable.
+- **Queue pipeline (delivery-jobs + delivery-dlq).** Cron tick and the manual
+  process route claim due recipients and enqueue one job each; the queue consumer
+  sends one attempt per message. Backpressure: batch 10 + max 2 concurrent
+  consumers; crashes retry ×5 then DLQ; transient provider errors requeue with
+  app backoff and ACK. Justification: scheduled sends must survive browser
+  closes, overlap safely, and isolate poison messages — in-request sending does
+  none of that.
+- **Credential store (sealed D1 + `CRED_KEY`).** AES-GCM via WebCrypto; key only
+  in the Worker secret. Justification: OAuth refresh tokens and API keys must
+  persist across ticks without ever appearing outside the send path.
 
 ## 4. Data flow per journey phase
 
@@ -74,6 +95,15 @@ execution with human-gate pauses. All model keys server-side.
 - Review/Decide: frontend reads D1 views; decisions call Worker endpoints that
   validate state transitions and `sendEvent` the Workflow past its approval gate;
   activity log appended; follow-ups derived on read.
+- Connect: owner submits provider secret (sealed immediately) or completes Gmail
+  OAuth (single `callbackUrl` builder, one route); verify exercises the provider;
+  connection flips to connected. Secrets never returned.
+- Campaign: create (recipients validated + deduped) → edit while draft →
+  approve (sender must be connected, snapshots frozen, suppression pre-pass) →
+  schedule → cron/consumer sends in bounded batches → per-recipient statuses,
+  attempts, pause/cancel; completion recorded with stats.
+- Track: campaign sends auto-log contact events; owner hand-logs any-channel
+  touches; timeline merges contacts + activity newest-first.
 
 ## 5. Meta integration decisions
 
@@ -94,42 +124,65 @@ execution with human-gate pauses. All model keys server-side.
 
 - Searches ≤ 30, page fetches ≤ 40, candidates ≤ 25, shortlist default 5–8.
 - Cost ≤ $6, wall-clock active compute ≤ 20 min (human waits excluded).
-- Any cap hit stops the run cleanly with reason recorded and partial results
-  reviewable and resumable.
+- Delivery: consumer batch 10/tick, cron every 5 min, 500 recipients/campaign cap,
+  3 attempts/recipient. Any cap hit stops cleanly with reason recorded.
 
-## 7. Excluded components (each rejected for a stated reason)
+## 7. Delivery design decisions (locked)
 
-- **Queues:** no cross-service producer/consumer split exists; Workflow + D1 cover
-  async needs.
+- **SMTP verdict:** port 25 blocked in Workers per docs; 465/587 reachable in
+  principle but need a hand-rolled SMTP client — rejected for the hackathon.
+  Container SMTP relay is designed (full Linux egress, user creds passed
+  per-request, nothing secret at rest) but unbuilt; HTTPS adapters carry the demo.
+- **Gmail verify:** `users/me/profile` is outside `gmail.send` (live 403) — a
+  successful token refresh is the verification; first real send is the scope test.
+- **OAuth shape:** one callback route, one `callbackUrl` origin-derived builder
+  (prod + localhost URIs), HMAC state, offline+consent for refresh tokens.
+- **Event delivery to Workflows:** instance `get(id).sendEvent({type, payload})`
+  (docs-verified); unique wait names per gate wake; 24h default wait timeout.
+- **Claiming:** guarded UPDATE + unique claim-stamp read-back; idempotency keys
+  per recipient; overlapping producers/consumers tested to never double-send.
+- **Single-tenant MVP:** no auth layer yet — documented, not faked with
+  placeholder tenant ids.
+
+## 8. Excluded components (each rejected for a stated reason)
+
 - **KV:** no session-cache or scratch-lookup need; D1 serves all reads.
 - **R2:** no binary/artifact storage need; page text fits D1 caps for MVP volumes.
-- **Containers:** no full-runtime workload; TypeScript runs natively on Workers.
+- **Containers:** no full-runtime workload *in the MVP path*; reserved for the
+  SMTP relay design (§7) — explicitly next, not rejected.
 - **Workers AI:** excluded by direction; Meta provides model intelligence.
 - **Agent frameworks:** the loop is ours (specified, budgeted, gated); a framework
   would obscure the judged agent design.
+- (Queues graduated from this list in v0.2: the delivery pipeline justified them.)
 
-## 8. Topology and environments
+## 9. Topology and environments
 
 - Dev: local Wrangler dev (Worker + D1 local) with `.dev.vars`; model calls mocked
-  except explicitly approved live calls. Prod: deployed Worker + D1 + Workflow;
-  secrets via `wrangler secret`. Frontend served from the same project in both.
-- Pre-deploy verification: D1 limits, Workflow step/timeout behavior on this plan,
-  secret presence (presence-only), one live smoke run on a rehearsed brief.
+  except explicitly approved live calls; queues/cron exercised remotely.
+  Prod: deployed Worker + D1 + Workflow + Queues + cron; secrets via
+  `wrangler secret`. Frontend served from the same project in both.
+- Live: `https://prospect-research.sam-5b1.workers.dev` (D1 `prospect_research`,
+  queues `delivery-jobs`/`delivery-dlq`, cron `*/5 * * * *`).
 
-## 9. Open items (owners, not TBDs)
+## 10. Open items (owners, not TBDs)
 
-- O-1 (RESOLVED 2026-10-29): Workers Static Assets via `"assets": { "directory": "./public" }`; `/` serves index.html and `/api/*` falls through to the Worker (verified on wrangler dev; rationale: zero extra binding, no separate Pages project). Original item: frontend static-serving mechanism on this account — verify at scaffold (M3).
-- O-2: D1/Workflow plan quotas — verify before first deploy (M3).
-- O-3: U-1 grounding quality — the approved single-call experiment (post-M0 spike).
+- O-1 (RESOLVED 2026-10-29): Workers Static Assets via `"assets": { "directory": "./public" }`; `/` serves index.html and `/api/*` falls through to the Worker. Original item: frontend static-serving mechanism — verify at scaffold (M3).
+- O-2 (RESOLVED 2026-10-29): Enterprise quotas verified; Worker + D1 + Workflow + Queues deployed and live.
+- O-3 (RESOLVED 2026-10-29): U-1 grounding usable via `results[]` (zero citations retained); live Ikeja/Abuja runs rank real buyers.
+- O-4: container SMTP relay build (Docker present; needs image + config + test mailbox).
+- O-5: Google OAuth verification for public Gmail users (post-hackathon only).
 
-## 10. Acceptance of this spec (DoD)
+## 11. Acceptance of this spec (DoD)
 
 Done when: every component has a stated responsibility and justification;
 exclusions have reasons; Meta shapes, budgets, and error policy are fixed; data
-flow covers all 7 journey steps; names match `specs/research-loop.md`,
-`specs/data-model.md`, and `tools.md` Part B; and you approve it. Evidence:
+flow covers all 10 journey steps; names match `specs/research-loop.md`,
+`specs/data-model.md`, and `tools.md`; and you approve it. Evidence:
 approval in `progress.md`.
 
-## 11. Version history
+## 12. Version history
 
 - v0.1 (2026-10-28): initial draft for review.
+- v0.2 (2026-10-29): delivery architecture (interface, adapters, queue topology,
+  credential store), journey phases 8–10, SMTP verdict, OAuth shape, queue + UI
+  components, O-1–O-3 resolved. Rationale: approved hybrid delivery built live.
