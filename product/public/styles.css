@@ -1,0 +1,91 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ink: #1c2333;
+  --muted: #5b6478;
+  --line: #dfe4ee;
+  --bg: #f7f8fb;
+  --card: #ffffff;
+  --accent: #1f5eff;
+  --warn: #8a4b00;
+  --ok: #0e7a3d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); }
+.site-header, #app, .site-footer { max-width: 72rem; margin: 0 auto; padding: 1rem 1.5rem; }
+.demo-banner {
+  background: #fff3cd; color: #664d03; border-bottom: 2px solid #e6c200;
+  padding: 0.6rem 1.5rem; font-weight: 600; text-align: center;
+}
+.demo-banner.live { background: #d1e7dd; color: #0f5132; border-color: #0f5132; }
+.site-header h1 { margin: 0.5rem 0 0.25rem; }
+.tagline { color: var(--muted); margin-top: 0; }
+.steps ol { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; padding: 0; }
+.steps li { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 0.3rem 0.8rem; font-size: 0.85rem; color: var(--muted); }
+.steps li.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.steps li.done { border-color: var(--ok); color: var(--ok); }
+.view { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+.view h2 { margin-top: 0; }
+.hint { color: var(--muted); font-size: 0.92rem; }
+label { display: block; margin: 0.7rem 0; font-weight: 600; }
+input, textarea { display: block; width: 100%; margin-top: 0.3rem; padding: 0.55rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin-top: 1rem; }
+legend { padding: 0 0.5rem; font-weight: 700; }
+button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 0.6rem 1.1rem; font: inherit; cursor: pointer; }
+button.secondary { background: #eef1f7; color: var(--ink); }
+button.danger { background: #b42318; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.row { display: flex; gap: 0.6rem; margin-top: 1rem; }
+.form-error { color: #b42318; font-weight: 600; }
+#profile-fields dt { font-weight: 700; margin-top: 0.8rem; }
+#profile-fields dd { margin: 0.2rem 0; }
+.prov { font-size: 0.78rem; border-radius: 999px; padding: 0.1rem 0.55rem; margin-left: 0.4rem; }
+.prov.stated { background: #e7f0ff; color: #1f5eff; }
+.prov.extracted { background: #e9f7ef; color: var(--ok); }
+.prov.assumed { background: #fef0e6; color: var(--warn); border: 1px dashed var(--warn); }
+.progress-bar { height: 12px; background: #eef1f7; border-radius: 999px; overflow: hidden; }
+#progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.4s ease; }
+#progress-steps { list-style: none; padding: 0; }
+#progress-steps li { padding: 0.35rem 0; border-bottom: 1px solid var(--line); }
+#progress-steps li.done::before { content: "✓ "; color: var(--ok); font-weight: 700; }
+#progress-steps li.active::before { content: "… "; color: var(--accent); font-weight: 700; }
+.budget { font-size: 0.88rem; color: var(--muted); }
+.shortlist-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; }
+#prospect-list { list-style: none; padding: 0; margin: 0; }
+#prospect-list li { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem; margin-bottom: 0.6rem; cursor: pointer; }
+#prospect-list li[aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31,94,255,0.2); }
+#prospect-list .score { font-weight: 700; color: var(--ok); }
+#evidence-panel { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem; background: #fbfcff; }
+#evidence-panel blockquote { border-left: 3px solid var(--accent); margin: 0.5rem 0; padding-left: 0.6rem; color: #333; font-size: 0.92rem; }
+#evidence-panel cite { display: block; font-size: 0.8rem; color: var(--muted); }
+.draft { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem; margin-bottom: 0.8rem; }
+.draft textarea { min-height: 7rem; }
+.draft .decision { font-weight: 700; }
+.draft .decision.approved { color: var(--ok); }
+.draft .decision.rejected { color: #b42318; }
+.draft .decision.pending { color: var(--warn); }
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
+.column { background: #fbfcff; border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem; }
+.column h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+.column ul { list-style: none; padding: 0; margin: 0; }
+.column li { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.5rem; margin-bottom: 0.4rem; font-size: 0.88rem; }
+.site-footer { color: var(--muted); font-size: 0.85rem; }
+@media (max-width: 800px) {
+  .shortlist-grid, .board { grid-template-columns: 1fr; }
+}
+.chips { display: flex; align-items: center; gap: 0.5rem; margin: 0.8rem 0; flex-wrap: wrap; }
+.chips span { color: var(--muted); font-size: 0.9rem; }
+.chips button { background: #eef1f7; color: var(--ink); padding: 0.4rem 0.9rem; }
+#clarify-more { border: 1px solid var(--line); border-radius: 8px; margin-top: 1rem; padding: 0.6rem 0.8rem; }
+#clarify-more summary { cursor: pointer; font-weight: 700; }
+.timeline { list-style: none; padding: 0; margin: 0.8rem 0 0; }
+.timeline li { border-left: 3px solid var(--line); padding: 0.3rem 0 0.3rem 0.6rem; margin-bottom: 0.4rem; font-size: 0.88rem; }
+.timeline li.contact { border-color: var(--ok); }
+.log-contact { display: grid; gap: 0.4rem; margin-top: 0.8rem; border-top: 1px dashed var(--line); padding-top: 0.6rem; }
+.log-contact .row { margin-top: 0.4rem; }
+.log-contact select, .log-contact input { display: block; width: 100%; padding: 0.45rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.campaigns { margin-top: 1rem; border-top: 2px solid var(--line); padding-top: 0.8rem; }
+.campaign { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem; margin-bottom: 0.6rem; background: #fff; }
+.campaign h4 { margin: 0 0 0.3rem; }
+.campaign .meta { color: var(--muted); font-size: 0.85rem; }
+.campaign ul { list-style: none; padding: 0; margin: 0.4rem 0; font-size: 0.88rem; }

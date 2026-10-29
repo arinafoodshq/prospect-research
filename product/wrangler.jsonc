@@ -1,0 +1,51 @@
+// product/wrangler.jsonc â€” Worker + D1 + Workflow bindings skeleton.
+// Account id: 5b1a6a62ef2a35ff1da503bafc123ef6. No secrets here; MODEL_API_KEY
+// is set via `wrangler secret put MODEL_API_KEY` (dev: untracked .dev.vars).
+// Static frontend serving mechanism is open item O-1 in specs/architecture.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prospect-research",
+  "account_id": "5b1a6a62ef2a35ff1da503bafc123ef6",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "prospect_research",
+      "database_id": "f403c035-dcfd-4dda-baf9-aead92233bd1"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "research-workflow",
+      "binding": "RESEARCH_WORKFLOW",
+      "class_name": "ResearchWorkflowEntrypoint"
+    }
+  ],
+  // Static assets (O-1 resolved): Workers Static Assets serves ./public;
+  // /api/* falls through to the Worker. No separate binding needed.
+  "assets": { "directory": "./public" },
+  // Campaign delivery tick: every 5 minutes (UTC). Changes take ~15 min to propagate.
+  "triggers": { "crons": ["*/5 * * * *"] },
+  // Delivery pipeline: cron/process enqueue due recipients; the consumer sends.
+  // Backpressure: batch 10 + max 2 concurrent consumers; crashes retry x5 then DLQ.
+  "queues": {
+    "producers": [{ "binding": "DELIVERY_QUEUE", "queue": "delivery-jobs" }],
+    "consumers": [{
+      "queue": "delivery-jobs",
+      "max_batch_size": 10,
+      "max_batch_timeout": 5,
+      "max_retries": 5,
+      "retry_delay": 60,
+      "max_concurrency": 2,
+      "dead_letter_queue": "delivery-dlq"
+    }]
+  },
+  "vars": {
+    "MODEL_ID": "muse-spark-1.3",
+    "ENVIRONMENT": "production",
+    "PUBLIC_BASE_URL": "https://prospect-research.sam-5b1.workers.dev"
+  }
+}

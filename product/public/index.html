@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prospect Research — Demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner" role="status">DEMO DATA — mock results for illustration, not live research. Add <code>?live=1</code> to use the real API when the backend lands.</div>
+  <header class="site-header">
+    <h1>Prospect Research</h1>
+    <p class="tagline">Describe what you sell. We find businesses likely to buy — every pick backed by evidence, every message approved by you.</p>
+    <nav class="steps" aria-label="Progress">
+      <ol id="step-nav">
+        <li data-view="onboard" class="active">1. Onboard</li>
+        <li data-view="profile">2. Confirm profile</li>
+        <li data-view="progress">3. Research run</li>
+        <li data-view="shortlist">4. Shortlist</li>
+        <li data-view="drafts">5. Drafts</li>
+        <li data-view="status">6. Status board</li>
+      </ol>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- View 1: onboard -->
+    <section id="view-onboard" class="view" aria-label="Onboard your business">
+      <h2>What does your business sell?</h2>
+      <p class="hint">Two minutes, three questions. The agent researches buyers from there — it shows its work before anything goes out.</p>
+      <div class="chips" role="group" aria-label="Try an example">
+        <span>Try one:</span>
+        <button type="button" data-preset data-description="Office lunch packs for 20–200 staff, delivered before noon." data-q1="Ikeja, Yaba" data-q3="Office admin">Catering</button>
+        <button type="button" data-preset data-description="Daily office cleaning contracts for 10–50 staff offices, supplies included." data-q1="Abuja" data-q3="Office manager">Cleaning</button>
+        <button type="button" data-preset data-description="Same-day dispatch for documents and parcels under 20kg." data-q1="Lagos mainland" data-q3="Operations lead">Logistics</button>
+      </div>
+      <form id="onboard-form">
+        <label>Business name
+          <input name="businessName" id="f-businessName" required maxlength="120" placeholder="e.g. Adaeze Catering Services" />
+        </label>
+        <label>What do you sell, and to whom?
+          <textarea name="description" id="f-description" required rows="3" placeholder="e.g. Office lunch packs for 20–200 staff, delivered before noon."></textarea>
+        </label>
+        <label>Which areas do you serve? <input name="q1" id="f-q1" placeholder="e.g. Ikeja, Yaba, Surulere" /></label>
+        <label>Who usually decides? <input name="q3" id="f-q3" placeholder="e.g. Office admin / HR manager" /></label>
+        <details id="clarify-more">
+          <summary>More details (optional — improves matches)</summary>
+          <label>Website
+            <input name="site" id="f-site" type="url" placeholder="https://example.ng" />
+          </label>
+          <label>Typical order size or budget? <input name="q2" id="f-q2" placeholder="e.g. 30–100 packs per order" /></label>
+          <label>Anything you do NOT do? <input name="q4" id="f-q4" placeholder="e.g. No weddings under 50 guests" /></label>
+          <label>Best existing customer type? <input name="q5" id="f-q5" placeholder="e.g. Tech startups with daily lunch" /></label>
+        </details>
+        <p class="form-error" id="onboard-error" hidden></p>
+        <button type="submit">Find my buyers</button>
+      </form>
+    </section>
+
+    <!-- View 2: profile confirm -->
+    <section id="view-profile" class="view" hidden aria-label="Confirm business profile">
+      <h2>Confirm what we understood</h2>
+      <p class="hint">Check each fact. Sources: <strong>you said</strong>, <strong>from your site</strong>, or <strong>our guess</strong> (edit guesses before confirming).</p>
+      <dl id="profile-fields"></dl>
+      <div class="row">
+        <button id="btn-back-onboard" type="button">Back</button>
+        <button id="btn-confirm-profile" type="button">Confirm brief &amp; start research</button>
+      </div>
+    </section>
+
+    <!-- View 3: run progress -->
+    <section id="view-progress" class="view" hidden aria-label="Research progress">
+      <h2>Research in progress</h2>
+      <div class="progress-wrap">
+        <div class="progress-bar" aria-hidden="true"><div id="progress-fill"></div></div>
+        <p id="progress-label">Starting…</p>
+      </div>
+      <ol id="progress-steps"></ol>
+      <p class="budget" id="progress-budget"></p>
+      <button id="btn-restart-progress" type="button" class="secondary" hidden>Start over</button>
+    </section>
+
+    <!-- View 4: shortlist + evidence -->
+    <section id="view-shortlist" class="view" hidden aria-label="Ranked shortlist">
+      <h2>Shortlist — ranked prospects</h2>
+      <div class="shortlist-grid">
+        <ol id="prospect-list"></ol>
+        <aside id="evidence-panel" aria-label="Evidence panel" aria-live="polite">
+          <h3>Evidence</h3>
+          <p class="hint" id="evidence-hint">Select a prospect to see why it was picked, with sources.</p>
+          <div id="evidence-body"></div>
+        </aside>
+      </div>
+      <div class="row">
+        <button id="btn-to-drafts" type="button">Review outreach drafts</button>
+      </div>
+    </section>
+
+    <!-- View 5a: draft review -->
+    <section id="view-drafts" class="view" hidden aria-label="Draft review">
+      <h2>Review outreach drafts</h2>
+      <p class="hint">Approve, edit, or reject each draft. Only approved drafts move to the status board.</p>
+      <div id="draft-list"></div>
+      <div class="row">
+        <button id="btn-back-shortlist" type="button" class="secondary">Back to shortlist</button>
+        <button id="btn-to-status" type="button">Open status board</button>
+      </div>
+    </section>
+
+    <!-- View 5b: status board -->
+    <section id="view-status" class="view" hidden aria-label="Status board">
+      <h2>Status board</h2>
+      <div class="board" id="status-board"></div>
+      <div class="row">
+        <button id="btn-back-drafts" type="button" class="secondary">Back to drafts</button>
+        <button id="btn-restart" type="button">Start over (new business)</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p id="mode-line">Demo mode: showing sample Ikeja prospects.</p>
+  </footer>
+
+  <script src="./api.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
