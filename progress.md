@@ -746,3 +746,25 @@ desktop + 390px screenshots viewed (stacked, no clipping).
 NOT deployed: live worker still v75f1dba7 without this route; deploy
 rides with the end-of-revamp release. Research logic untouched
 (freeze holds).
+
+## 2026-10-29 - Revamp P0.4 DONE: research progress + set-aside (PDF screen 3)
+
+No backend changes (freeze holds; read APIs already expose everything).
+New api.getProgressSnapshot on both adapters: run status + brief +
+prospect statuses -> found/opened/kept counts, brief-driven search
+line ("Searched for X in Y"), consumed budgets, set-aside list with
+reasons (live: disqualified rationales via the cached evidence
+adapter, first sentence, one fetch per prospect; mock: 3 staged demo
+drops). UI: kicker (SAMPLE/LIVE RUN), Working-now eyebrow + serif
+title, honest stay-open note per mode (no fake "we will message you"),
+stats trio, 7-step checklist with done/active/todo states (past-tense
+labels, first-todo-active rule, open counts), budget line, set-aside
+card, Preview results so far (mid-run partial shortlist; mock slices
+by tick) + Stop and adjust my brief (returns to profile; the old run
+keeps going server-side, no stop endpoint under the freeze).
+Verified: smoke PASS (mid-run stats/steps/set-aside, 2-prospect
+preview, stop-to-brief, live snapshot adapter mapping), node --check
+clean, headless full-journey drive 0 console errors 0 failed requests
+0px overflow, desktop + 390px screenshots viewed. Fixed along the way:
+legacy #progress-steps CSS overriding the new checklist (removed dead
+progress-bar rules); two stale local http.servers colliding on :8000.

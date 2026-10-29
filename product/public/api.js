@@ -135,19 +135,50 @@
       followups_used: used + 1
     });
   };
+  var OB_STAGES = [
+    { status: "created", found: 0, opened: 0, kept: 0, searches: 0, fetches: 0, dropped: [] },
+    { status: "discovering", found: 9, opened: 0, kept: 0, searches: 6, fetches: 2, dropped: [] },
+    { status: "investigating", found: 18, opened: 6, kept: 0, searches: 15, fetches: 6, dropped: ["list"] },
+    { status: "assessing", found: 25, opened: 14, kept: 3, searches: 24, fetches: 14, dropped: ["list", "clinic"] },
+    { status: "drafting", found: 25, opened: 20, kept: 6, searches: 30, fetches: 20, dropped: ["list", "clinic", "dup"] },
+    { status: "awaiting_approval", found: 25, opened: 25, kept: 9, searches: 30, fetches: 25, dropped: ["list", "clinic", "dup"] }
+  ];
+  var OB_DROPPED = {
+    list: { name: "Top 10 suppliers in Lagos", reason: "A list page, not a business." },
+    clinic: { name: "Greenfield Clinic", reason: "Healthcare, outside your target segment." },
+    dup: { name: "Brightline Logistics, second listing", reason: "Same business as an existing pick, merged." }
+  };
+  var OB_KEPT_PARTIAL = [0, 0, 0, 2, 4, 6];
+
   MockApi.prototype.runProgress = function (runId, onTick) {
+    var self = this;
     var steps = ["Planning search", "Discovering candidates", "Checking business sites", "Scoring fit", "Writing drafts"];
     var i = 0;
+    self._tick = 0;
     return new Promise(function (resolve) {
       var timer = setInterval(function () {
         i += 1;
+        self._tick = i;
         onTick({ done: i, total: steps.length, steps: steps, searches: Math.min(6 * i, 28), fetches: Math.min(7 * i, 33) });
         if (i >= steps.length) { clearInterval(timer); resolve({ runId: "demo-run-1", status: "complete" }); }
       }, 350);
     });
   };
+  MockApi.prototype.getProgressSnapshot = function () {
+    var stage = OB_STAGES[this._tick || 0] || OB_STAGES[0];
+    return Promise.resolve({
+      status: stage.status, stop_reason: null,
+      found: stage.found, opened: stage.opened, kept: stage.kept,
+      searches: stage.searches, fetches: stage.fetches,
+      searchLine: "offices and workplaces in Ikeja",
+      setAside: stage.dropped.map(function (k) { return OB_DROPPED[k]; })
+    });
+  };
   MockApi.prototype.getShortlist = function () {
-    return Promise.resolve({ prospects: DEMO_PROSPECTS.slice() });
+    // Mid-run previews show only what is kept so far; the landing sample
+    // (no run yet) and finished runs show the full demo list.
+    var n = this._tick == null ? DEMO_PROSPECTS.length : (OB_KEPT_PARTIAL[this._tick] || 0);
+    return Promise.resolve({ prospects: DEMO_PROSPECTS.slice(0, n) });
   };
   MockApi.prototype.getEvidence = function (prospectId) {
     var found = DEMO_PROSPECTS.filter(function (p) { return p.id === prospectId; })[0] || DEMO_PROSPECTS[0];
@@ -336,6 +367,47 @@
       };
       poll();
       timer = setInterval(poll, 1500);
+    });
+  };
+
+  function firstSentence(s) {
+    var t = String(s || "").trim();
+    if (!t) return "";
+    var head = t.split(/[.?!]\s/)[0].trim() || t;
+    return head.slice(0, 140);
+  }
+
+  function searchLineFromBrief(brief) {
+    var seg = brief && brief.primary_segment;
+    if (!seg) return "buyers that fit";
+    var who = (seg.industries && seg.industries.slice(0, 2).join(" and ")) || seg.label || "buyers";
+    var where = (seg.geos && seg.geos.slice(0, 2).join(", ")) || "";
+    return where ? who + " in " + where : who;
+  }
+
+  RealApi.prototype.getProgressSnapshot = function (runId) {
+    var self = this;
+    return self._req("/api/runs/" + encodeURIComponent(runId)).then(function (run) {
+      return self._req("/api/runs/" + encodeURIComponent(runId) + "/prospects").then(function (res) {
+        var list = res.prospects || [];
+        var opened = list.filter(function (p) { return p.status !== "candidate"; }).length;
+        var kept = list.filter(function (p) { return p.status === "qualified" || p.status === "shortlisted"; }).length;
+        var dropped = list.filter(function (p) { return p.status === "disqualified"; });
+        // Rationales ride the cached evidence adapter: one fetch per prospect.
+        return Promise.all(dropped.map(function (p) { return self.getEvidence(p.id); })).then(function (details) {
+          var consumed = run.consumed || {};
+          return {
+            status: run.status, stop_reason: run.stop_reason || null,
+            found: list.length, opened: opened, kept: kept,
+            searches: consumed.searches || 0, fetches: consumed.fetches || 0,
+            searchLine: searchLineFromBrief(run.commercial_brief),
+            setAside: dropped.map(function (p, i) {
+              var asmt = details[i].assessments && details[i].assessments[0];
+              return { name: p.name, reason: firstSentence(asmt && asmt.rationale) || "Did not pass your must-haves." };
+            })
+          };
+        });
+      });
     });
   };
 

@@ -237,15 +237,33 @@
       </div>
     </section>
 
-    <!-- View 3: run progress -->
+    <!-- View 3: run progress (PDF screen 3: stats, steps, set-aside) -->
     <section id="view-progress" class="view" hidden aria-label="Research progress">
-      <h2>Research in progress</h2>
-      <div class="progress-wrap">
-        <div class="progress-bar" aria-hidden="true"><div id="progress-fill"></div></div>
-        <p id="progress-label">Starting…</p>
+      <div class="ob-head">
+        <p class="brand">Prospect Research</p>
+        <p class="kicker" id="progress-kicker">SAMPLE RUN</p>
       </div>
-      <ol id="progress-steps"></ol>
+      <p class="eyebrow" id="progress-eyebrow">Working now</p>
+      <h2 id="progress-title">Finding the buyers that truly fit.</h2>
+      <p class="hint" id="progress-note">Sample run, keep this page open while it works.</p>
+      <div class="trio stats" id="progress-stats">
+        <div><p class="stat-num" id="stat-found">0</p><p class="muted small">businesses found</p></div>
+        <div><p class="stat-num" id="stat-opened">0</p><p class="muted small">had their own pages opened</p></div>
+        <div><p class="stat-num" id="stat-kept">0</p><p class="muted small">kept so far</p></div>
+      </div>
+      <ol id="progress-steps" class="checklist"></ol>
       <p class="budget" id="progress-budget"></p>
+      <div class="card" id="progress-setaside-wrap">
+        <p class="kicker">Set aside, and why</p>
+        <p class="hint">We drop anything that breaks your must-haves, so your list stays clean.</p>
+        <ul id="progress-setaside"></ul>
+        <p class="muted small" id="progress-setaside-empty">Nothing set aside yet.</p>
+      </div>
+      <div class="row">
+        <button id="btn-preview-progress" type="button" class="secondary">Preview results so far</button>
+        <button id="btn-stop-progress" type="button" class="linklike">Stop and adjust my brief</button>
+      </div>
+      <p class="form-error" id="progress-error" hidden></p>
       <button id="btn-restart-progress" type="button" class="secondary" hidden>Start over</button>
     </section>
 

@@ -115,7 +115,11 @@ const IDS = [
   "ob-first", "ob-chat", "ob-step", "ob-yousaid-text", "ob-question-wrap", "ob-question",
   "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
   "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first",
-  "profile-fields", "progress-steps", "progress-label", "progress-fill", "progress-budget",
+  "profile-fields", "progress-steps", "progress-budget",
+  "progress-kicker", "progress-eyebrow", "progress-title", "progress-note",
+  "stat-found", "stat-opened", "stat-kept",
+  "progress-setaside", "progress-setaside-empty", "progress-error",
+  "btn-preview-progress", "btn-stop-progress",
   "prospect-list", "evidence-body", "evidence-hint", "draft-list", "status-board",
   "demo-banner", "mode-line",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status",
@@ -235,8 +239,22 @@ let confirmedProfile = null;
     return orig.call(this, profile);
   };
 }
-await fire(els["btn-confirm-profile"], "click", evt());
-await new Promise((r) => setTimeout(r, 2100)); // mock runProgress ticks (~1.75s)
+const runDone = fire(els["btn-confirm-profile"], "click", evt());
+await new Promise((r) => setTimeout(r, 1200)); // 3 of 5 mock ticks landed
+await tick(); await tick();
+ok(els["progress-kicker"].textContent === "SAMPLE RUN", "progress kicker marks the sample run");
+ok(els["stat-found"].textContent === "25" && els["stat-opened"].textContent === "14" && els["stat-kept"].textContent === "3",
+  "progress stats count found/opened/kept (" + els["stat-found"].textContent + "/" + els["stat-opened"].textContent + "/" + els["stat-kept"].textContent + ")");
+ok(/Searched for offices/.test(els["progress-steps"].innerHTML), "finished steps render past-tense");
+ok(/Opened each business/.test(els["progress-steps"].innerHTML), "page-open step completes in assessing");
+ok(/class="active">Checking fit/.test(els["progress-steps"].innerHTML), "exactly the next step shows active");
+ok(/Greenfield Clinic/.test(els["progress-setaside"].innerHTML), "set-aside panel names the dropped pick");
+ok(/outside your target segment/.test(els["progress-setaside"].innerHTML), "set-aside panel gives the reason");
+await fire(els["btn-preview-progress"], "click", evt());
+await tick(); await tick();
+ok(visible("view-shortlist"), "preview jumps to results so far mid-run");
+ok(els["prospect-list"].children.length === 2, "preview shows only kept prospects, saw " + els["prospect-list"].children.length);
+await runDone; // remaining ticks + completion
 await tick(); await tick();
 ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site given (edited inline)"),
   "inline guess edit reaches confirmBrief");
@@ -293,11 +311,27 @@ await fire(els["btn-back-shortlist"], "click", evt());
 await tick();
 ok(visible("view-shortlist"), "drafts -> back to shortlist");
 
+await fire(els["btn-stop-progress"], "click", evt());
+await tick();
+ok(visible("view-profile"), "stop returns to the brief");
+
 /* ---- Live-mode RealApi adapter checks (stubbed fetch, zero network). */
 {
   const calls = [];
   const canned = {
     "POST /api/onboard/turn": { fields: { offering: { value: "lunches", label: "inferred" } }, question: null, done: true, followups_used: 1 },
+    "GET /api/runs/run_p": { id: "run_p", status: "assessing", stop_reason: null,
+      commercial_brief: { primary_segment: { label: "Shops", industries: ["retail shops", "logistics firms"], geos: ["Lagos"] } },
+      consumed: { searches: 10, fetches: 4 } },
+    "GET /api/runs/run_p/prospects": { run_id: "run_p", prospects: [
+      { id: "pp_1", name: "New Lead", status: "candidate" },
+      { id: "pp_2", name: "Opening Ltd", status: "investigating" },
+      { id: "pp_3", name: "Greenfield Clinic", status: "disqualified" },
+      { id: "pp_4", name: "Kept Co", status: "shortlisted" }
+    ] },
+    "GET /api/prospects/pp_3": { prospect: { id: "pp_3", name: "Greenfield Clinic" },
+      assessments: [{ fit_rating: 2, rationale: "Healthcare, outside the target segment. No weekday lunch rota found." }],
+      evidence: [], contact_routes: [] },
     "POST /api/profiles": { id: "bp_9", name: "Adaeze Catering", website_url: null, description: "Office lunch packs",
       services: [], value_proposition: "", target_market: "Office admin", service_area: { note: "Ikeja" },
       constraints: { order_size: "20-200", exclusions: "" },
@@ -335,6 +369,13 @@ ok(visible("view-shortlist"), "drafts -> back to shortlist");
   const turnPost = calls.find((c) => c.key === "POST /api/onboard/turn");
   ok(turnPost && turnPost.body.text === "We deliver lunches" && turnPost.body.followups_used === 0, "onboardTurn posts text + fields + usage");
   ok(turn.done === true && turn.fields.offering.value === "lunches", "onboardTurn returns the turn result");
+
+  const snap = await api.getProgressSnapshot("run_p");
+  ok(snap.found === 4 && snap.opened === 3 && snap.kept === 1, "snapshot counts found/opened/kept from prospect statuses");
+  ok(snap.searchLine === "retail shops and logistics firms in Lagos", "snapshot search line comes from the brief");
+  ok(snap.searches === 10 && snap.fetches === 4, "snapshot carries consumed budgets");
+  ok(snap.setAside.length === 1 && snap.setAside[0].name === "Greenfield Clinic", "snapshot lists disqualified picks");
+  ok(snap.setAside[0].reason === "Healthcare, outside the target segment", "set-aside reason is the rationale first sentence");
 
   const created = await api.createProfile({ businessName: "Adaeze Catering", site: "", description: "Office lunch packs", q1: "Ikeja", q2: "20-200", q3: "Office admin", q4: "", q5: "" });
   const profilePost = calls.find((c) => c.key === "POST /api/profiles");

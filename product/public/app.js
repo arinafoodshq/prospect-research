@@ -295,23 +295,23 @@
     });
   }
 
+  var PROGRESS_IDX = {
+    created: 0, awaiting_brief: 0, discovering: 1, investigating: 2,
+    assessing: 3, drafting: 4, awaiting_approval: 5, complete: 5,
+    stopped: 5, failed: 5
+  };
+  var progressSeq = 0;
+
   function pollProgress() {
-    var stepsEl = $("progress-steps");
-    var label = $("progress-label");
-    var fill = $("progress-fill");
-    var budget = $("progress-budget");
-    return api.runProgress(state.runId, function (tick) {
-      fill.style.width = Math.round((tick.done / tick.total) * 100) + "%";
-      label.textContent = "Step " + tick.done + " of " + tick.total + ": " + tick.steps[tick.done - 1] + "…";
-      if (api.mode === "live") {
-        budget.textContent = "Live research against public sources (caps 30 searches / 40 fetches).";
-      } else {
-        budget.textContent = "Budget so far: " + tick.searches + " searches, " + tick.fetches + " page fetches (caps 30 / 40). Sample data.";
-      }
-      stepsEl.innerHTML = tick.steps.map(function (s, idx) {
-        var cls = idx < tick.done ? "done" : (idx === tick.done ? "active" : "");
-        return "<li class=\"" + cls + "\">" + esc(s) + "</li>";
-      }).join("");
+    $("progress-kicker").textContent = api.mode === "live" ? "LIVE RUN" : "SAMPLE RUN";
+    $("progress-note").textContent = api.mode === "live"
+      ? "Research keeps running on the server. Come back any time."
+      : "Sample run, keep this page open while it works.";
+    $("progress-error").hidden = true;
+    $("btn-restart-progress").hidden = true;
+    refreshProgressSnapshot();
+    return api.runProgress(state.runId, function () {
+      refreshProgressSnapshot();
     }).then(function () {
       return api.getShortlist(state.runId).then(function (res) {
         state.prospects = res.prospects;
@@ -319,10 +319,61 @@
         showView("shortlist");
       });
     }, function (err) {
-      label.textContent = "Research stopped: " + (err && err.message ? err.message : "unknown error") + " You can start over below.";
-      budget.textContent = "";
+      var msg = err && err.message ? err.message : "unknown error";
+      $("progress-eyebrow").textContent = "Stopped";
+      $("progress-title").textContent = "Research stopped before it finished.";
+      var perr = $("progress-error");
+      perr.textContent = "Research stopped: " + msg + " You can start over below.";
+      perr.hidden = false;
       var again = $("btn-restart-progress");
       if (again) again.hidden = false;
+    });
+  }
+
+  function refreshProgressSnapshot() {
+    var seq = ++progressSeq;
+    return api.getProgressSnapshot(state.runId).then(function (snap) {
+      if (seq !== progressSeq) return; // a newer poll already landed
+      renderProgressSnapshot(snap);
+    });
+  }
+
+  function renderProgressSnapshot(snap) {
+    $("stat-found").textContent = String(snap.found);
+    $("stat-opened").textContent = String(snap.opened);
+    $("stat-kept").textContent = String(snap.kept);
+    var idx = PROGRESS_IDX[snap.status] == null ? 0 : PROGRESS_IDX[snap.status];
+    var steps = [
+      { doneAt: 1, active: "Understanding your offer and must-haves", done: "Understood your offer and your must-haves" },
+      { doneAt: 2, active: "Searching for " + snap.searchLine, done: "Searched for " + snap.searchLine },
+      { doneAt: 3, active: "Opening each business's own pages " + snap.opened + " of " + Math.max(snap.found, snap.opened), done: "Opened each business's own pages" },
+      { doneAt: 4, active: "Checking fit against your must-haves", done: "Checked fit against your must-haves" },
+      { doneAt: 4, active: "Looking for a reason to reach out now", done: "Looked for a reason to reach out now" },
+      { doneAt: 5, active: "Finding a published contact route", done: "Found published contact routes" },
+      { doneAt: 5, active: "Drafting messages for your approval", done: "Drafted messages for your approval" }
+    ];
+    var activated = false;
+    $("progress-steps").innerHTML = steps.map(function (s) {
+      var cls, text;
+      if (idx >= s.doneAt) { cls = "done"; text = s.done; } else if (!activated) { cls = "active"; text = s.active; activated = true; } else { cls = ""; text = s.active; }
+      return "<li class=\"" + cls + "\">" + esc(text) + "</li>";
+    }).join("");
+    $("progress-budget").textContent = "Budget so far: " + snap.searches + " searches, " +
+      snap.fetches + " page opens (caps 30 / 40)." + (api.mode === "live" ? "" : " Sample data.");
+    var aside = $("progress-setaside");
+    aside.innerHTML = (snap.setAside || []).map(function (d) {
+      return "<li><strong>" + esc(d.name) + "</strong><br/><span>" + esc(d.reason) + "</span></li>";
+    }).join("");
+    $("progress-setaside-empty").hidden = (snap.setAside || []).length > 0;
+  }
+
+  function previewProgress() {
+    if (!state.runId) return false;
+    return api.getShortlist(state.runId).then(function (res) {
+      state.prospects = res.prospects;
+      state.selectedId = null;
+      renderShortlist();
+      showView("shortlist");
     });
   }
 
@@ -950,6 +1001,8 @@
     $("evidence-body").addEventListener("click", onEvidenceClick);
     $("status-board").addEventListener("click", onBoardClick);
     $("btn-back-onboard").addEventListener("click", function () { showView("onboard"); });
+    $("btn-preview-progress").addEventListener("click", previewProgress);
+    $("btn-stop-progress").addEventListener("click", function () { showView("profile"); });
     $("btn-confirm-profile").addEventListener("click", confirmBriefAndRun);
     $("btn-to-drafts").addEventListener("click", renderDrafts);
     $("btn-to-status").addEventListener("click", renderStatuses);
