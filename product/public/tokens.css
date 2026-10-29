@@ -1,0 +1,48 @@
+/* Design tokens: Prospect Research revamp (PDF screens 1-5).
+ * Single source of truth for colour, type, radius, motion. The accent
+ * lives in exactly one variable so it can change in one place. */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --ground: #0b0f1a;
+  --surface: #121829;
+  --surface-deep: #0e1424;
+  --surface-success: #16352e;
+
+  /* Borders */
+  --border: #232c45;
+  --border-strong: #3a4668;
+
+  /* Text */
+  --text: #f4f1ea;
+  --muted: #b3bac9;
+  --dim: #8a93a8;
+
+  /* Accent: change here, changes everywhere */
+  --accent: #e3b45c;
+  --accent-ink: #0b0f1a;
+
+  /* Status */
+  --success: #5eddb0;
+  --warn: #ee9350;
+  --danger: #f27e7e;
+
+  /* Type */
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --tracking-display: -0.025em;
+
+  /* Radius */
+  --radius-card: 24px;
+  --radius-sm: 12px;
+  --radius-pill: 999px;
+
+  /* Touch */
+  --touch: 48px;
+
+  /* Motion */
+  --motion-rise: 0.8s;
+  --motion-lift: 3px;
+}

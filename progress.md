@@ -661,3 +661,50 @@ Also: about/contact/where-buy/haul/FAQ/all-outlets/story guards,
 supplier-vendor colon words, introduces verb. Tests 339/339 + tsc
 clean (15 new). Deployed v75f1dba7. Run 8 run_b84f3af5 expects a
 multi-prospect shortlist (qualified + steady).
+
+## 2026-10-29 - Comparison run 8: 3/3 shortlisted, all grounded. SPRINT CLOSED.
+
+run_b84f3af5: 3 shortlisted (all no_signal steady), 4 needs_research,
+3 manual_review (verdict debuts, all correct: directory-only evidence),
+15 disqualified. 3 drafts with specific subjects.
+Acceptance: shortlist in-segment 3/3 (Feebees Oniru supermarket +
+WhatsApp orders; KNG Ebute-Metta grocery + WhatsApp; QuickDelivery
+Lagos logistics for restocking); 0 hard violations; owned fetched
+source 3/3 (feebees.ng, kng-store.lovable.app, quickdeliveryng.com);
+0 contradictory dupes; drafts 3/3.
+Notes: AgroGroom qualified (run 5) -> disqualified (run 8) is
+evidence variance, honestly reasoned (run-8 snippets had zero Lagos/
+channel evidence). Remaining name nits (Wig shops, Car washer,
+underscore handles, mashed "Mart | Clutch" titles) all correctly
+disqualified by assess - zero shortlist impact, parked.
+BEFORE/AFTER (TechAssembly): baseline 25 prospects / 4 qualified with
+school/clinic drift, headline junk, 274 snippets vs 9 fetched, 8/25
+routes -> now 3 shortlisted, 100% in-segment, 100% dimensional
+coverage, 100% owned sources, 3 linked drafts, 0 junk shortlisted in
+5 consecutive runs (4-8). Catering eval documented separately (0/25,
+correct refusal; parked unless venue-beachhead run).
+RESEARCH FROZEN as of v75f1dba7 (commit 5c6ae0c) for the UI revamp.
+Only logging research bugs in progress.md from here; no logic changes.
+
+## 2026-10-29 - UI revamp P0 START (Step 0 audit)
+
+Audit: Worker Static Assets ./public, no build step; vanilla JS
+(index.html 8 views, api.js Mock/Real via ?live=1, app.js ~38KB,
+styles.css); DEMO DATA banner index.html:12 + app.js:695; no CSP
+headers (Google Fonts OK); RunStatus/verdicts/dims already cover
+progress + Ready/Warm/Look tabs; brief+ICP live (onboarding feeds
+profile->brief unchanged); 339 tests green (spec's "140" is stale).
+Plan approved by user. taste skill preflight before first edit.
+
+## 2026-10-29 - Revamp P0.1 DONE: tokens + shell (dark theme)
+
+New tokens.css (exact PDF values, --accent single variable), styles.css
+re-skinned dark (gold pills, 48px targets, Fraunces/Manrope via Google
+Fonts with display=swap, focus rings, rise/float/pulse/lift with
+prefers-reduced-motion), index.html head (fonts, tokens, theme-color,
+lang en-GB). No JS or backend changes; all selectors/ids preserved.
+Verified: local serve + headless screenshot viewed (dark shell, gold
+CTA, serif headlines, restyled banner), console 0 errors, 0 failed
+requests (fonts load, no CSP issue). Pre-existing bug noted:
+view-campaigns lacks `hidden` on load (visible under onboard);
+fix rides with the P0 view restructure.
