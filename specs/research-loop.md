@@ -171,3 +171,10 @@ resume, and gates are unchanged.
 Evaluation: pre-registered thresholds in progress.md (≥80% qualified
 in-segment, 0 hard violations, 100% qualified with prospect-owned source,
 0 contradictory duplicates). Baseline run preserved for comparison.
+
+9. **Brief hydration (2026-10-29 fix).** Workflow steps resume in fresh
+   isolates: in-memory client state (e.g. the active brief) does not
+   survive a step boundary. The orchestrator re-hydrates the stored brief
+   from D1 before every phase (`hydrateBriefFromRun`); without this, all
+   post-plan phases silently ran legacy prompts (proven: 0/25 dimensional
+   verdicts on run_99840398).

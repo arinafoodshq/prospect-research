@@ -425,11 +425,27 @@ export function extractContacts(text: string): Array<{ channel: "email" | "phone
   const phones = text.match(/\+?[0-9][0-9\s().-]{5,22}[0-9]/g) ?? [];
   for (const p of phones) {
     const digits = p.replace(/\D/g, "");
-    if (digits.length < 7 || digits.length > 15) continue;
+    if (!isPlausiblePhone(digits)) continue;
     const v = (p.trim().startsWith("+") ? "+" : "") + digits;
     if (!seen.has(v)) { seen.add(v); out.push({ channel: "phone", value: v }); }
   }
   return out.slice(0, 20);
+}
+
+/**
+ * Date fragments ("20261028", "01232025") arrived as phone routes on
+ * run_99840398. Rules: 7-15 digits; 0-prefix needs 9-11 (NG landline 9,
+ * mobile 11); 8-digit 19xx/20xx with a valid month/day is YYYYMMDD.
+ */
+function isPlausiblePhone(digits: string): boolean {
+  if (digits.length < 7 || digits.length > 15) return false;
+  if (digits.length === 8 && /^(19|20)/.test(digits)) {
+    const month = Number(digits.slice(4, 6));
+    const day = Number(digits.slice(6, 8));
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return false;
+  }
+  if (digits.startsWith("0") && (digits.length < 9 || digits.length > 11)) return false;
+  return true;
 }
 
 function normPhone(s: string): string {

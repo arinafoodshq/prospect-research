@@ -264,6 +264,16 @@ const EXTRA_HEADLINE_VERBS = /\b(dabbles?|dives?|eyes?|bets?|mulls?|weighs?|taps
 const LIST_OF_LEAD = /^\s*lists?\s+of\b/i;
 /** Possessive product lines ("Men's Straight Jeans") are departments, not businesses. */
 const POSSESSIVE_PRODUCT = /\b(men'?s|women'?s|kids'?|unisex)\b.{0,24}\b(jeans|shirts?|dresses|shoes|sneakers|gowns|wigs?|bags?|watches|phones?|laptops?|trousers|jackets|suits)\b/i;
+/** Property listings ("Shops for Sale in Ikota") are never a business. */
+const FOR_SALE_RENT = /\bfor\s+(sale|rent|lease|letting)\b/i;
+/** Demonstratives ("these platforms") mark headlines, never names. */
+const THESE_THOSE = /\b(these|those)\b/i;
+/** Listing leftovers ("Didi Fashion ... (photos)", "Clothing (Brands)"). */
+const LISTING_PAREN = /\((photos?|brands?|images?|pictures?)\)/i;
+/** Emoji-laden titles are social-post text, not verified business names. */
+const HAS_EMOJI = /\p{Extended_Pictographic}/u;
+/** Year-paren listing cruft ("Teph-store, ... (2026)"): stripped, residue validates. */
+const YEAR_PAREN = /\(\s*(19|20)\d{2}\s*\)/g;
 
 /** Words that never make a name distinctive (categories, places, fillers). */
 const GENERIC_WORDS = new Set(
@@ -284,6 +294,9 @@ const GENERIC_WORDS = new Set(
     "email emails phone phones number numbers premium around about fertility vitro fertilization " +
     "city building buildings " +
     "bedroom bedrooms flat flats apartment apartments duplex bungalow contain self affordable cheap " +
+    "shop shops store stores mart marts market markets mall malls plaza plazas boutique boutiques " +
+    "stall stalls kiosk kiosks outlet outlets clothing clothes wear wears fabric fabrics " +
+    "grocery groceries supermarket supermarkets bookshop bookshops " +
     "private primary nursery international preschool college lagos ikeja nigeria nigerian " +
     "omole ogba opebi allen gra maryland yaba surulere lekki ikoyi island " +
     "in the a an of and for with near across plus").split(" "),
@@ -301,7 +314,8 @@ export function cleanBusinessName(name: string): string {
   let out = name;
   for (let i = 0; i < 3; i += 1) {
     const next = out.replace(CITY_CRUFT, "").replace(DANGLING_PREP, "")
-      .replace(LOCATION_TAIL, "").replace(LOCATION_CHAIN, "").replace(/[,;:]+$/, "").trim();
+      .replace(YEAR_PAREN, "").replace(LOCATION_TAIL, "").replace(LOCATION_CHAIN, "")
+      .replace(/[,;:]+$/, "").replace(/\s+/g, " ").trim();
     if (next === out) break;
     out = next;
   }
@@ -362,8 +376,12 @@ export function isPlausibleName(raw: string): boolean {
   if (PROFILE_TITLE.test(trimmed) && /,/.test(trimmed)) return false; // company-profile page title, not a name
   if (LIST_OF_LEAD.test(trimmed)) return false; // "List of ..." directory page, not a business
   if (POSSESSIVE_PRODUCT.test(trimmed)) return false; // possessive product line, not a business
+  if (FOR_SALE_RENT.test(trimmed)) return false; // property listing, not a business
+  if (THESE_THOSE.test(trimmed)) return false; // headline demonstrative, not a name
+  if (LISTING_PAREN.test(trimmed)) return false; // "(photos)/(brands)" leftover, not a business
+  if (HAS_EMOJI.test(trimmed)) return false; // emoji title, not a verified name
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
-  if (/:/.test(trimmed) && /\b(lagos|nigeria|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
+  if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
   if (lowerWords.includes("at") && lowerWords.some((w) => JOB_WORDS.has(w))) return false; // "<role> at <company>" job post
   const distinctive = words.filter((w) => {
@@ -567,6 +585,27 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       .slice(0, MAX_PLAN_QUERIES_OUT);
   }
 
+/**
+ * Best-effort visible-text extraction: fetched pages arrived as raw HTML
+ * (run_99840398 quotes were <head> soup), poisoning assessment and contact
+ * extraction. Scripts/styles removed, tags cut, common entities decoded.
+ */
+function extractVisibleText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style\s*>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript\s*>/gi, " ")
+    .replace(/<\/?[a-z!][^>]*>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
   async function fetchPage(
     url: string, timeoutMs: number,
   ): Promise<{ text: string } | { failure: "blocked" | "empty" | "timeout"; detail: string }> {
@@ -581,7 +620,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
     }
     if (res.status === 404 || res.status === 410) return { failure: "empty", detail: `http ${res.status}` };
     if (!res.ok) return { failure: "blocked", detail: `http ${res.status}` };
-    return { text: (await res.text()).slice(0, FETCH_TEXT_CAP) };
+    return { text: extractVisibleText(await res.text()).slice(0, FETCH_TEXT_CAP) };
   }
 
   let activeBrief: CommercialBrief | null = null;
@@ -628,5 +667,5 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
     activeBrief = b;
   }
 
-  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief };
+  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, modelId: model };
 }

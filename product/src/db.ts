@@ -159,6 +159,44 @@ export function dedupeLookupKeys(name: string, domainOrHandle?: string): string[
   return full === nameOnly ? [full] : [full, nameOnly];
 }
 
+/** Fillers skipped when finding a name's brand token for domain merging. */
+const MERGE_FILLER = new Set(
+  ("the a an and for with from online shop shops store stores mart market markets " +
+    "mall malls boutique best new lagos ikeja nigeria nigerian lekki ltd limited " +
+    "plc ng nig co company group").split(" "),
+);
+
+/** First significant token: the brand word ("supermart" in both Supermart rows). */
+export function firstDistinctiveToken(name: string): string | null {
+  for (const w of name.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)) {
+    if (w.length > 3 && /[a-z]/.test(w) && !MERGE_FILLER.has(w)) return w;
+  }
+  return null;
+}
+
+/** Domain normalization for merge lookup (www stripped, lowercased). */
+export function normMergeDomain(d: string): string {
+  return (d.toLowerCase().replace(/^www\./, "").split("/")[0] ?? "").trim();
+}
+
+/**
+ * Same-domain sibling: same normalized domain + same first distinctive
+ * token ("Supermart.ng" vs "Supermart Online Groceries"). Platform domains
+ * only merge when the brand token matches, so distinct vendors stay apart.
+ */
+async function findDomainSibling(db: Db, run_id: string, name: string, domain: string): Promise<string | null> {
+  const mine = normMergeDomain(domain);
+  const myToken = firstDistinctiveToken(name);
+  if (!mine || !myToken) return null;
+  const { results } = await db.prepare("SELECT id, name, dedupe_key, created_at FROM prospect WHERE run_id = ?")
+    .bind(run_id).all<{ id: string; name: string; dedupe_key: string; created_at: string }>();
+  const sibs = (results ?? [])
+    .filter((r) => normMergeDomain((r.dedupe_key.split("::")[1] ?? "")) === mine)
+    .filter((r) => firstDistinctiveToken(r.name) === myToken)
+    .sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  return sibs[0]?.id ?? null;
+}
+
 /**
  * Strip control chars, U+FFFD replacements, and lone surrogates from
  * model/web text. Applied by writers; fetched-page bodies stay verbatim
@@ -218,11 +256,17 @@ export async function saveCandidate(
     if (!found) throw new DbValidationError(`evidence ${eid} does not exist in run ${input.run_id}`);
   }
   const key = dedupeKey(input.name, input.domainOrHandle);
+  let existing: string | null = null;
   for (const lookup of dedupeLookupKeys(input.name, input.domainOrHandle)) {
-    const existing = await db.prepare(
+    existing = await db.prepare(
       "SELECT id FROM prospect WHERE run_id = ? AND dedupe_key = ? ORDER BY created_at ASC LIMIT 1",
     ).bind(input.run_id, lookup).first<string>("id");
-    if (!existing) continue;
+    if (existing) break;
+  }
+  if (!existing && input.domainOrHandle) {
+    existing = await findDomainSibling(db, input.run_id, input.name, input.domainOrHandle);
+  }
+  if (existing) {
     const row = await db.prepare("SELECT evidence_ids FROM prospect WHERE id = ?").bind(existing)
       .first<{ evidence_ids: string }>();
     let ids: string[] = [];

@@ -439,6 +439,28 @@ describe("createMetaClient", () => {
     await expect(client.search!("q")).rejects.toThrow("429");
   });
 
+  it("exposes the configured model id", () => {
+    expect(createMetaClient({ apiKey: "k" }).modelId).toBe("muse-spark-1.3");
+    expect(createMetaClient({ apiKey: "k", modelId: "custom-model" }).modelId).toBe("custom-model");
+  });
+
+  it("fetchPage strips scripts and tags to visible text (run_99840398 HTML soup)", async () => {
+    const html = '<!DOCTYPE html><html><head><script>var x=1;alert("hi");</script><style>.a{color:red}</style></head><body><h1>Ashluxury Boutique</h1><p>Call 0803 123 4567 for orders &amp; delivery.</p></body></html>';
+    const fetchImpl = vi.fn(async () => new Response(html, {
+      status: 200, headers: { "content-type": "text/html" },
+    }));
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    const res = await client.fetchPage!("https://ashluxury.ng/", 5000);
+    expect(res).toHaveProperty("text");
+    const text = (res as { text: string }).text;
+    expect(text).toContain("Ashluxury Boutique");
+    expect(text).toContain("0803 123 4567");
+    expect(text).toContain("&");
+    expect(text).not.toContain("<");
+    expect(text).not.toContain("var x");
+    expect(text).not.toContain("color:red");
+  });
+
   it("proposeAssessments parses JSON proposals and drops invalid entries", async () => {
     const fetchImpl = stubFetch({
       id: "resp_a",

@@ -18,6 +18,7 @@ import {
   type SourceType,
 } from "../db";
 import { budgetReason, type BudgetCaps, type BudgetConsumed } from "./budgets";
+import { MODEL_ID } from "../meta";
 
 export interface ToolDef {
   name: string;
@@ -150,7 +151,7 @@ export async function execSaveAssessment(
       prospect_id: input.prospect_id, fit_rating: input.fit_rating,
       supporting_ids: input.supporting_ids ?? [], weakening_ids: input.weakening_ids ?? [],
       uncertainties: input.uncertainties ?? [], missing_info: input.missing_info ?? [],
-      rationale: input.rationale, model_id: input.model_id ?? "mocked-model",
+      rationale: input.rationale, model_id: input.model_id ?? MODEL_ID,
     });
     return { ok: true, value: { assessment_id: id } };
   } catch (e) {

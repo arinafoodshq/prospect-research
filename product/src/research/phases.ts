@@ -29,6 +29,7 @@ import {
   type QualificationDims,
 } from "./commercial";
 import { execFetchPage, type FetchPageDeps } from "./tools";
+import { MODEL_ID } from "../meta";
 
 // --- Injected deps ----------------------------------------------------------
 
@@ -95,6 +96,8 @@ export interface MetaClient {
   buildBrief?: (profile: BriefProfile) => Promise<import("./commercial").CommercialBrief>;
   /** Hand the stored brief to later bursts (prompts switch to brief-driven goals). */
   setBrief?: (brief: import("./commercial").CommercialBrief) => void;
+  /** Model id stamped on assessments (absent in old mocks = default model). */
+  modelId?: string;
 }
 
 export interface BudgetState {
@@ -453,11 +456,12 @@ export async function assess(
     const hard = icp
       ? checkHardConstraints(icp, { name: t.name, category: t.category, location: t.location })
       : { ok: true as const };
+    const modelId = meta.modelId ?? MODEL_ID;
     if (!hard.ok) {
       await saveAssessment(db, {
         prospect_id: t.id, fit_rating: 1, supporting_ids: supporting,
         weakening_ids: [], uncertainties: [], missing_info: [],
-        rationale: `hard constraint: ${hard.reason}`, model_id: "mocked-model",
+        rationale: `hard constraint: ${hard.reason}`, model_id: modelId,
         verdict: "disqualified",
       });
       await setProspectStatus(db, budgets.run_id, t.id, "disqualified");
@@ -483,7 +487,7 @@ export async function assess(
           prospect_id: t.id, fit_rating: decision.fit_rating, supporting_ids: supporting,
           weakening_ids: [], uncertainties: [], missing_info: [],
           rationale: `${prop?.rationale ?? "model assessment"} [verdict: ${decision.verdict} — ${decision.reason}]`,
-          model_id: "mocked-model", dimensions: dims, verdict: decision.verdict,
+          model_id: modelId, dimensions: dims, verdict: decision.verdict,
         });
         // Terminal statuses only for decided outcomes; the undecided stay
         // investigating with their verdict recorded on the assessment.
@@ -511,7 +515,7 @@ export async function assess(
       await saveAssessment(db, {
         prospect_id: t.id, fit_rating: capped, supporting_ids: supporting,
         weakening_ids: [], uncertainties: [], missing_info: [],
-        rationale: prop?.rationale ?? "default assessment: thin evidence", model_id: "mocked-model",
+        rationale: prop?.rationale ?? "default assessment: thin evidence", model_id: modelId,
       });
       await setProspectStatus(db, budgets.run_id, t.id, capped >= 3 ? "qualified" : "disqualified");
       done += 1;

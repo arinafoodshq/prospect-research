@@ -18,7 +18,7 @@ import {
   validateBrief,
   type CommercialBrief,
 } from "../src/research/commercial";
-import { isPlausibleName } from "../src/meta";
+import { cleanBusinessName, isPlausibleName } from "../src/meta";
 import { dedupeKey, dedupeLookupKeys, sanitizeText } from "../src/db";
 
 /** Retail/logistics beachhead brief in the shape buildBrief must produce. */
@@ -242,6 +242,17 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "Ade Bakare opens new boutique",
     "City Distro Wants to Digitise Africa's FMCG Distribution",
     "Fashion Boutique Men's Straight Jeans",
+    // run_99840398 junk (comparison run 2): property listings, guide pages,
+    // social-post titles, photo/category leftovers.
+    "Shops for Rent",
+    "Shops for Sale",
+    "Shops for Sale in Ikota",
+    "Clothing stores",
+    "Lekki: Emerging commercial hub",
+    "GIFT ORDER 🎁",
+    "Avoid shopping stress with these online grocery platforms",
+    "Didi Fashion for exclusive fashion wear (photos)",
+    "Clothing (Brands)",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -249,7 +260,12 @@ describe("business-name guards (live-run junk fixtures)", () => {
     });
   }
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics"];
+  it("strips year-paren listing cruft so the residue can validate", () => {
+    expect(cleanBusinessName("Teph-store, Ikeja Lagos, Lagos (2026)")).toBe("Teph-store");
+    expect(isPlausibleName("Teph-store, Ikeja Lagos, Lagos (2026)")).toBe(true);
+  });
+
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);
@@ -279,6 +295,18 @@ describe("contact extraction + grounding", () => {
 
   it("skips short digit runs", () => {
     expect(extractContacts("open 24 hours, est. 1999")).toEqual([]);
+  });
+
+  it("rejects date fragments as phones (run_99840398 contact bug)", () => {
+    expect(extractContacts("posted 20261028, updated 20260906, ref 01232025")).toEqual([]);
+    expect(extractContacts("dated 19981231 in the footer")).toEqual([]);
+  });
+
+  it("keeps real Nigerian mobile and landline forms", () => {
+    const found = extractContacts("call +2348056453934 or 0803 123 4567, landline 012345678");
+    expect(found).toContainEqual({ channel: "phone", value: "+2348056453934" });
+    expect(found).toContainEqual({ channel: "phone", value: "08031234567" });
+    expect(found).toContainEqual({ channel: "phone", value: "012345678" });
   });
 
   it("grounds emails case-insensitively", () => {

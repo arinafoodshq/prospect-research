@@ -6,8 +6,9 @@
  * with an inline runtime (no gates, no close — the run parks at
  * awaiting_approval for human decisions).
  */
-import { setRunStatus, type Db, type RunStatus } from "./db";
+import { getRun, setRunStatus, type Db, type RunStatus } from "./db";
 import { DEFAULT_CAPS, type BudgetConsumed } from "./research/budgets";
+import { validateBrief } from "./research/commercial";
 import {
   assess,
   briefGateDecision,
@@ -100,6 +101,25 @@ export function gateForPhase(phase: WorkflowPhase, when: "before" | "after"): Ga
   if (phase === "plan" && when === "after") return "brief_confirmed";
   if (phase === "draft" && when === "after") return "drafts_decided";
   return null;
+}
+
+/**
+ * Re-hand the stored commercial brief to the model client. Workflow steps
+ * resume in fresh isolates, so the setBrief call plan() made in its own
+ * incarnation is lost to discover/investigate/assess/draft (run_99840398
+ * ran every post-plan phase on legacy prompts: 0/25 dimensional verdicts).
+ * Durable state (D1) is the only thing that crosses the step boundary, so
+ * every phase reloads the brief from the run row. No-op for legacy runs.
+ */
+export async function hydrateBriefFromRun(db: Db, meta: MetaClient, run_id: string): Promise<void> {
+  if (!meta.setBrief) return;
+  try {
+    const run = await getRun(db, run_id);
+    if (!run?.commercial_brief) return;
+    meta.setBrief(validateBrief(JSON.parse(run.commercial_brief)));
+  } catch {
+    /* corrupt brief JSON: stay on legacy prompts rather than fail the run */
+  }
 }
 
 /** Run-status marker per phase (rank shares assessing; there is no ranking status). */
@@ -254,12 +274,14 @@ export class ResearchWorkflow {
   /** Outcome-returning plan body shared by run() (via plan()) and runPhases(). */
   private async execPlan(): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error("not implemented: plan phase (no deps injected)");
+    await hydrateBriefFromRun(this.deps.db, this.deps.meta, this.deps.run_id);
     return plan(this.deps.brief, this.deps.db, this.deps.meta, this.freshCtx());
   }
 
   /** Outcome-returning dispatch shared by run() (via dispatch()) and runPhases(). */
   private async execPhase(phase: Exclude<WorkflowPhase, "plan" | "close">): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error(`not implemented: ${phase} phase (no deps injected)`);
+    await hydrateBriefFromRun(this.deps.db, this.deps.meta, this.deps.run_id);
     const ctx = this.freshCtx();
     const brief = this.deps.brief;
     const db = this.deps.db;

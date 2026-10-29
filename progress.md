@@ -494,3 +494,37 @@ exclusions are deliberately strict.
 Fresh comparison launched on identical TechAssembly input: profile
 bp_64987b2e, run_99840398 (budgets same: 30/40/25/$6). Old runs preserved.
 Catering eval still separate; fallback-demo decision after this run lands.
+
+## 2026-10-29 - Comparison run 2 scored: upgrade never engaged (0/25 dims)
+
+run_99840398: 25 prospects, 19 disqualified / 6 shortlisted, 6 drafts.
+FAIL vs acceptance: shortlist is junk ("Shops for Rent", "GIFT ORDER
+emoji", "Teph-store...(2026)", "Avoid shopping stress...", Supermart x2
+duplicate) while real boutiques (Ashluxury etc) disqualified.
+Root causes (all proven against D1 + code):
+1. HUGE: brief lost across Workflow steps. plan() setBrief runs in one
+   isolate incarnation; discover/assess/draft resume fresh with
+   activeBrief=null -> legacy prompts everywhere. 0/25 assessments have
+   dimensions; legacy catering-era search prompt ran ("Never list
+   caterers"). Fix: hydrateBriefFromRun(db,meta,run) before EVERY phase
+   in orchestrator (D1 is the only cross-step channel).
+2. Junk names passed isPlausibleName: shops/stores/clothing not in
+   GENERIC_WORDS; no for-sale/rent, these/those, (photos)/(brands),
+   emoji, or year-paren rules; colon rule missed lekki etc. All added +
+   tested with run_998 fixtures. ("d???" was PS display mojibake for
+   emoji, not stored corruption - verified via hex().)
+3. Contacts: date fragments as phones ("20261028"). Fix:
+   isPlausiblePhone (YYYYMMDD reject, 0-prefix needs 9-11 digits).
+4. fetched_page quotes were raw <head> HTML soup. Fix:
+   extractVisibleText (strip scripts/styles/tags, decode entities).
+5. Supermart duplicate: different names, same domain. Fix:
+   findDomainSibling (same domain + same first distinctive token);
+   platform domains only merge on brand-token match.
+6. model_id "mocked-model" was a hardcoded label, not a mock run. Fix:
+   threaded MetaClient.modelId (default muse-spark-1.3) into all
+   assessment writers incl. tools.ts.
+Tests 262/262 + tsc clean (23 new). Deployed v5f8be184 (first deploy
+attempt failed transiently, retry clean). Fresh comparison run_5538b2b3
+on identical input (profile bp_ae89ddca). Deferred: location capture
+(needs Lagos containment or geo gate misfires), person-name handling
+(left to dimensional assess).

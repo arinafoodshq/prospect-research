@@ -26,7 +26,7 @@ import {
   type BudgetState,
 } from "../src/research/phases";
 import { dedupeKey } from "../src/db";
-import { ResearchWorkflow } from "../src/orchestrator";
+import { hydrateBriefFromRun, ResearchWorkflow } from "../src/orchestrator";
 
 type Row = Record<string, any>;
 
@@ -281,9 +281,115 @@ describe("dedupe", () => {
   it("dedupeKey distinguishes different domains/handles", () => {
     expect(dedupeKey("Acme", "a.com")).not.toBe(dedupeKey("Acme", "b.com"));
   });
+
+  it("merges same-domain names sharing a first distinctive token (Supermart x2)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const ev1 = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "Supermart exists", quote: "supermart",
+      source_url: "https://supermart.ng/", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const r1 = await saveCandidate(db, {
+      run_id: RUN_ID, name: "Supermart.ng", category: "Groceries", location: {},
+      domainOrHandle: "supermart.ng", evidence_ids: [ev1],
+    });
+    expect(r1.merged).toBe(false);
+    const ev2 = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "Supermart online groceries", quote: "groceries",
+      source_url: "https://supermart.ng/online-groceries", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const r2 = await saveCandidate(db, {
+      run_id: RUN_ID, name: "Supermart Online Groceries", category: "Groceries", location: {},
+      domainOrHandle: "supermart.ng", evidence_ids: [ev2],
+    });
+    expect(r2.merged).toBe(true);
+    expect(r2.prospect_id).toBe(r1.prospect_id);
+    expect(await listProspects(db, RUN_ID)).toHaveLength(1);
+  });
+
+  it("does not merge different businesses sharing a platform domain", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const ev1 = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "Ashluxury exists", quote: "ashluxury",
+      source_url: "https://instagram.com/ashluxury", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    await saveCandidate(db, {
+      run_id: RUN_ID, name: "Ashluxury", category: "Fashion", location: {},
+      domainOrHandle: "instagram.com", evidence_ids: [ev1],
+    });
+    const ev2 = await saveEvidence(db, {
+      run_id: RUN_ID, claim: "ZTTW exists", quote: "zttw",
+      source_url: "https://instagram.com/zttw_shop", source_type: "search_snippet",
+      retrieved_at: new Date().toISOString(), reliability: "unknown",
+      conflicts_with: null, supersedes: null,
+    });
+    const r2 = await saveCandidate(db, {
+      run_id: RUN_ID, name: "ZTTW Shop by Zlatan", category: "Fashion", location: {},
+      domainOrHandle: "instagram.com", evidence_ids: [ev2],
+    });
+    expect(r2.merged).toBe(false);
+    expect(await listProspects(db, RUN_ID)).toHaveLength(2);
+  });
 });
 
 // --- budget caps ---------------------------------------------------------------
+
+describe("brief hydration across workflow steps", () => {
+  it("hands the stored brief to the client (run_99840398: dims 0/25 without this)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    tables["research_run"][0].commercial_brief = JSON.stringify(RETAIL_BRIEF);
+    const setBrief = vi.fn();
+    await hydrateBriefFromRun(db, { setBrief } as never, RUN_ID);
+    expect(setBrief).toHaveBeenCalledTimes(1);
+    expect(setBrief.mock.calls[0][0]).toMatchObject({ version: 1 });
+  });
+
+  it("is a no-op without a stored brief, setter, or on invalid JSON", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const setBrief = vi.fn();
+    await hydrateBriefFromRun(db, { setBrief } as never, RUN_ID);
+    expect(setBrief).not.toHaveBeenCalled();
+    tables["research_run"][0].commercial_brief = "not json";
+    await hydrateBriefFromRun(db, { setBrief } as never, RUN_ID);
+    expect(setBrief).not.toHaveBeenCalled();
+    tables["research_run"][0].commercial_brief = JSON.stringify(RETAIL_BRIEF);
+    await hydrateBriefFromRun(db, {} as never, RUN_ID);
+    expect(setBrief).not.toHaveBeenCalled();
+  });
+
+  it("runPhases hydrates before discover so later phases stay brief-driven", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["q1"]);
+    tables["research_run"][0].status = "created";
+    tables["research_run"][0].commercial_brief = JSON.stringify(RETAIL_BRIEF);
+    const setBrief = vi.fn();
+    const wf = new ResearchWorkflow(
+      {
+        step: async (_name: string, fn: () => Promise<unknown>) => fn(),
+        waitForEvent: async () => ({}),
+        log: (_msg: string) => {},
+      },
+      {
+        db,
+        brief: { id: "brief_1", status: "confirmed", excerpt: "x" },
+        run_id: RUN_ID,
+        meta: { planQueries: async () => ["q1"], search: async () => [], setBrief },
+      },
+    );
+    await wf.runPhases();
+    expect(setBrief).toHaveBeenCalled();
+    expect(setBrief.mock.calls[0][0]).toMatchObject({ version: 1 });
+  });
+});
 
 describe("budget caps", () => {
   it("discover stops with budget_searches when the search cap is exhausted", async () => {
@@ -898,6 +1004,21 @@ describe("assess hard gate + dimensions", () => {
     const { results } = await db.prepare("SELECT * FROM assessment WHERE prospect_id = ?").bind(pid).all<any>();
     expect(results[0].verdict).toBe("qualified");
     expect(JSON.parse(results[0].dimensions).icp_fit).toBe(4);
+  });
+
+  it("stamps the client's model id on assessments, never a mock label", async () => {
+    const { db } = await seedBriefed();
+    const pid = await seedNamed(db, "Brightline Retail", "Retail", "https://brightline.ng/");
+    await assess(BRIEF, db, {
+      modelId: "muse-spark-1.3",
+      proposeAssessments: async () => [{
+        prospect_id: pid, fit_rating: 4, supporting_claims: ["Brightline Retail exists"],
+        rationale: "fits",
+        dimensions: { icp_fit: 4, problem: 4, readiness: 3, reachability: 3, confidence: 4 },
+      }],
+    }, budgetsWith());
+    const { results } = await db.prepare("SELECT model_id FROM assessment WHERE prospect_id = ?").bind(pid).all<any>();
+    expect(results[0].model_id).toBe("muse-spark-1.3");
   });
 });
 

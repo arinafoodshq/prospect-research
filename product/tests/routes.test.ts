@@ -9,6 +9,7 @@ import app from "../src/index";
 import { dedupeKey } from "../src/db";
 
 vi.mock("../src/meta", () => ({
+  MODEL_ID: "muse-spark-1.3",
   createMetaClient: () => ({
     planQueries: async () => ["catering buyers Ikeja"],
     search: async () => [
