@@ -428,3 +428,5 @@ privilege. UI never asks for a Google password and says so.
 Live: worker v699af034, senders section + JS verified on prod.
 Test connection conn_a12e... (Gmail) left connected for reuse.
 Next: user confirms inbox delivery; demo video script + polish.
+
+Inbox confirmed 2026-10-29 (sam@techassembly.io, TLS, unsubscribe footer present). Unsubscribe link exercised live -> 200 + address suppressed, then suppression removed to keep the test address usable.
