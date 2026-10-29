@@ -1174,4 +1174,54 @@ describe("draft grounding", () => {
     const drafts = await db.prepare("SELECT * FROM outreach_draft").all();
     expect(drafts.results).toHaveLength(0);
   });
+
+  it("keeps an unmarked draft whose body links to own evidence (run_de5e566e 0 drafts)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const { prospectId } = await seedShortlisted(db, "Acme", "acme runs a weekday office lunch rota");
+    await draft(BRIEF, db, {
+      proposeDrafts: async () => [{
+        prospect_id: prospectId, channel: "website_form", contact_value: "https://example.com/x",
+        subject: "Hi", body: "Saw your weekday office lunch rota, per your site. Trial week?",
+        next_action: "Send",
+      }],
+    }, budgetsWith());
+    const drafts = await db.prepare("SELECT * FROM outreach_draft").all();
+    expect(drafts.results).toHaveLength(1);
+  });
+
+  it("skips a draft whose body links to no own evidence", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const { prospectId } = await seedShortlisted(db, "Acme", "acme quoted, no contact here");
+    await draft(BRIEF, db, {
+      proposeDrafts: async () => [{
+        prospect_id: prospectId, channel: "email", contact_value: "boss@acme.ng",
+        subject: "Hi", body: "Hello wonderful team, let's synergize going forward",
+        next_action: "Send",
+      }],
+    }, budgetsWith());
+    const drafts = await db.prepare("SELECT * FROM outreach_draft").all();
+    expect(drafts.results).toHaveLength(0);
+    const acts = await db.prepare("SELECT * FROM activity WHERE prospect_id = ?").bind(prospectId).all<any>();
+    expect(acts.results.some((a) => String(a.note).includes("links to no own evidence"))).toBe(true);
+  });
+
+  it("retries the draft burst once when no target gets a proposal", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const { prospectId } = await seedShortlisted(db, "Acme", "acme runs a weekday office lunch rota");
+    const proposeDrafts = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        prospect_id: prospectId, channel: "website_form", contact_value: "https://example.com/x",
+        subject: "Hi", body: "Saw your weekday office lunch rota [source 1]. Trial?",
+        next_action: "Send",
+      }]);
+    const out = await draft(BRIEF, db, { proposeDrafts }, budgetsWith());
+    expect(proposeDrafts).toHaveBeenCalledTimes(2);
+    expect(out.status).toBe("completed");
+    const drafts = await db.prepare("SELECT * FROM outreach_draft").all();
+    expect(drafts.results).toHaveLength(1);
+  });
 });

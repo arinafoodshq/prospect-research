@@ -413,6 +413,31 @@ async function listAssessments(db: Db, prospectIds: string[]): Promise<Assessmen
 }
 
 /**
+ * Prospect-scoped evidence linking: a text links a row when it contains (or
+ * is contained by) the claim or quote, or shares 3+ significant words
+ * (paraphrase fallback). Shared by assess (supporting_claims) and draft
+ * (body chunks): run-wide linking attached other businesses' evidence.
+ */
+export function linkTextsToEvidence(
+  texts: string[], ownEvidence: Array<{ id: string; claim: string; quote: string }>,
+): string[] {
+  const claims = texts.map((c) => c.toLowerCase()).filter((c) => c.length > 0);
+  return ownEvidence
+    .filter((e) => [e.claim.toLowerCase(), e.quote.toLowerCase()].some((el) => claims.some((c) => {
+      if (el.includes(c) || c.includes(el)) return true;
+      const cw = new Set(c.split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+      const ew = new Set(el.split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+      let shared = 0;
+      for (const w of cw) if (ew.has(w)) shared += 1;
+      return shared >= 3;
+    })))
+    .map((e) => e.id);
+}
+
+/** Bracket citation in a draft body: trusted-but-bound to own evidence. */
+const CITATION_MARKER = /\[(ev_|source\s*\d+|cite)/i;
+
+/**
  * assess: per investigated prospect, structured assessment → assessment rows +
  * prospect → qualified | disqualified with rationale. Empty supporting evidence
  * forces rating ≤ 2 (enforced by the writer; violations rejected so the model
@@ -452,19 +477,7 @@ export async function assess(
     const ownIds = new Set(t.evidence_ids);
     const ownEvidence = evidence.filter((e) => e.run_id === budgets.run_id && ownIds.has(e.id));
     const claims = (prop?.supporting_claims ?? []).map((c) => c.toLowerCase());
-    const supporting = ownEvidence
-      .filter((e) => claims.some((c) => {
-        if (c.length === 0) return false;
-        const el = e.claim.toLowerCase();
-        if (el.includes(c) || c.includes(el)) return true;
-        // Fuzzy fallback: paraphrased claims sharing 3+ significant words.
-        const cw = new Set(c.split(/[^a-z0-9]+/).filter((w) => w.length > 3));
-        const ew = new Set(el.split(/[^a-z0-9]+/).filter((w) => w.length > 3));
-        let shared = 0;
-        for (const w of cw) if (ew.has(w)) shared += 1;
-        return shared >= 3;
-      }))
-      .map((e) => e.id);
+    const supporting = linkTextsToEvidence(claims, ownEvidence);
     // Deterministic hard gate: violations disqualify whatever the model says.
     const hard = icp
       ? checkHardConstraints(icp, { name: t.name, category: t.category, location: t.location })
@@ -705,10 +718,18 @@ export async function draft(
     return completed("0 drafts written; empty shortlist awaiting review");
   }
   const allEvidence = await listEvidence(db, budgets.run_id);
+  const runEvidence = allEvidence.filter((e) => e.run_id === budgets.run_id);
   let proposals: DraftProposal[];
   try {
     if (meta.proposeDrafts) {
-      proposals = await meta.proposeDrafts(targets, allEvidence.filter((e) => e.run_id === budgets.run_id));
+      proposals = await meta.proposeDrafts(targets, runEvidence);
+      budgets.consumed.tool_rounds += 1;
+      // One retry: empty bursts happen (run_de5e566e wrote 0 drafts when
+      // the model returned nothing usable for its only target).
+      if (!targets.some((t) => proposals.some((x) => x.prospect_id === t.id))) {
+        proposals = await meta.proposeDrafts(targets, runEvidence);
+        budgets.consumed.tool_rounds += 1;
+      }
     } else {
       const first = allEvidence[0];
       proposals = targets.map((t) => ({
@@ -720,7 +741,6 @@ export async function draft(
   } catch (e) {
     return stopped("draft_failed", e instanceof Error ? e.message : "draft burst failed");
   }
-  budgets.consumed.tool_rounds += 1;
   let done = 0;
   for (const t of targets) {
     const prop = proposals.find((x) => x.prospect_id === t.id);
@@ -734,10 +754,20 @@ export async function draft(
       await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "deferred", note: "draft skipped: no auditable evidence" });
       continue;
     }
-    // Audit claimed support: every cited id must be the prospect's own evidence.
-    if (prop.supporting_ids !== undefined &&
-      (prop.supporting_ids.length === 0 || prop.supporting_ids.some((id) => !ownIds.has(id)))) {
+    // Audit claimed support: foreign ids are an instant skip; then the body
+    // must link to own evidence (fuzzy chunks) or carry a bracket marker
+    // (trusted-but-bound to own rows for human review). Unlinked bodies
+    // are skipped, never stored as grounded drafts.
+    if (prop.supporting_ids !== undefined && prop.supporting_ids.some((id) => !ownIds.has(id))) {
       await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "deferred", note: `draft skipped: supporting_ids not owned (${prop.supporting_ids.join(", ").slice(0, 200)})` });
+      continue;
+    }
+    const chunks = prop.body.split(/[.!?;\n]+/).map((s) => s.trim()).filter((s) => s.length > 0);
+    const linked = linkTextsToEvidence(chunks, ownEvidence);
+    const marked = CITATION_MARKER.test(prop.body) ? ownEvidence.map((e) => e.id) : [];
+    const support = [...new Set([...(prop.supporting_ids ?? []), ...linked, ...marked])];
+    if (support.length === 0) {
+      await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "deferred", note: "draft skipped: body links to no own evidence" });
       continue;
     }
     // Contact grounding: model-proposed values must appear in the prospect's
@@ -766,7 +796,7 @@ export async function draft(
   try {
     await setRunStatus(db, budgets.run_id, "awaiting_approval");
   } catch { /* best-effort; gate still waits */ }
-  return completed(`${done} drafts written; awaiting approval`);
+  return completed(`${done}/${targets.length} drafts written (${proposals.length} proposals); awaiting approval`);
 }
 
 // --- close --------------------------------------------------------------------

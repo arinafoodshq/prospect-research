@@ -34,6 +34,22 @@ export interface ServiceArea {
   country?: string; region?: string; city?: string; timezone?: string;
 }
 
+/**
+ * City-led geo bias for web_search user_location (run_de5e566e returned
+ * Philadelphia results for a Lagos brief). Country passes through only in
+ * ISO-2 form — a mispredicted country code would poison every search, so a
+ * full country name is dropped and the city carries the bias.
+ */
+export function serviceAreaFromGeos(geos: string[]): ServiceArea | undefined {
+  const parts = geos.flatMap((g) => g.split(",").map((s) => s.trim()).filter((s) => s !== ""));
+  const city = parts[0];
+  if (city === undefined) return undefined;
+  const area: ServiceArea = { city };
+  const last = parts[parts.length - 1];
+  if (parts.length > 1 && typeof last === "string" && /^[A-Z]{2}$/.test(last)) area.country = last;
+  return area;
+}
+
 export interface PhaseRequestOptions {
   phase: "plan" | "discover" | "investigate" | "assess" | "rank" | "draft";
   briefExcerpt: string;
@@ -218,7 +234,6 @@ export const META_RESPONSES_ENDPOINT = "https://api.meta.ai/v1/responses";
 const MAX_PLAN_QUERIES_OUT = 8;
 const FETCH_TEXT_CAP = 200_000;
 const DRAFT_CHANNELS = ["website_form", "email", "phone", "social_profile", "other"] as const;
-const CITATION_MARKER = /\[(ev_|source\s*\d+|cite)/i;
 
 export interface MetaClientDeps {
   apiKey: string;
@@ -251,7 +266,7 @@ const JOB_WORDS = new Set(
 const STREET_ENDING = /\b(street|road|avenue|way|close|crescent|lane|boulevard|estate|estates)\.?$/i;
 const LISTICLE_START = /^\s*(the\s+)?best\s+\w+(\s+\w+){1,}/i;
 const TOP_N_START = /^\s*top\s+\d+/i;
-const POSSESSIVE_POST = /\w+'s\s+(posts?|blogs?|articles?)\b/i;
+const POSSESSIVE_POST = /\w+'s\s+(posts?|blogs?|articles?|profile)\b/i;
 const SITES_LIKE = /\bsites?\s+like\b/i;
 const BARE_DOMAIN = /\.(com|org|ng|net|io|co|info|biz)\b/i;
 /** Page-type words: portal/login/archive pages are never the business itself. */
@@ -276,6 +291,14 @@ const HAS_EMOJI = /\p{Extended_Pictographic}/u;
 const YEAR_PAREN = /\(\s*(19|20)\d{2}\s*\)/g;
 /** Hashtag soup ("#aralinelogistics #businessgrowth ...") is a post, not a business. */
 const HASHTAG_SOUP = /#\w+.*#\w+|^#\w+/;
+/** Promo headlines ("Get 10% Off ...") are offers, not businesses. */
+const PROMO_OFF = /\b\d+\s*%\s*off\b/i;
+/** Map labels ("Driving directions to X") are pages, not businesses. */
+const DIRECTIONS_LEAD = /^(driving directions|directions|how to get)\b/i;
+/** Profile pages ("X Company Profile") describe a business; they aren't one. */
+const COMPANY_PROFILE = /\bcompany profile\b/i;
+/** Platform-handle titles ("TikTok · X") are accounts, not verified businesses. */
+const PLATFORM_WORD = /\b(tiktok|instagram|facebook|whatsapp|telegram|snapchat|twitter)\b/i;
 
 /** Words that never make a name distinctive (categories, places, fillers). */
 const GENERIC_WORDS = new Set(
@@ -299,6 +322,8 @@ const GENERIC_WORDS = new Set(
     "shop shops store stores mart marts market markets mall malls plaza plazas boutique boutiques " +
     "stall stalls kiosk kiosks outlet outlets clothing clothes wear wears fabric fabrics " +
     "fashion fashions luxury luxuries verified " +
+    "privacy policy policies terms conditions condition cookies cookie copyright " +
+    "storelocator locator " +
     "grocery groceries supermarket supermarkets bookshop bookshops " +
     "private primary nursery international preschool college lagos ikeja nigeria nigerian " +
     "omole ogba opebi allen gra maryland yaba surulere lekki ikoyi island " +
@@ -395,6 +420,10 @@ export function isPlausibleName(raw: string): boolean {
   if (LISTING_PAREN.test(trimmed)) return false; // "(photos)/(brands)" leftover, not a business
   if (HAS_EMOJI.test(trimmed)) return false; // emoji title, not a verified name
   if (HASHTAG_SOUP.test(trimmed)) return false; // hashtag soup, not a business
+  if (PROMO_OFF.test(trimmed)) return false; // promo headline, not a business
+  if (DIRECTIONS_LEAD.test(trimmed)) return false; // map label, not a business
+  if (COMPANY_PROFILE.test(trimmed)) return false; // profile page, not a business
+  if (PLATFORM_WORD.test(trimmed)) return false; // platform-handle title, not a business
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
   if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
@@ -443,12 +472,14 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
   }
 
   async function search(query: string): Promise<SearchHit[]> {
+    const area = activeBrief ? serviceAreaFromGeos(activeBrief.primary_segment.geos) : undefined;
     const req = buildPhaseRequest({
       phase: "discover",
       briefExcerpt: brief,
       phaseGoal: activeBrief ? buildSearchGoal(activeBrief, query) : `Find businesses that match: ${query}. Wanted: buying businesses (offices, schools, clinics, hubs, venues). Never list caterers, food vendors, or recipe/blog pages. Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words, e.g. Logistics", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}]. Example: [{"name": "Brightline Logistics", "category": "Logistics", "fact": "Runs a weekday lunch rota for 45 staff", "url": "https://brightline.ng/about"}]`,
       searchContextSize: "low",
       maxToolCalls: 4,
+      ...(area ? { serviceArea: area } : {}),
     });
     // Single-shot burst: keep web_search, drop function tools (the adapter
     // cannot continue a tool loop, so offered tools only steal the turn).
@@ -561,7 +592,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       const pid = item["prospect_id"];
       const body = item["body"];
       if (typeof pid !== "string" || !ids.has(pid)) continue;
-      if (typeof body !== "string" || !CITATION_MARKER.test(body)) continue;
+      if (typeof body !== "string" || body.trim() === "") continue;
       const channel = item["channel"];
       const supportingIds = Array.isArray(item["supporting_ids"])
         ? (item["supporting_ids"] as unknown[]).filter((x): x is string => typeof x === "string")

@@ -557,3 +557,29 @@ New findings:
    ("Top Verified Boutique", "#aralinelogistics...").
 Tests 274/274 + tsc clean (12 new). Deployed v89e6a8ac. Fresh
 comparison run_de5e566e (profile bp_64d4014d).
+
+## 2026-10-29 - Comparison run 4: precision fixed, recall + drafts next
+
+run_de5e566e: 1 qualified (Perfect Retail NG, reachability 4 - url fix
+worked), 6 needs_research, 18 disqualified with superb rationales (US
+chains, promos, personal accounts, products-vs-businesses all correctly
+called out). 0 junk shortlisted (was 6). Precision PASS.
+Gaps -> fix round 4:
+1. Geo drift: Philadelphia results for a Lagos brief. Fix:
+   serviceAreaFromGeos -> user_location {city} on web_search (country
+   only when ISO-2, never mispredicted).
+2. 0 drafts for the 1 qualified ("no proposal from burst"). Fix:
+   bracket-marker regex REMOVED from parsing AND saveDraft (it dropped
+   grounded drafts); draft() now fuzzy-links body chunks to own
+   evidence (shared linkTextsToEvidence helper, claim OR quote) and
+   skips only the unlinked; bracket markers trusted-but-bound; one
+   burst retry when no target gets a proposal; counts in detail.
+3. Name guards: promo %off, driving-directions, privacy/policy/terms/
+   cookies/copyright/storelocator generics, company-profile,
+   possessive-profile, platform words (tiktok/instagram/...).
+Note: pharmacies are plan-sanctioned but assess-disqualified (model
+variance across phases; defensible either way - left alone).
+Note: draft supporting_ids still enforcement-only, not stored on the
+draft row - schema follow-up for the audit-trail UI.
+Tests 289/289 + tsc clean (15 new). Deployed v4eca1288. Fresh
+comparison run_b0675e86 (profile bp_84838089).

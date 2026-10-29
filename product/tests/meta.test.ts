@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cleanBusinessName, createMetaClient, isDirectoryHost, isPlausibleName, normUrl, parseResponsesResponse } from "../src/meta";
+import { cleanBusinessName, createMetaClient, isDirectoryHost, isPlausibleName, normUrl, parseResponsesResponse, serviceAreaFromGeos } from "../src/meta";
 import s0Fixture from "./fixtures/s0_ikeja_venues.json";
 
 describe("parseResponsesResponse", () => {
@@ -530,7 +530,11 @@ describe("createMetaClient", () => {
     expect(JSON.stringify(sent.input)).toContain("https://instagram.com/shop");
   });
 
-  it("proposeDrafts validates channels and requires an evidence marker", async () => {
+  it("proposeDrafts validates channels and keeps unmarked bodies for code-level linking", async () => {
+    // Was: bracket-marker regex gate. Dropped after run_de5e566e wrote 0
+    // drafts: the regex rejected semantically grounded drafts, and silence
+    // is worse than a linked draft. draft() now fuzzy-links each body to
+    // the prospect's own evidence and skips only the unlinked.
     const fetchImpl = stubFetch({
       id: "resp_d",
       output: [{
@@ -545,11 +549,32 @@ describe("createMetaClient", () => {
     });
     const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
     const out = await client.proposeDrafts!([{ id: "pr_1" } as any]);
-    expect(out).toHaveLength(1);
+    expect(out).toHaveLength(2);
     expect(out[0].channel).toBe("other");
-    expect(out[0].body).toContain("[ev_1]");
+    expect(out[1].channel).toBe("email");
     const sentDraft = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
     expect(sentDraft.tools).toEqual([]);
+  });
+
+  it("search sends user_location from the brief geos (run_de5e566e Philly drift)", async () => {
+    const fetchImpl = stubFetch(SEARCH_LINE_FIXTURE);
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    client.setBrief!({
+      primary_segment: {
+        label: "Lagos retail", industries: ["retail"], geos: ["Lagos, Nigeria"], exclusions: [],
+      },
+    } as any);
+    await client.search!("retail lagos");
+    const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
+    expect(sent.tools[0].type).toBe("web_search");
+    expect(sent.tools[0].user_location).toMatchObject({ city: "Lagos", type: "approximate" });
+  });
+
+  it("serviceAreaFromGeos parses city-led geos, ISO-only country", () => {
+    expect(serviceAreaFromGeos(["Lagos, Nigeria"])).toEqual({ city: "Lagos" });
+    expect(serviceAreaFromGeos(["Lagos", "Nigeria"])).toEqual({ city: "Lagos" });
+    expect(serviceAreaFromGeos(["Austin, US"])).toEqual({ city: "Austin", country: "US" });
+    expect(serviceAreaFromGeos([])).toBeUndefined();
   });
 
   it("planQueries returns at most 8 non-empty strings", async () => {

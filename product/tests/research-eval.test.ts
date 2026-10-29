@@ -257,6 +257,15 @@ describe("business-name guards (live-run junk fixtures)", () => {
     "Top Verified Boutique",
     "Luxury Fashion Boutique",
     "#aralinelogistics #businessgrowth #ecommercenigeria #lagosbusiness",
+    // run_de5e566e junk (comparison run 4): promos, directions, policy pages,
+    // locator labels, profile pages, platform-handle titles.
+    "Get 10% Off Plus Free Delivery Anywhere",
+    "Driving directions to Blenco Supermarket",
+    "Privacy Policy",
+    "Storelocator",
+    "Konga Group Company Profile",
+    "Fkols's Profile",
+    "TikTok · Ogunmola Tobibackup",
   ];
   for (const name of junk) {
     it(`rejects ${JSON.stringify(name)}`, () => {
@@ -269,7 +278,7 @@ describe("business-name guards (live-run junk fixtures)", () => {
     expect(isPlausibleName("Teph-store, Ikeja Lagos, Lagos (2026)")).toBe(true);
   });
 
-  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique"];
+  const real = ["Greensprings School", "Venia Business Hub", "Brightline Logistics", "Hygei Clinics", "Ashluxury", "Teph-store", "Supermart.ng", "Fabrics by Jadesh", "Nomad Logistic Solutions", "Julix Fashion Store", "Style Lagos Boutique", "Blenco Supermarket", "Medplus Pharmacy", "SalsBest Cosmetics"];
   for (const name of real) {
     it(`keeps ${JSON.stringify(name)}`, () => {
       expect(isPlausibleName(name)).toBe(true);

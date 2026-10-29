@@ -351,9 +351,9 @@ export async function saveDraft(
   if (!prospect) throw new DbValidationError(`prospect ${input.prospect_id} does not exist`);
   if (prospect.status !== "shortlisted") throw new DbValidationError("drafts require a shortlisted prospect");
   if (input.body.length > 4000) throw new DbValidationError("draft body exceeds 4000 chars");
-  if (!/\[(ev_|source\s*\d+|cite)/i.test(input.body)) {
-    throw new DbValidationError("draft body must reference at least one evidence id citation marker");
-  }
+  if (input.body.trim() === "") throw new DbValidationError("draft body is required");
+  // Grounding is enforced by draft() (fuzzy body→evidence linking), not by a
+  // bracket-marker regex here: the regex silently dropped grounded drafts.
   const id = makeId("dr");
   await db.prepare(
     `INSERT INTO outreach_draft (id, prospect_id, channel_suggestion, subject, body, next_action, follow_up_days, status, edited_by_human, decided_at, created_at)
