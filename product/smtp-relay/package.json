@@ -1,0 +1,17 @@
+{
+  "name": "smtp-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Binding-only SMTP relay for Prospect Research (Cloudflare Container). Holds no secrets; creds arrive per request over the private Worker binding.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test server.test.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.14"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -369,3 +369,17 @@ steps, teaching empty states; StoryBrand arc (owner as hero, research burden as
 villain, agent as guide, 3-step plan, approve CTA, stakes, success); copy per
 product-copy (concrete verbs, consistent glossary, specific CTAs). Applied at
 Obj4 verification; gaps become Obj4b design-polish objective.
+
+## 2026-10-29 — Container SMTP relay live (O-4 resolved)
+
+Worker-to-container delivery path deployed and verified: image
+prospect-research-smtprelaycontainer (standard-1, max 2, sleepAfter 30m),
+GET /api/relay-health returns relay reachable on production. Wiring:
+SmtpRelayContainer DO + smtpProvider(relay) adapter (per-request creds,
+nothing secret at rest), injected into queue consumer + verify route; smtp
+connectable via POST /api/connections with {host,port,username,password}.
+Tests 177/177 + tsc clean; vitest stubs cloudflare:workers and
+@cloudflare/containers, smtp-relay/ excluded (node --test 3/3). Wrangler
+3.114 to 4.155 (containers schema) + workers-types v5. Not yet proven:
+real SMTP send (needs user test mailbox + recipient). Next: SMTP test
+mailbox credentials, then UI smtp connect form.

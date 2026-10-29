@@ -169,7 +169,14 @@ All model keys and messaging credentials server-side.
 - O-1 (RESOLVED 2026-10-29): Workers Static Assets via `"assets": { "directory": "./public" }`; `/` serves index.html and `/api/*` falls through to the Worker. Original item: frontend static-serving mechanism — verify at scaffold (M3).
 - O-2 (RESOLVED 2026-10-29): Enterprise quotas verified; Worker + D1 + Workflow + Queues deployed and live.
 - O-3 (RESOLVED 2026-10-29): U-1 grounding usable via `results[]` (zero citations retained); live Ikeja/Abuja runs rank real buyers.
-- O-4: container SMTP relay build (Docker present; needs image + config + test mailbox).
+- O-4 (RESOLVED 2026-10-29): container SMTP relay live. Binding-only
+  `SmtpRelayContainer` DO (standard-1, max 2, sleepAfter 30m) fronts a Node +
+  nodemailer relay (`/verify`, `/send`, `/health`); per-request creds, no
+  secrets at rest. Worker injects `smtpProvider(containerRelay(...))` into the
+  queue consumer and verify route; `GET /api/relay-health` returns
+  `{"relay":"reachable"}` in production. Wrangler 4.155 required (v3 schema
+  lacks DO-container `containers[]`). Still needs: real SMTP send against a
+  user-provided test mailbox.
 - O-5: Google OAuth verification for public Gmail users (post-hackathon only).
 
 ## 11. Acceptance of this spec (DoD)
@@ -186,3 +193,6 @@ approval in `progress.md`.
 - v0.2 (2026-10-29): delivery architecture (interface, adapters, queue topology,
   credential store), journey phases 8–10, SMTP verdict, OAuth shape, queue + UI
   components, O-1–O-3 resolved. Rationale: approved hybrid delivery built live.
+- v0.3 (2026-10-29): container SMTP relay live (binding-only, standard-1,
+  /api/relay-health); O-4 resolved. Rationale: universal SMTP without the
+  Workers port-25 block.

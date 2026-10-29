@@ -211,9 +211,9 @@ describe("providers", () => {
     expect(bad.errorCategory).toBe("auth");
   });
 
-  it("graph/smtp throw honest not-implemented", () => {
+  it("graph throws honest not-implemented; smtp needs an injected relay", () => {
     expect(() => providerFor("graph")).toThrow("not implemented");
-    expect(() => providerFor("smtp")).toThrow("not implemented");
+    expect(() => providerFor("smtp")).toThrow("needs a relay client");
   });
 });
 

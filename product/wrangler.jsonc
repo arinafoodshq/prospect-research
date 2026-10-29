@@ -43,6 +43,18 @@
       "dead_letter_queue": "delivery-dlq"
     }]
   },
+  // SMTP relay container: binding-only, no public route; standard-1 for headroom
+  // (relay is I/O-bound — bigger instances would not send faster).
+  "containers": [{
+    "class_name": "SmtpRelayContainer",
+    "image": "./smtp-relay/Dockerfile",
+    "max_instances": 2,
+    "instance_type": "standard-1"
+  }],
+  "durable_objects": {
+    "bindings": [{ "name": "SMTP_RELAY", "class_name": "SmtpRelayContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SmtpRelayContainer"] }],
   "vars": {
     "MODEL_ID": "muse-spark-1.3",
     "ENVIRONMENT": "production",

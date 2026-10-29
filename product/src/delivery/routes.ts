@@ -7,8 +7,10 @@ import { DbValidationError, makeId, nowIso, type Db } from "../db";
 import { hmacHex, openSecret, sealSecret, verifyUnsub } from "./crypto";
 import { enqueueDueJobs } from "./processor";
 import {
-  buildMailto, buildWaMe, isValidEmail, providerFor, type ProviderId,
+  buildMailto, buildWaMe, containerRelay, isValidEmail, providerFor, smtpProvider,
+  type ProviderId, type SmtpRelayClient,
 } from "./providers";
+import type { Container } from "@cloudflare/containers";
 
 export interface DeliveryEnv {
   DB: Db;
@@ -17,6 +19,31 @@ export interface DeliveryEnv {
   GOOGLE_CLIENT_SECRET?: string;
   PUBLIC_BASE_URL?: string;
   DELIVERY_QUEUE?: { send(msg: unknown): Promise<void> };
+  SMTP_RELAY?: DurableObjectNamespace<Container>;
+}
+
+export function relayFromEnv(env: DeliveryEnv): SmtpRelayClient {
+  if (!env.SMTP_RELAY) throw new Error("smtp relay not bound");
+  return containerRelay(env.SMTP_RELAY);
+}
+
+/** GET /api/relay-health — is the SMTP relay container reachable over the binding? */
+export async function getRelayHealth(_req: Request, env: DeliveryEnv, client?: SmtpRelayClient): Promise<Response> {
+  let c = client;
+  if (!c) {
+    try {
+      c = relayFromEnv(env);
+    } catch {
+      return Response.json({ relay: "unbound" });
+    }
+  }
+  try {
+    const r = await c.get("/health");
+    if (r.json && r.json["ok"] === true) return Response.json({ relay: "reachable" });
+    return Response.json({ relay: "unreachable", detail: `HTTP ${r.status}` });
+  } catch (e) {
+    return Response.json({ relay: "unreachable", detail: e instanceof Error ? e.message.slice(0, 120) : "error" });
+  }
 }
 
 type Params = Record<string, string>;
@@ -64,8 +91,8 @@ export async function postConnection(req: Request, env: DeliveryEnv): Promise<Re
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
   const { provider, label, sender_email, sender_name, secret } = parsed.body;
-  if (provider !== "mock" && provider !== "resend" && provider !== "gmail") {
-    return err("provider_unavailable", 400, "connectable providers: mock, resend, gmail (graph/smtp not implemented)");
+  if (provider !== "mock" && provider !== "resend" && provider !== "gmail" && provider !== "smtp") {
+    return err("provider_unavailable", 400, "connectable providers: mock, resend, gmail, smtp (graph not implemented)");
   }
   if (typeof label !== "string" || !label.trim()) return err("missing_label", 400);
   if (typeof sender_email !== "string" || !isValidEmail(sender_email)) return err("invalid_sender_email", 400);
@@ -79,6 +106,11 @@ export async function postConnection(req: Request, env: DeliveryEnv): Promise<Re
     typeof secretObj["refresh_token"] !== "string" || typeof secretObj["client_id"] !== "string" ||
     typeof secretObj["client_secret"] !== "string")) {
     return err("missing_secret", 400, "gmail needs {refresh_token, client_id, client_secret} — or use the Gmail OAuth flow");
+  }
+  if (provider === "smtp" && (
+    typeof secretObj["host"] !== "string" || !Number.isInteger(secretObj["port"]) ||
+    typeof secretObj["username"] !== "string" || typeof secretObj["password"] !== "string")) {
+    return err("missing_secret", 400, "smtp needs {host, port, username, password}");
   }
   const blob = await sealSecret(JSON.stringify(secretObj), env.CRED_KEY as string);
   const id = makeId("conn");
@@ -103,7 +135,13 @@ export async function postVerifyConnection(_req: Request, env: DeliveryEnv, para
   const row = await env.DB.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(params["id"])
     .first<Record<string, unknown>>();
   if (!row) return err("connection_not_found", 404);
-  const provider = providerFor(row["provider"] as ProviderId);
+  const providerId = row["provider"] as ProviderId;
+  let provider;
+  try {
+    provider = providerId === "smtp" ? smtpProvider(relayFromEnv(env)) : providerFor(providerId);
+  } catch {
+    return err("relay_unavailable", 503, "smtp relay container is not bound");
+  }
   let secret: string;
   try {
     secret = await openSecret(JSON.parse(row["secret_blob"] as string), env.CRED_KEY as string);

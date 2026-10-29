@@ -1,9 +1,11 @@
 /**
  * product/src/delivery/providers.ts — provider-independent email delivery.
  * Campaign logic depends on DeliveryProvider, never on a vendor SDK.
- * Adapters: mock (tests/demo), resend (HTTPS API), gmail (HTTPS Gmail API).
- * graph/smtp are declared but unimplemented (see providerFor).
+ * Adapters: mock (tests/demo), resend (HTTPS API), gmail (HTTPS Gmail API),
+ * smtp (via container relay, injected). graph is declared but unimplemented.
  */
+import type { Container } from "@cloudflare/containers";
+
 export type ProviderId = "mock" | "resend" | "gmail" | "graph" | "smtp";
 
 export interface SendRequest {
@@ -212,11 +214,105 @@ const gmailProvider: DeliveryProvider = {
   },
 };
 
-/** Registry: graph/smtp throw honest not-implemented (SMTP needs a relay outside Workers). */
+export interface SmtpSecret { host: string; port: number; secure?: boolean; username: string; password: string }
+
+/** Minimal relay client; the queue handler binds this to the container. */
+export interface SmtpRelayClient {
+  post(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> | null }>;
+  get(path: string): Promise<{ status: number; json: Record<string, unknown> | null }>;
+}
+
+/** SMTP via the container relay: per-request creds, nothing secret at rest in the relay. */
+export function smtpProvider(relay: SmtpRelayClient): DeliveryProvider {
+  const parse = (secret: string): SmtpSecret | null => {
+    try {
+      const s = JSON.parse(secret) as Partial<SmtpSecret>;
+      if (typeof s.host !== "string" || !Number.isInteger(s.port) ||
+        typeof s.username !== "string" || typeof s.password !== "string") return null;
+      return s as SmtpSecret;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    id: "smtp",
+    async verify(creds) {
+      const sec = parse(creds.secret);
+      if (!sec) return { ok: false, error: "secret needs {host, port, username, password}" };
+      try {
+        const r = await relay.post("/verify", sec);
+        if (r.json && r.json["ok"] === true) return { ok: true };
+        return { ok: false, error: String((r.json && r.json["error"]) || `relay HTTP ${r.status}`).slice(0, 160) };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "relay unreachable" };
+      }
+    },
+    async send(creds, req) {
+      const sec = parse(creds.secret);
+      if (!sec) {
+        return { ok: false, status: "failed", retryable: false, errorCategory: "auth", errorDetail: "secret needs {host, port, username, password}" };
+      }
+      try {
+        const r = await relay.post("/send", {
+          ...sec, from: req.fromEmail, ...(req.fromName ? { fromName: req.fromName } : {}),
+          to: req.to, subject: req.subject, text: req.text,
+          ...(req.replyTo ? { replyTo: req.replyTo } : {}),
+          ...(req.unsubUrl ? { unsubUrl: req.unsubUrl } : {}),
+        });
+        if (r.json && r.json["ok"] === true) {
+          const mid = r.json["messageId"];
+          return { ok: true, status: "sent", retryable: false, ...(typeof mid === "string" ? { providerMessageId: mid } : {}) };
+        }
+        const cat = (r.json && r.json["category"]) as ErrorCategory | undefined;
+        const retryable = r.json ? r.json["retryable"] === true : true;
+        const valid: ErrorCategory[] = ["auth", "validation", "rate_limit", "transient", "permanent", "policy"];
+        return {
+          ok: false, status: "failed", retryable,
+          errorCategory: cat && valid.includes(cat) ? cat : "transient",
+          errorDetail: String((r.json && r.json["error"]) || `relay HTTP ${r.status}`).slice(0, 160),
+        };
+      } catch (e) {
+        const detail = e instanceof Error ? e.message.slice(0, 160) : "relay unreachable";
+        return { ok: false, status: "failed", retryable: true, errorCategory: "transient", errorDetail: detail };
+      }
+    },
+  };
+}
+
+/** Registry: graph throws honest not-implemented; smtp needs an injected relay client. */
+async function safeJson(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Wrap a container DO namespace as a relay client (Worker/queue inject this).
+ *  The containers SDK loads lazily so unit tests never touch cloudflare:workers. */
+export function containerRelay(ns: DurableObjectNamespace<Container>): SmtpRelayClient {
+  return {
+    post: async (path, body) => {
+      const { getContainer } = await import("@cloudflare/containers");
+      const res = await getContainer(ns).fetch("http://relay" + path, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, json: await safeJson(res) };
+    },
+    get: async (path) => {
+      const { getContainer } = await import("@cloudflare/containers");
+      const res = await getContainer(ns).fetch("http://relay" + path, { method: "GET" });
+      return { status: res.status, json: await safeJson(res) };
+    },
+  };
+}
+
 export function providerFor(id: ProviderId): DeliveryProvider {
   if (id === "mock") return mockProvider;
   if (id === "resend") return resendProvider;
   if (id === "gmail") return gmailProvider;
+  if (id === "smtp") throw new Error("provider smtp needs a relay client (queue/route inject it)");
   throw new Error(`provider ${id} not implemented`);
 }
 

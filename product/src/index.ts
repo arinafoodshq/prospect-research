@@ -21,8 +21,11 @@ import { createMetaClient } from "./meta";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
 import { consumeDeliveryBatch, enqueueDueJobs, type DeliveryJob } from "./delivery/processor";
+import { containerRelay, smtpProvider } from "./delivery/providers";
+import type { Container } from "@cloudflare/containers";
 
 export { ResearchWorkflowEntrypoint } from "./workflow";
+export { SmtpRelayContainer } from "./smtp-relay-container";
 
 export interface Env {
   DB: D1Database;
@@ -38,6 +41,7 @@ export interface Env {
   GOOGLE_CLIENT_SECRET?: string;
   PUBLIC_BASE_URL?: string;
   DELIVERY_QUEUE?: { send(msg: unknown): Promise<void> };
+  SMTP_RELAY?: DurableObjectNamespace<Container>;
 }
 
 export interface QueueMessageWire {
@@ -564,6 +568,7 @@ route("GET", "/api/connections", (c) => delivery.getConnections(c.req, c.env));
 route("GET", "/api/connections/gmail/auth-url", (c) => delivery.getGmailAuthUrl(c.req, c.env));
 route("GET", "/api/connections/gmail/callback", (c) => delivery.getGmailCallback(c.req, c.env));
 route("POST", "/api/connections/:id/verify", (c) => delivery.postVerifyConnection(c.req, c.env, c.params));
+route("GET", "/api/relay-health", (c) => delivery.getRelayHealth(c.req, c.env));
 route("POST", "/api/connections/:id/disconnect", (c) => delivery.postDisconnect(c.req, c.env, c.params));
 route("POST", "/api/campaigns", (c) => delivery.postCampaign(c.req, c.env));
 route("GET", "/api/campaigns", (c) => delivery.getCampaigns(c.req, c.env));
@@ -621,6 +626,7 @@ export default {
     await consumeDeliveryBatch(env.DB, {
       credKeyB64: env.CRED_KEY,
       unsubBaseUrl: env.PUBLIC_BASE_URL ? `${env.PUBLIC_BASE_URL}/api/unsubscribe?token=` : "",
+      ...(env.SMTP_RELAY ? { providers: { smtp: smtpProvider(containerRelay(env.SMTP_RELAY)) } } : {}),
     }, batch.messages);
   },
 };
