@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS activity (
   prospect_id TEXT REFERENCES prospect(id),
   event TEXT NOT NULL CHECK (event IN (
     'created','assessed','shortlisted','drafted','approved','rejected',
-    'deferred','contacted','follow_up_logged','stopped')),
+    'deferred','contacted','follow_up_logged','stopped','test_send')),
   note TEXT,                         -- nullable
   created_at TEXT NOT NULL
 );

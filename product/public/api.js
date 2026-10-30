@@ -245,9 +245,18 @@
     return Promise.resolve({ prospect: found, evidence: found.evidence });
   };
   MockApi.prototype.getDrafts = function () {
-    return Promise.resolve({ drafts: DEMO_PROSPECTS.slice(0, 4).map(demoDraftFor) });
+    // One persistent demo draft store: decisions made in the studio must
+    // survive re-reads, so the campaign wizard can filter approved drafts.
+    if (!this._drafts) this._drafts = DEMO_PROSPECTS.slice(0, 4).map(demoDraftFor);
+    return Promise.resolve({ drafts: this._drafts.map(function (d) { return Object.assign({}, d); }) });
   };
   MockApi.prototype.decideDraft = function (prospectId, decision, editedBody) {
+    this._drafts = this._drafts || DEMO_PROSPECTS.slice(0, 4).map(demoDraftFor);
+    this._drafts.forEach(function (d) {
+      if (d.prospectId !== prospectId) return;
+      if (decision === "approved" || decision === "rejected" || decision === "deferred") d.status = decision;
+      // "edited": body change only — the draft stays pending until decided.
+    });
     return Promise.resolve({ prospectId: prospectId, decision: decision, body: editedBody || null });
   };
   var TONE_OPENERS = ["Hello", "Hi", "Good day"];
@@ -257,8 +266,11 @@
       body = body.replace(/^(Hi|Hello|Good day)\b/, "Hello").replace(/^Hello\b/, "Hello,");
       if (!/No pressure either way\.$/.test(body)) body += " No pressure either way.";
     } else if (tone === "more_direct") {
-      var sents = body.split(/(?<=[.?!])\s+/).slice(0, 2).join(" ");
-      body = /[?]$/.test(sents) ? sents : sents + " Worth a quick chat?";
+      // No regex lookbehind: it is a parse-time SyntaxError on Safari < 16.4
+      // and would kill this whole script (blank app) for those users.
+      var sents = body.match(/[^.?!]+[.?!]+|\S[^.?!]*$/g) || [body];
+      var s2 = sents.slice(0, 2).join(" ").trim();
+      body = /[?]$/.test(s2) ? s2 : s2 + " Worth a quick chat?";
     } else {
       var pick = TONE_OPENERS[body.length % TONE_OPENERS.length];
       body = /^(Hi|Hello|Good day)\b/.test(body)
@@ -417,6 +429,12 @@
       : Promise.resolve(null);
     return chain
       .then(function () { return self._req("/api/profiles/" + encodeURIComponent(id) + "/confirm", { method: "POST", body: "{}" }); })
+      .catch(function (e) {
+        // Re-confirming an already-confirmed profile is success (restart flow);
+        // only tolerate that specific detail, rethrow everything else.
+        if (e && e.detail === "already_confirmed") return null;
+        throw e;
+      })
       .then(function () { return self._req("/api/runs", { method: "POST", body: JSON.stringify({ profile_id: id }) }); })
       .then(function (run) {
         // Production: the Workflow owns execution and the start-route answers

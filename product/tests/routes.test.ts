@@ -332,14 +332,16 @@ describe("profiles", () => {
     expect(res.body.version).toBe(2);
   });
 
-  it("confirms a draft, rejects double confirm", async () => {
+  it("confirms a draft; double confirm is idempotent (restart flow)", async () => {
     const db = makeMockDb();
     seedProfile(db);
     const res = await call(db, "POST", "/api/profiles/bp_1/confirm", {});
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("confirmed");
     expect(res.body.confirmed_at).toBeTruthy();
-    expect((await call(db, "POST", "/api/profiles/bp_1/confirm", {})).status).toBe(400);
+    const again = await call(db, "POST", "/api/profiles/bp_1/confirm", {});
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe("confirmed");
   });
 });
 
@@ -509,6 +511,8 @@ function seedProspectDetail(db: ReturnType<typeof makeMockDb>) {
     weakening_evidence_ids: JSON.stringify([]),
     uncertainties: JSON.stringify([]), missing_info: JSON.stringify([]),
     rationale: "strong fit", model_id: "muse-spark-1.3",
+    dimensions: JSON.stringify({ icp_fit: 4, problem: 3, readiness: 2, reachability: 4, confidence: 3 }),
+    verdict: "qualified",
     created_at: new Date().toISOString(),
   });
   db.__tables.contact_route.push({
@@ -541,6 +545,9 @@ describe("prospect detail", () => {
     expect(res.body.prospect.location).toEqual({ area: "Ikeja GRA" });
     expect(res.body.assessments).toHaveLength(1);
     expect(res.body.assessments[0].supporting_evidence_ids).toEqual(["ev_1"]);
+    // dimensions arrives as a parsed object (UI reads dims.readiness as a
+    // number); a raw JSON string here showed readiness 0 for every prospect.
+    expect(res.body.assessments[0].dimensions).toEqual({ icp_fit: 4, problem: 3, readiness: 2, reachability: 4, confidence: 3 });
     // Only assessment-linked evidence is returned, not unrelated run evidence.
     expect(res.body.evidence.map((e: Row) => e.id)).toEqual(["ev_1"]);
     expect(res.body.contact_routes).toHaveLength(1);

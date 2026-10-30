@@ -3,6 +3,10 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* The landing's full-bleed band uses width:100vw, which on Windows includes
+ * the scrollbar (~17px) and would add a stray horizontal scrollbar. Clip
+ * (never hidden: no scroll container, no sticky breakage) at the viewport. */
+body { overflow-x: clip; }
 
 body {
   margin: 0;
@@ -14,10 +18,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Horizontal gutter of the app shell (#app and friends). One home: the
+ * landing's full-bleed band rebuilds the column from this var, so changing
+ * the gutter cannot silently de-align the band. */
+:root { --app-pad-x: 1.5rem; }
+
 .site-header, #app, .site-footer {
   max-width: 72rem;
   margin: 0 auto;
-  padding: 1rem 1.5rem;
+  padding: 1rem var(--app-pad-x);
 }
 
 
@@ -351,7 +360,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 
 @media (max-width: 480px) {
-  .site-header, #app, .site-footer { padding: 0.8rem 1rem; }
+  :root { --app-pad-x: 1rem; }
+  .site-header, #app, .site-footer { padding: 0.8rem var(--app-pad-x); }
   .site-header h1 { font-size: 1.6rem; }
   .view { padding: 1.1rem; border-radius: 20px; }
   .view-plain { padding: 0.8rem 0.2rem; }
@@ -422,7 +432,22 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
   padding: 3.5rem 0;
 }
-.l-problem > * { max-width: 72rem; margin-left: auto; margin-right: auto; padding-left: 1.5rem; padding-right: 1.5rem; }
+/* Band content reuses the landing container's exact numbers (72rem box +
+ * 1.5rem padding) so band text lines up with every other section. The old
+ * per-child `> *` centering was defeated by .kicker / .view-landing h2
+ * margin rules (specificity + source order) and pinned text to the window
+ * edge; a real inner container cannot lose that fight. */
+/* Band content must land on the same text edge as every landing section.
+ * Sections sit inside two padding layers (#app + .view-landing, each 1.5rem)
+ * and their column box is the landing's border box:
+ * min(72rem, 100vw) - 2 * var(--app-pad-x). The band escapes both paddings
+ * (100vw bleed), so band-in rebuilds that exact geometry and adds the
+ * landing's own 1.5rem padding around its text. */
+.l-band-in {
+  max-width: calc(min(72rem, 100vw) - 2 * var(--app-pad-x));
+  margin-left: auto; margin-right: auto;
+  padding-left: 1.5rem; padding-right: 1.5rem;
+}
 .l-problem h2 { max-width: 42rem; }
 .l-guide { padding-top: 3.5rem; }
 .l-guide h2 { max-width: 46rem; }

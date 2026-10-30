@@ -989,3 +989,63 @@ record dcc0902 pushed to main; worker deployed version 3909c360
 (--containers-rollout=none; relay untouched). Live: / 200 with v2
 markers, no banner/query strings; /demo 200; live 390 landing
 screenshot viewed, 0 overflow, 0 console errors, 0 failed requests.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
+2026-10-30 (speech-to-text replaced with Muse Voice Transcribe + wiring fixes):
+User-reported bug: dictation on "What do you sell?" stacked garbage ("We do
+inn systems for businesses" repeated). Root causes: (1) setupVoice used the
+BROWSER SpeechRecognition (not a Meta model; "AI" misheard as inn/EM/To),
+(2) its onresult appended every cumulative partial into the textarea. Fixed
+by replacing with MediaRecorder -> 24kHz mono WAV -> POST /api/transcribe ->
+Meta muse-voice-transcribe-1.0 batch endpoint (PUSH_TO_TALK, English bias,
+business keywords incl. "AI"; key stays server-side, "Bearer " + concat per
+AGENTS.md). One click now appends exactly one clean utterance. Files:
+src/asr.ts (new), src/index.ts (route + postConfirm idempotent +
+dimensions parse + test_send activity best-effort), src/orchestrator.ts
+(loadRunConsumed/persistRunConsumed: caps + progress UI now per-run),
+public/app.js (voice rewrite + campaign filter d.status + poller stale-run
+guard + double-submit guards), public/api.js (Safari<16.4 lookbehind removed,
+MockApi draft store so demo campaign wizard sees approved drafts,
+already_confirmed tolerance), schema.sql + migrations/0003_activity_test_send
+(CHECK rebuild adding 'test_send'; REMOTE MIGRATION PENDING deploy approval).
+Verified: tsc clean, 379/379 vitest (11 new asr, 4 new consumed, confirm +
+dimensions route assertions updated), smoke PASS, node --check on
+app.js/api.js. Dictation end-to-end needs a real mic; deploy + live speech
+check pending user approval. Prod secrets confirmed via wrangler secret
+list: MODEL_API_KEY present; BASETEN_API_KEY absent (not needed for STT).
+Deferred (user decision): API auth token, unsubscribe confirm-page
+(GET-opt-out scanner risk), 0002/schema.sql idempotency, delivery-jobs
+queue creation note.
+2026-10-30 (landing band alignment fix + remote D1 migration applied):
+User flagged the "Sound familiar?" band (l-problem) misaligned. Two real
+bugs: (1) the per-child centering rule (.l-problem > *) was defeated by
+.kicker margin:0 and .view-landing h2 margins (specificity/source order) ->
+band text pinned ~24px+ from the window edge vs the 72rem column; (2)
+width:100vw full-bleed includes the Windows scrollbar (~17px) with no
+overflow-x guard -> stray horizontal scrollbar. Fix: real inner container
+.l-band-in rebuilding the exact column geometry
+(max-width calc(min(72rem,100vw) - 2*var(--app-pad-x)), padding 1.5rem);
+--app-pad-x custom property introduced as the single home for #app gutter
+(1.5rem, 1rem <=480px) so band and shell can never drift; body
+overflow-x:clip for the scrollbar bleed. Evidence (headless Chromium,
+file:// load): band kicker/h2 left == hero title == guide h2 == steps ==
+compare at 1440px (all 192), 800px (all 48), 390px (all 40);
+scrollWidth==clientWidth at all three; 0 console errors; full-page
+screenshot reviewed. Remote D1 migration applied + verified: 0003 activity
+CHECK rebuild via d1 execute --remote (migrations tracking table absent,
+0002 not idempotent vs applied schema.sql so migrations apply was unsafe);
+477 activity rows preserved (477 before == 477 after), new DDL contains
+test_send, idx_activity_run recreated, no activity_v3 leftover. Local dev
+DB was empty: seeded via db:migrate:local (schema.sql already carries
+test_send). tsc clean, 379/379 vitest, smoke PASS. NOT yet deployed:
+worker code (transcribe route + fixes) and the CSS/HTML fixes are local.
+2026-10-30 (DEPLOYED, user-approved): wrangler deploy
+--containers-rollout=none -> version f4762790-ef97-4898-95f0-5106503be8f6
+(268 KiB, bindings unchanged, relay untouched). Live verification:
+GET / 200 with new assets (styles.css carries l-band-in + overflow-x:clip;
+index.html carries the wrapper); POST /api/transcribe junk 10B -> 400,
+RIFF 12B -> 400 audio_too_short (validation before any model call);
+synthesized 0.5s silence WAV -> 422 transcribe_empty (full live round-trip
+Worker -> Meta muse-voice-transcribe worked; ~0 billed seconds). Live
+landing alignment re-measured in browser: 192/48/40 exact at 1440/800/390,
+0 console errors, 0 failed requests. Remaining user step: speak one
+sentence into the live mic button ("We do AI systems for businesses")
+to confirm a clean single-line transcript. Nothing else pending.

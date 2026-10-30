@@ -18,6 +18,7 @@ import {
   type DraftStatus,
   type RunStatus,
 } from "./db";
+import { ASR_ENDPOINT, buildTranscribeForm, parseTranscribeResponse } from "./asr";
 import { createMetaClient } from "./meta";
 import { ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
@@ -290,7 +291,9 @@ const postAnswers: Handler = async ({ req, env, params }) => {
 const postConfirm: Handler = async ({ env, params }) => {
   const row = await getProfile(env, params["id"] as string);
   if (!row) return err("profile_not_found", 404);
-  if (row.status === "confirmed") return err("already_confirmed", 400);
+  // Idempotent: re-confirming (stop run -> edit brief -> start again) must
+  // succeed, not 400 — the whole restart flow chains through this route.
+  if (row.status === "confirmed") return json(serializeProfile(row));
   const at = nowIso();
   await env.DB.prepare("UPDATE business_profile SET status = ?, confirmed_at = ? WHERE id = ?").bind("confirmed", at, row.id).run();
   return json(serializeProfile((await getProfile(env, row.id)) as ProfileRow));
@@ -395,6 +398,9 @@ const getProspectDetail: Handler = async ({ env, params }) => {
     weakening_evidence_ids: parseJson<string[]>(a["weakening_evidence_ids"] as string | null, []),
     uncertainties: parseJson<string[]>(a["uncertainties"] as string | null, []),
     missing_info: parseJson<string[]>(a["missing_info"] as string | null, []),
+    // dimensions is a TEXT JSON column: without this the UI saw a raw string
+    // (truthy, never numeric) and showed readiness 0 for every prospect.
+    dimensions: parseJson<Record<string, number> | null>(a["dimensions"] as string | null, null),
   }));
   const linked = new Set<string>();
   for (const a of aRows) {
@@ -526,9 +532,14 @@ const postTestSend: Handler = async ({ env, params }) => {
   const prospect = await env.DB.prepare("SELECT id, run_id FROM prospect WHERE id = ?").bind(draft.prospect_id)
     .first<{ id: string; run_id: string }>();
   if (prospect) {
-    await logActivity(env.DB, {
-      run_id: prospect.run_id, prospect_id: draft.prospect_id, event: "test_send", note: `Test send to ${to}`,
-    });
+    // Activity log is best-effort: the test email already went out, so a log
+    // failure (e.g. a CHECK constraint on older schema) must never turn this
+    // into a 500 that invites a duplicate send.
+    try {
+      await logActivity(env.DB, {
+        run_id: prospect.run_id, prospect_id: draft.prospect_id, event: "test_send", note: `Test send to ${to}`,
+      });
+    } catch { /* send already succeeded */ }
   }
   return json({
     to, status: "sent",
@@ -659,6 +670,56 @@ const getFollowUps: Handler = async ({ env, params }) => {
   return json({ run_id: runId, follow_ups: followUps });
 };
 
+// --- Speech-to-text dictation (Muse Voice Transcribe, server-side key) -------
+
+/** Dictation clip cap: ~4.5 min of 24 kHz mono 16-bit PCM (44 B header +
+ * 48 000 B/s). Far above any one utterance, far below the provider's 32 MB. */
+const TRANSCRIBE_BODY_CAP = 8 * 1024 * 1024;
+const TRANSCRIBE_TEXT_CAP = 2000;
+
+function isWav(audio: ArrayBuffer): boolean {
+  if (audio.byteLength < 12) return false;
+  const head = new Uint8Array(audio, 0, 12);
+  const tag = (off: number, s: string): boolean => {
+    for (let i = 0; i < s.length; i += 1) {
+      if (head[off + i] !== s.charCodeAt(i)) return false;
+    }
+    return true;
+  };
+  return tag(0, "RIFF") && tag(8, "WAVE");
+}
+
+const postTranscribe: Handler = async ({ req, env }) => {
+  if (!env.MODEL_API_KEY) return err("model_not_configured", 500);
+  const audio = await req.arrayBuffer();
+  if (audio.byteLength < 44) return err("audio_too_short", 400);
+  if (audio.byteLength > TRANSCRIBE_BODY_CAP) return err("audio_too_large", 413);
+  if (!isWav(audio)) return err("invalid_audio", 400, "clip must be a WAV file");
+  const sessionId = "dict-" + crypto.randomUUID();
+  let res: Response;
+  try {
+    res = await fetch(ASR_ENDPOINT + "?sessionId=" + encodeURIComponent(sessionId), {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + env.MODEL_API_KEY },
+      body: buildTranscribeForm(new Uint8Array(audio), sessionId),
+    });
+  } catch {
+    return err("model_error", 502);
+  }
+  if (!res.ok) return err("transcribe_failed", 502, `asr_http_${res.status}`);
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return err("transcribe_failed", 502, "asr_bad_response");
+  }
+  const parsed = parseTranscribeResponse(body);
+  if (!parsed.ok) return err("transcribe_failed", 502, parsed.error);
+  const text = parsed.transcript.trim();
+  if (!text) return err("transcribe_empty", 422, "nothing intelligible was heard");
+  return json({ text: text.slice(0, TRANSCRIBE_TEXT_CAP) });
+};
+
 // --- Conversational onboarding (stateless turns; the client holds the field map) ---
 
 const ONBOARD_TEXT_CAP = 2000;
@@ -758,6 +819,7 @@ route("GET", "/api/profiles/:id", getProfileById);
 route("POST", "/api/profiles/:id/answers", postAnswers);
 route("POST", "/api/profiles/:id/confirm", postConfirm);
 route("POST", "/api/onboard/turn", postOnboardTurn);
+route("POST", "/api/transcribe", postTranscribe);
 route("POST", "/api/runs", postRun);
 route("GET", "/api/runs/:id", getRunById);
 route("POST", "/api/runs/:id/resume", postResume);

@@ -112,36 +112,181 @@
 
   var OB_EXAMPLE = "We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.";
 
-  var obRec = null;
-
+  /* Dictation via Muse Voice Transcribe (Meta Model API). The browser records
+   * one utterance per click, converts it to a 24 kHz mono WAV, and POSTs it to
+   * /api/transcribe; the Worker holds the key and calls Meta server-side.
+   * Each click appends exactly ONE clean utterance to the textarea — the old
+   * browser-recognizer handler appended every partial result, stacking
+   * "We do inn systems for businesses" garbage into the field. */
   function setupVoice() {
     var btn = $("btn-ob-speak");
     if (!btn) return;
-    var SR = (typeof window !== "undefined") && (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!SR) { btn.hidden = true; return; }
+    var nav = typeof navigator !== "undefined" ? navigator : null;
+    var Ctx = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+    var OfflineCtx = (typeof window !== "undefined") && (window.OfflineAudioContext || window.webkitOfflineAudioContext);
+    if (!nav || !nav.mediaDevices || !nav.mediaDevices.getUserMedia
+      || typeof MediaRecorder === "undefined" || !Ctx || !OfflineCtx) {
+      btn.hidden = true; return;
+    }
     btn.hidden = false;
-    btn.addEventListener("click", function () {
-      var box = $("f-description");
-      if (obRec) { try { obRec.stop(); } catch (e) { /* already stopped */ } return; }
-      obRec = new SR();
-      obRec.lang = "en-GB";
-      obRec.interimResults = false;
-      btn.classList.add("listening");
-      obRec.onresult = function (e) {
-        var t = "";
-        for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript + " ";
-        box.value = (box.value ? box.value.replace(/\s+$/, "") + " " : "") + t.trim();
-        if (box.focus) box.focus();
+    var session = null; // { recorder, stream, base, chunks, startedAt, done }
+
+    function say(msg) {
+      var el = $("onboard-error");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.hidden = !msg;
+    }
+
+    function setLabel(state) {
+      var listening = state === "listening";
+      var busy = state === "busy";
+      var long = btn.querySelector(".speak-long");
+      var short = btn.querySelector(".speak-short");
+      if (long) long.textContent = busy ? "Transcribing…" : listening ? "Listening. Tap to finish" : "Speak instead";
+      if (short) short.textContent = busy ? "…" : listening ? "Finish" : "Speak";
+      btn.classList.toggle("listening", !!(listening || busy));
+      btn.disabled = busy;
+    }
+
+    function stopTracks(stream) {
+      try {
+        (stream.getTracks() || []).forEach(function (t) { try { t.stop(); } catch (e) { /* stopped */ } });
+      } catch (e) { /* stream already gone */ }
+    }
+
+    function tooShort(waitedMs) {
+      say(waitedMs < 700
+        ? "That was too quick. Tap the mic, speak your line, then tap again."
+        : "We didn't catch that. Try speaking a bit longer.");
+    }
+
+    function encodeWav(buffer) {
+      var rate = 24000, frames = buffer.length;
+      var bytes = new ArrayBuffer(44 + frames * 2);
+      var view = new DataView(bytes);
+      var writeStr = function (off, s) {
+        for (var i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
       };
-      var end = function () { obRec = null; btn.classList.remove("listening"); };
-      obRec.onend = end;
-      obRec.onerror = end;
-      try { obRec.start(); } catch (e) { end(); }
+      writeStr(0, "RIFF"); view.setUint32(4, 36 + frames * 2, true); writeStr(8, "WAVE");
+      writeStr(12, "fmt "); view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+      view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+      view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+      writeStr(36, "data"); view.setUint32(40, frames * 2, true);
+      var d = buffer.getChannelData(0);
+      for (var i = 0, off = 44; i < frames; i++, off += 2) {
+        var s = Math.max(-1, Math.min(1, d[i]));
+        view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return new Blob([bytes], { type: "audio/wav" });
+    }
+
+    function resampleToWav(blob) {
+      var ac = new Ctx();
+      return blob.arrayBuffer().then(function (raw) { return ac.decodeAudioData(raw); })
+        .then(function (decoded) {
+          try { ac.close(); } catch (e) { /* already closed */ }
+          var frames = Math.max(1, Math.ceil(decoded.duration * 24000));
+          var off = new OfflineCtx(1, frames, 24000);
+          var src = off.createBufferSource();
+          src.buffer = decoded;
+          src.connect(off.destination);
+          src.start(0);
+          return off.startRendering();
+        });
+    }
+
+    function processClip(s) {
+      if (s.done) return;
+      s.done = true;
+      var waited = Date.now() - s.startedAt;
+      if (waited < 700 || !s.chunks.length) { tooShort(waited); return; }
+      setLabel("busy");
+      resampleToWav(new Blob(s.chunks, { type: s.recorder.mimeType || "audio/webm" })).then(function (rendered) {
+        if (rendered.duration < 0.4) { setLabel(false); tooShort(2000); return; }
+        return fetch("/api/transcribe", {
+          method: "POST",
+          headers: { "content-type": "audio/wav" },
+          body: encodeWav(rendered),
+        }).then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: {} }; });
+        }).then(function (out) {
+          setLabel(false);
+          if (!out.ok) {
+            var code = out.body && out.body.error;
+            say(code === "model_not_configured" ? "Voice is not connected right now. Please type instead."
+              : code === "transcribe_empty" ? "We heard nothing we could use. Try again, a little closer to the mic."
+              : "Transcription failed. Please type instead.");
+            return;
+          }
+          var box = $("f-description");
+          if (!box) return;
+          var text = String(out.body.text || "").trim();
+          if (!text) { tooShort(2000); return; }
+          var merged = (s.base ? s.base.replace(/\s+$/, "") + " " : "") + text;
+          box.value = merged.slice(0, box.maxLength || 2000);
+          if (box.focus) box.focus();
+        }, function () {
+          setLabel(false);
+          say(NETWORK_MSG);
+        });
+      }, function () {
+        setLabel(false);
+        say("We could not read that recording. Please try again or type instead.");
+      });
+    }
+
+    function startRecording() {
+      say("");
+      nav.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        var recorder;
+        try { recorder = new MediaRecorder(stream); }
+        catch (e) {
+          stopTracks(stream);
+          say("Voice recording is not available in this browser. Please type instead.");
+          return;
+        }
+        var chunks = [];
+        var s = {
+          recorder: recorder, stream: stream, chunks: chunks, done: false,
+          base: ($("f-description").value || ""), startedAt: Date.now(),
+        };
+        recorder.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = function () { processClip(s); };
+        recorder.onerror = function () { stopTracks(stream); setLabel(false); say("Recording failed. Please try again."); };
+        session = s;
+        try { recorder.start(); } catch (e) {
+          session = null; stopTracks(stream);
+          say("Recording could not start. Please type instead.");
+          return;
+        }
+        setLabel("listening");
+      }, function () {
+        say("Microphone access was blocked. Allow it in the browser, or type instead.");
+      });
+    }
+
+    function finishRecording() {
+      var s = session;
+      session = null;
+      if (!s) return;
+      setLabel(false);
+      try { s.recorder.stop(); } catch (e) { /* already stopped: onstop still fires */ }
+      stopTracks(s.stream);
+    }
+
+    btn.addEventListener("click", function () {
+      if (session) { finishRecording(); return; }
+      startRecording();
     });
   }
 
   function submitOnboard(event) {
     event.preventDefault();
+    // Double-submit guard: a fresh `ob` here would reset busy:false and fire
+    // two POST /api/onboard/turn calls (double model spend, clobbered state).
+    if (ob && ob.busy) return false;
     var err = $("onboard-error");
     var description = $("f-description").value.trim();
     if (!description) {
@@ -451,11 +596,18 @@
     readProfileEdits();
     var perr = $("profile-error");
     if (perr) { perr.hidden = true; perr.textContent = ""; }
+    // Double-submit guard: two clicks would chain two POST /api/runs (two
+    // Workflow instances, one parked at created forever).
+    var btn = $("btn-confirm-profile");
+    if (btn && btn.disabled) return false;
+    if (btn) btn.disabled = true;
     return api.confirmBrief(state.profile).then(function (res) {
+      if (btn) btn.disabled = false;
       state.runId = res.runId;
       showView("progress");
       return pollProgress();
     }, function (e) {
+      if (btn) btn.disabled = false;
       if (perr) {
         perr.textContent = isNetworkError(e) ? NETWORK_MSG : "We could not start the research. Please try again.";
         perr.hidden = false;
@@ -472,6 +624,10 @@
   var progressSeq = 0;
 
   function pollProgress() {
+    // Capture the run this poll belongs to: if the owner starts over (or
+    // re-confirms), a finished OLD run must not yank the UI to the NEW run's
+    // empty shortlist — stale resolutions are dropped instead.
+    var myRun = state.runId;
     $("progress-note").textContent = isDemo()
       ? "Example run. Keep this page open while it works."
       : "Research keeps running on the server. Come back any time.";
@@ -482,20 +638,24 @@
       steps.innerHTML = '<li class="skel skel-step" aria-hidden="true"></li>'.repeat(3);
     }
     refreshProgressSnapshot();
-    return api.runProgress(state.runId, function () {
+    return api.runProgress(myRun, function () {
       refreshProgressSnapshot();
     }).then(function () {
-      return api.getShortlist(state.runId).then(function (res) {
+      if (myRun !== state.runId) return null;
+      return api.getShortlist(myRun).then(function (res) {
+        if (myRun !== state.runId) return null;
         state.prospects = res.prospects;
         state.selectedId = null;
         state.selectedIds = null;
         state.tab = null;
         // The owner may have moved on (stop, preview): never yank them back.
-        if ($("view-progress").hidden && $("view-shortlist").hidden) return;
+        if ($("view-progress").hidden && $("view-shortlist").hidden) return null;
         renderShortlist();
         showView("shortlist");
+        return null;
       });
     }, function (err) {
+      if (myRun !== state.runId) return null;
       $("progress-eyebrow").textContent = "Stopped";
       $("progress-title").textContent = "Research stopped before it finished.";
       var perr = $("progress-error");
@@ -506,6 +666,7 @@
       if (retry) retry.hidden = false;
       var again = $("btn-restart-progress");
       if (again) again.hidden = false;
+      return null;
     });
   }
 
@@ -1441,7 +1602,10 @@
         return;
       }
       return api.getDrafts(state.runId).then(function (res) {
-        var approved = (res.drafts || []).filter(function (d) { return d.decision === "approved"; });
+        // Drafts expose status ("approved" after a decision); there is no
+        // `decision` field — the old filter here matched nothing, so the
+        // schedule-a-campaign flow was unreachable.
+        var approved = (res.drafts || []).filter(function (d) { return d.status === "approved"; });
         if (!approved.length) {
           wiz.innerHTML = "<p>No approved drafts yet. Approve drafts first, then build a campaign.</p>";
           return;
@@ -1526,6 +1690,8 @@
   }
 
   function restart() {
+    // Invalidate in-flight polls/snapshots from the old run before clearing.
+    progressSeq += 1;
     state.profile = null; state.prospects = []; state.selectedId = null;
     state.drafts = []; state.decisions = {}; state.runId = null;
     ob = null;

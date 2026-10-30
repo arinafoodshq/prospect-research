@@ -7,7 +7,7 @@
  * awaiting_approval for human decisions).
  */
 import { getRun, setRunStatus, type Db, type RunStatus } from "./db";
-import { DEFAULT_CAPS, type BudgetConsumed } from "./research/budgets";
+import { DEFAULT_CAPS, emptyConsumed, type BudgetConsumed } from "./research/budgets";
 import { validateBrief } from "./research/commercial";
 import {
   assess,
@@ -84,6 +84,39 @@ export function classifyStepError(statusCode: number | null, outcome: string): S
   if (statusCode === 429 || (statusCode !== null && statusCode >= 500) || outcome === "timeout") return "retryable";
   if (statusCode === 400 || statusCode === 401) return "fatal";
   return "retryable";
+}
+
+/**
+ * Cumulative budget counters. Phases run in fresh isolates (Workflow steps
+ * resume stateless), so per-phase zeroed counters reset the run's caps every
+ * phase and the progress UI read "0 searches, 0 page opens" forever. These
+ * helpers load the run's persisted counters at phase start and persist them
+ * at phase end, making caps and the UI truly per-run. Best-effort persist:
+ * a failed write must not fail a phase that already succeeded (step retry
+ * would re-run the phase and duplicate its D1 side effects).
+ */
+export async function loadRunConsumed(db: Db, run_id: string): Promise<BudgetConsumed> {
+  const consumed = emptyConsumed();
+  try {
+    const row = await db.prepare("SELECT consumed FROM research_run WHERE id = ?").bind(run_id)
+      .first<{ consumed: string }>();
+    const parsed: unknown = JSON.parse(row?.consumed ?? "{}");
+    if (typeof parsed === "object" && parsed !== null) {
+      const src = parsed as Record<string, unknown>;
+      for (const key of Object.keys(consumed) as Array<keyof BudgetConsumed>) {
+        const v = src[key];
+        if (typeof v === "number" && Number.isFinite(v) && v > 0) consumed[key] = v;
+      }
+    }
+  } catch { /* missing/corrupt counters: start from zeros */ }
+  return consumed;
+}
+
+export async function persistRunConsumed(db: Db, run_id: string, consumed: BudgetConsumed): Promise<void> {
+  try {
+    await db.prepare("UPDATE research_run SET consumed = ? WHERE id = ?")
+      .bind(JSON.stringify(consumed), run_id).run();
+  } catch { /* best-effort: counters are advisory, never fail the phase */ }
 }
 
 export interface OrchestratorDeps {
@@ -264,35 +297,40 @@ export class ResearchWorkflow {
     this.runtime.log(`gate ${type} satisfied`);
   }
 
-  private freshCtx(): { caps: typeof DEFAULT_CAPS; consumed: BudgetConsumed; run_id: string } {
-    const consumed: BudgetConsumed = {
-      searches: 0, fetches: 0, candidates: 0, tool_rounds: 0, cost_usd_est: 0, active_compute_s: 0,
-    };
-    return { caps: { ...DEFAULT_CAPS }, consumed, run_id: (this.deps as OrchestratorDeps).run_id };
+  private async phaseCtx(): Promise<{ caps: typeof DEFAULT_CAPS; consumed: BudgetConsumed; run_id: string }> {
+    const runId = (this.deps as OrchestratorDeps).run_id;
+    const consumed = await loadRunConsumed((this.deps as OrchestratorDeps).db, runId);
+    return { caps: { ...DEFAULT_CAPS }, consumed, run_id: runId };
   }
 
   /** Outcome-returning plan body shared by run() (via plan()) and runPhases(). */
   private async execPlan(): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error("not implemented: plan phase (no deps injected)");
     await hydrateBriefFromRun(this.deps.db, this.deps.meta, this.deps.run_id);
-    return plan(this.deps.brief, this.deps.db, this.deps.meta, this.freshCtx());
+    const ctx = await this.phaseCtx();
+    const outcome = await plan(this.deps.brief, this.deps.db, this.deps.meta, ctx);
+    await persistRunConsumed(this.deps.db, this.deps.run_id, ctx.consumed);
+    return outcome;
   }
 
   /** Outcome-returning dispatch shared by run() (via dispatch()) and runPhases(). */
   private async execPhase(phase: Exclude<WorkflowPhase, "plan" | "close">): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error(`not implemented: ${phase} phase (no deps injected)`);
     await hydrateBriefFromRun(this.deps.db, this.deps.meta, this.deps.run_id);
-    const ctx = this.freshCtx();
+    const ctx = await this.phaseCtx();
     const brief = this.deps.brief;
     const db = this.deps.db;
     const meta = this.deps.meta;
+    let outcome: PhaseOutcome;
     switch (phase) {
-      case "discover": return discover(brief, db, meta, ctx);
-      case "investigate": return investigate(brief, db, meta, ctx);
-      case "assess": return assess(brief, db, meta, ctx);
-      case "rank": return rank(brief, db, meta, ctx);
-      case "draft": return draft(brief, db, meta, ctx);
+      case "discover": outcome = await discover(brief, db, meta, ctx); break;
+      case "investigate": outcome = await investigate(brief, db, meta, ctx); break;
+      case "assess": outcome = await assess(brief, db, meta, ctx); break;
+      case "rank": outcome = await rank(brief, db, meta, ctx); break;
+      case "draft": outcome = await draft(brief, db, meta, ctx); break;
     }
+    await persistRunConsumed(db, this.deps.run_id, ctx.consumed);
+    return outcome;
   }
 
   /** plan: model drafts a search plan (business types × locale angles, <=8 queries). */
