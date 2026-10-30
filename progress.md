@@ -1147,3 +1147,11 @@ DOM surface guard; fixed busy-init guard that swallowed the first send),
 393/393 vitest, node --check; headless screenshots of the live-flow
 thinking state (shimmer + spinner + hidden answer UI) via a suspended
 / api/onboard/turn route. NOT yet deployed.
+2026-10-30 (DEPLOYED 12be27b8, user-approved + pushed): thinking state live.
+Commit 22f8b27 (5 files, +140/-11) pushed to main. Live verification
+(headless, /api/onboard/turn suspended mid-flow): thinking block visible,
+shimmer copy "Reading what you said...", answer UI hidden, spinner shown,
+button label "Working...", arrow parked, aria-busy=true; 0 console
+errors, 0 failed requests. Onboarding turn UX is now fully animated:
+shimmer+dots status line, working button morph, honest captured-count
+progress line, typed-answer-survives-failure kept.
