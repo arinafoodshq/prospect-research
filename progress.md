@@ -983,4 +983,9 @@ progress, shortlist, studio): 0 overflow, 0 console errors, 0 failed
 requests. Deliberate deviations: no "we will message you" claim (no
 messaging infra; honest "come back any time"); evidence/contact panel
 kept below shortlist cards; pager + reject + status-board entry kept in
-studio; guide section desktop-only per phone reference.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
+studio; guide section desktop-only per phone reference.
+Shipped 2026-10-30: commits 3f2b1d3, 2af5b29, 8420e77, 328b3f6 +
+record dcc0902 pushed to main; worker deployed version 3909c360
+(--containers-rollout=none; relay untouched). Live: / 200 with v2
+markers, no banner/query strings; /demo 200; live 390 landing
+screenshot viewed, 0 overflow, 0 console errors, 0 failed requests.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
