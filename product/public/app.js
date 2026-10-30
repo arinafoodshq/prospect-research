@@ -244,7 +244,9 @@
     if (!ob || ob.busy || !ob.done) return false;
     var fv = function (k) { return (ob.fields[k] && ob.fields[k].value) || ""; };
     var desc = fv("offering") || ob.firstText;
-    if (fv("ideal_customer")) desc += " for " + fv("ideal_customer");
+    var ideal = fv("ideal_customer");
+    // Skip "for X" when the offering already names the buyer ("to offices for offices…").
+    if (ideal && desc.toLowerCase().indexOf(ideal.toLowerCase().split(" ")[0]) < 0) desc += " for " + ideal;
     if (fv("timeline")) desc += ". Timing: " + fv("timeline");
     if (fv("budget")) desc += ". Budget per order: " + fv("budget");
     var input = {
@@ -317,7 +319,7 @@
         state.prospects = res.prospects;
         state.selectedId = null;
         state.selectedIds = null;
-        state.tab = "ready";
+        state.tab = null;
         renderShortlist();
         showView("shortlist");
       });
@@ -376,7 +378,7 @@
       state.prospects = res.prospects;
       state.selectedId = null;
       state.selectedIds = null;
-      state.tab = "ready";
+      state.tab = null;
       renderShortlist();
       showView("shortlist");
     });
@@ -388,7 +390,7 @@
       state.prospects = res.prospects;
       state.selectedId = null;
       state.selectedIds = null;
-      state.tab = "ready";
+      state.tab = null;
       renderShortlist();
       showView("shortlist");
     });
@@ -452,13 +454,16 @@
   function renderShortlist() {
     var shown = shownProspects();
     if (!state.selectedIds) state.selectedIds = shown.map(function (p) { return p.id; });
-    if (!state.tab) state.tab = "ready";
+    var counts = { ready: 0, warm: 0, look: 0 };
+    shown.forEach(function (p) { counts[tabOf(p)] += 1; });
+    // Land on the first group with picks; an explicit tab choice always sticks.
+    if (!state.tab) {
+      state.tab = counts.ready ? "ready" : counts.warm ? "warm" : counts.look ? "look" : "ready";
+    }
     $("shortlist-kicker").textContent = api.mode === "live" ? "LIVE SHORTLIST" : "SAMPLE SHORTLIST";
     $("shortlist-title").textContent = shown.length === 1
       ? "One buyer worth your time."
       : shown.length + " buyers worth your time.";
-    var counts = { ready: 0, warm: 0, look: 0 };
-    shown.forEach(function (p) { counts[tabOf(p)] += 1; });
     ["ready", "warm", "look"].forEach(function (t) {
       $("tab-" + t + "-n").textContent = String(counts[t]);
       $("tab-" + t).setAttribute("aria-selected", state.tab === t ? "true" : "false");
@@ -831,6 +836,9 @@
   }
 
   function emptyCopy(key) {
+    if (!state.drafts.length) {
+      return "<li>" + esc("No drafts yet — nothing qualified for messages.") + "</li>";
+    }
     var notes = {
       approved: "No approved drafts yet — approve one above to see it here.",
       pending: "All drafts reviewed — nice. Decided drafts are listed in their columns.",

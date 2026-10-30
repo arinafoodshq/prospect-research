@@ -810,3 +810,36 @@ Verified: smoke PASS (pager/tabs/edit/save/skip/defer, why panel,
 live mapping), 349/349 vitest green, node --check clean, headless
 full-journey drive 0 console errors 0 failed requests 0px overflow,
 desktop + 390px screenshots viewed.
+
+## 2026-10-30 - Revamp CLOSED: deploy + live journey + report
+
+Deployed revamp to production (version 4727b403, then redeploy with
+closure fixes; worker prospect-research.sam-5b1.workers.dev). Live
+build verified: studio markup served, POST /api/onboard/turn live
+(400 on empty body, zero model cost).
+Full live journey at 1440px (?live=1, catering profile): 4 chat
+turns with real questions/chips to done, profile confirm, Workflow
+run to awaiting_approval, 7-prospect shortlist, empty studio,
+status board. Screenshots viewed (landing/chat/profile/progress/
+shortlist/studio/status). 390px live: landing + one real chat turn,
+0px overflow, 0 console errors. D1 cross-check: run_a350 has 18
+disqualified + 7 needs_research + 0 drafts, exactly what the UI
+showed — mapping honest end to end.
+BUG LOGGED (frozen research, not fixed): production Workflow builds
+the brief excerpt from description only (workflow.ts load-profile
+step) while the dev path appends service area + buyers. Observed:
+profile.service_area={note:"Ikeja and Yaba"} correct, but
+commercial_brief.geography="Unknown - service area not stated",
+plan queries ungeoqualified, US drift (law firms) + junk candidates
+(job listings, email-lookup pages), 0 qualified. Post-freeze fix:
+mirror the postStart excerpt composition in workflow.ts. Skipped a
+second live run: same systematic bug would reproduce, low value.
+Pre-existing, untouched: POST /runs/:id/start returns 501
+use_workflow in production by design; client handles it as
+already-running (one console error on the journey, cosmetic).
+Closure fixes from live evidence (frontend, revamp scope): profile
+offer no longer duplicates the buyer ("to offices for offices…");
+shortlist lands on the first non-empty tab; empty-drafts status
+board says "nothing qualified" instead of "all reviewed".
+Verified: smoke PASS (+3 asserts), 349/349 vitest green, empty-
+drafts board viewed via transient local probe (reverted).

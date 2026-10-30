@@ -263,6 +263,11 @@ await runDone; // remaining ticks + completion
 await tick(); await tick();
 ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site given (edited inline)"),
   "inline guess edit reaches confirmBrief");
+{
+  const offer = (confirmedProfile.fields.filter((f) => f.key === "Offer")[0] || {}).value || "";
+  ok(offer.indexOf("for Offices") < 0 && /packed lunches/.test(offer),
+    "profile offer does not duplicate the buyer (" + offer.slice(0, 80) + ")");
+}
 ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
 ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "2" && els["tab-look-n"].textContent === "2",
   "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent + ")");
@@ -380,6 +385,21 @@ ok(visible("view-shortlist"), "drafts -> back to shortlist");
 await fire(els["btn-stop-progress"], "click", evt());
 await tick();
 ok(visible("view-profile"), "stop returns to the brief");
+
+{
+  const MockApi = sandbox.window.ApiLayer.MockApi;
+  const origList = MockApi.prototype.getShortlist;
+  MockApi.prototype.getShortlist = function (...a) {
+    return origList.apply(this, a).then((r) => ({
+      prospects: r.prospects.filter((p) => p.verdict !== "qualified" && p.verdict !== "no_signal"),
+    }));
+  };
+  await fire(els["btn-preview-progress"], "click", evt());
+  await tick(); await tick();
+  ok(els["tab-look"].getAttribute("aria-selected") === "true", "shortlist lands on the first non-empty tab");
+  ok(els["prospect-list"].children.length === 2, "look tab lists its picks on landing");
+  MockApi.prototype.getShortlist = origList;
+}
 
 /* ---- Live-mode RealApi adapter checks (stubbed fetch, zero network). */
 {
