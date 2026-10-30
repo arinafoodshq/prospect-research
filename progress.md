@@ -1120,3 +1120,11 @@ only ask what is missing") with segs reflecting captured fields.
 pure tests, never-re-ask + strip, planMore replan client test, fetch
 failure no-evidence assertion (old test flipped), 393/393 vitest, tsc
 clean, smoke PASS, node --check ok. NOT yet deployed.
+2026-10-30 (DEPLOYED 3de50cfa, user-approved + pushed): commit 8fef5d5
+(11 files, +434/-76) live. Verified live: app.js serves the dynamic step
+line + status-board/landing nav buttons; transcribe guard 400. Agentic QA
+loop, strategist brief, junk gates, onboarding anti-re-ask, and nav are
+now in production. User next step: re-run the grill-chicken brief live —
+expect at most one base+reach ask, event-host buyers around the expanded
+Ikeja area, directory junk excluded, and a QA loop before anything shows
+in the shortlist. Watch first-run behavior and report any drift.
