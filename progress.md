@@ -947,4 +947,40 @@ only catches navigation). Added worker /demo route serving
 index.html via ASSETS binding + 2 route tests (RED then GREEN,
 360/360). Deployed c402e5be then 44d5111a
 (--containers-rollout=none). Live: / 200, /demo 200 text/html,
-API 404 JSON intact.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
+API 404 JSON intact.
+
+V2 P0.2 done (landing rebuild, commit 3f2b1d3): one gold CTA in hero
++ dark CTA in final panel, Sign in plain-text link with honest
+coming-soon note (no accounts exist), non-interactive hero SVG with
+readable prospect card (name, Strong fit, why-now, source) + message
+bubble + approval badge. Story order per images: hero, problem band,
+guide, steps, with/without, trust, final CTA. Phone: guide folds away,
+THREE STEPS kicker shows, full-width 64px CTAs.
+V2 P0.3-4 done (onboarding, commit 2af5b29): single free-text box +
+Speak (SpeechRecognition, hidden when unsupported) + Need an example
+link; Business name field and Try-one chips removed. Backend
+extractBusinessName (quoted, explicit, suffixed patterns; TDD 4 route
+tests, 364/364): extracted names carry assumed provenance (editable at
+confirm); missing_name 400 only when unresolvable, and the client
+then asks "What should we call your business?" inline (skip allowed,
+working label "My business"). Max 3 follow-ups unchanged, skip always.
+V2 P0.5 done (failure states, commit 8420e77): network failures show
+"We could not reach the service. Check your connection and try again."
+with Retry (re-sends last turn or finish); typed text preserved;
+confirm + progress failures plain-language with retry; no raw error
+ever rendered. Smoke covers fail → message → retry → advance.
+V2 P0.6+P1 done (routing truth + polish, commit 328b3f6): Save and
+exit really saves (localStorage draft, restored on return); Stop and
+adjust my brief really stops (POST resume to=stopped) with no
+view-yank after navigating away; Approve and schedule routes to the
+campaign scheduler once every message is decided; campaigns view gains
+Back to messages. Step transitions 0.3s slide+fade, skeleton loaders
+for research steps + shortlist, phone fixes (stacked stats, nowrap
+header links, URL wrap). No user-visible sample/demo/live/API wording.
+Verified: typecheck clean, 364/364 vitest, smoke PASS, node --check
+clean. Screenshots viewed at 1440 + 390 (landing, describe, follow-up,
+progress, shortlist, studio): 0 overflow, 0 console errors, 0 failed
+requests. Deliberate deviations: no "we will message you" claim (no
+messaging infra; honest "come back any time"); evidence/contact panel
+kept below shortlist cards; pager + reject + status-board entry kept in
+studio; guide section desktop-only per phone reference.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
