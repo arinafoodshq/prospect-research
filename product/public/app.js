@@ -1398,6 +1398,15 @@
     Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
       btn.addEventListener("click", function () { showView("onboard"); updateObSegs(1); });
     });
+    // No accounts exist yet: the Sign in link says so honestly instead of
+    // pretending to authenticate.
+    var signin = $("link-signin");
+    if (signin) signin.addEventListener("click", function (e) {
+      if (e && e.preventDefault) e.preventDefault();
+      var note = $("signin-note");
+      note.textContent = "Accounts are coming soon. For now, everyone starts the same way: describe your business.";
+      note.hidden = false;
+    });
 
     var chips = [];
     try { chips = document.querySelectorAll("[data-preset]") || []; } catch (e) { chips = []; }

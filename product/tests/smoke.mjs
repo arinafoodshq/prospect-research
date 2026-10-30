@@ -127,6 +127,7 @@ const IDS = [
   "tab-ready", "tab-warm", "tab-look", "tab-ready-n", "tab-warm-n", "tab-look-n",
   "shortlist-count",
   "drafts-kicker", "status-kicker", "campaigns-kicker", "senders-kicker",
+  "link-signin", "signin-note",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status",
   "btn-back-shortlist", "btn-back-drafts", "btn-restart", "btn-restart-progress",
@@ -197,6 +198,8 @@ const evt = (extra) => Object.assign({ preventDefault() {}, target: {} }, extra 
 
 /* ---- Walk the flow. */
 ok(visible("view-landing"), "boots on the landing view");
+await fire(els["link-signin"], "click", evt());
+ok(els["signin-note"].hidden === false && /coming soon/.test(els["signin-note"].textContent), "sign in says accounts are coming soon");
 await fire(startBtn, "click", evt());
 ok(visible("view-onboard"), "landing CTA -> onboard view");
 
