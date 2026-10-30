@@ -22,6 +22,7 @@
 
   /* Accent: change here, changes everywhere */
   --accent: #e3b45c;
+  --accent-rgb: 227, 180, 92;  /* same color as --accent, for rgba() shadows */
   --accent-ink: #0b0f1a;
 
   /* Status */

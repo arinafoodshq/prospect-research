@@ -65,7 +65,7 @@
   var OB_SUB = {
     offering: ["One clear line helps us describe you to buyers.", "For example: packed office lunches, delivered before noon"],
     ideal_customer: ["One quick answer helps us find the right buyers.", "For example: offices with 20 to 200 staff"],
-    service_area: ["One quick answer keeps the search where you deliver.", "For example: Ikeja and Yaba"],
+    service_area: ["One quick answer keeps the search where you deliver.", "For example: Ikeja, Lagos, Nigeria — or 'Worldwide' if you serve online"],
     order_size: ["One quick answer helps us size each chance.", "For example: 20 to 200 packs per order"],
     decision_maker: ["One quick answer helps us write to the right person.", "For example: the office admin, sometimes HR"],
     timeline: ["One quick answer helps us time each approach.", "For example: they order weekly, a day ahead"],
@@ -145,7 +145,8 @@
       var short = btn.querySelector(".speak-short");
       if (long) long.textContent = busy ? "Transcribing…" : listening ? "Listening. Tap to finish" : "Speak instead";
       if (short) short.textContent = busy ? "…" : listening ? "Finish" : "Speak";
-      btn.classList.toggle("listening", !!(listening || busy));
+      btn.classList.toggle("recording", listening);
+      btn.classList.toggle("transcribing", busy);
       btn.disabled = busy;
     }
 

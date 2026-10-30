@@ -579,6 +579,16 @@ describe("createMetaClient", () => {
     expect(serviceAreaFromGeos([])).toBeUndefined();
   });
 
+  it("serviceAreaFromGeos gives no geo bias to online/worldwide businesses", () => {
+    // A global word is a reach, not a place: biasing web_search with a fake
+    // city would poison every result for a global-business brief.
+    expect(serviceAreaFromGeos(["Worldwide"])).toBeUndefined();
+    expect(serviceAreaFromGeos(["Online"])).toBeUndefined();
+    expect(serviceAreaFromGeos(["Global, worldwide"])).toBeUndefined();
+    // Base + reach: the base still grounds the search.
+    expect(serviceAreaFromGeos(["Ikeja, Lagos, Nigeria", "worldwide"])).toEqual({ city: "Ikeja" });
+  });
+
   it("planQueries returns at most 8 non-empty strings", async () => {
     const fetchImpl = stubFetch({
       id: "resp_p",

@@ -5,7 +5,7 @@
  * against an in-memory mock implementing prepare/bind/first/all/run.
  */
 import { describe, expect, it, vi } from "vitest";
-import app from "../src/index";
+import app, { LOCATION_ASK_PROMPT, needsLocationDisambiguation } from "../src/index";
 import { dedupeKey } from "../src/db";
 import { sealSecret } from "../src/delivery/crypto";
 import { mockOutbox, resetMockOutbox } from "../src/delivery/providers";
@@ -45,11 +45,16 @@ vi.mock("../src/meta", () => ({
       })),
     // Canned onboarding turn: always extracts decision_maker and always asks
     // a question, so skip/lock/cap tests prove the handler overrode it.
-    onboardTurn: async () => ({
-      fields: { decision_maker: { value: "HR manager", label: "inferred" } },
-      question: { key: "order_size", prompt: "Typical order size?", chips: ["20-50", "50-200"] },
-      done: false,
-    }),
+    // Tests can swap in their own canned turn via globalThis.__onboardMockTurn.
+    onboardTurn: async (input: unknown) => {
+      const g = globalThis as { __onboardMockTurn?: (i: unknown) => unknown };
+      if (g.__onboardMockTurn) return g.__onboardMockTurn(input);
+      return {
+        fields: { decision_maker: { value: "HR manager", label: "inferred" } },
+        question: { key: "order_size", prompt: "Typical order size?", chips: ["20-50", "50-200"] },
+        done: false,
+      };
+    },
     rewriteDraft: async (input: { subject: string; body: string; tone: string }) => ({
       subject: input.subject + " (" + input.tone + ")",
       body: input.body + " [" + input.tone + " rewrite]",
@@ -780,6 +785,103 @@ describe("conversational onboarding", () => {
     });
     expect(badSkip.status).toBe(400);
     expect(badSkip.body.error).toBe("unknown_field_key");
+  });
+
+  // Location precision (owner rule 2026-10-30): "I said I grill chicken in
+  // Ikeja" — a one-word place must be expanded by ASKING, never assumed.
+  function withMockTurn(fn: (i: unknown) => unknown, run: () => Promise<void>): Promise<void> {
+    const g = globalThis as { __onboardMockTurn?: (i: unknown) => unknown };
+    g.__onboardMockTurn = fn;
+    return run().finally(() => { delete g.__onboardMockTurn; });
+  }
+
+  it("asks to expand a bare one-word location instead of running with it", async () => {
+    await withMockTurn(
+      () => ({ fields: { service_area: { value: "Ikeja", label: "inferred" } }, question: null, done: true }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", {
+          text: "I grill chicken in Ikeja", fields: {}, followups_used: 0,
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.done).toBe(false);
+        expect(res.body.question.key).toBe("service_area");
+        expect(res.body.question.prompt).toBe(LOCATION_ASK_PROMPT);
+        expect(res.body.followups_used).toBe(1);
+        // The stated value stays in fields (the owner's truth); the ask expands it.
+        expect(res.body.fields.service_area.value).toBe("Ikeja");
+      },
+    );
+  });
+
+  it("keeps the model's own location question (its chips carry the suggestion)", async () => {
+    await withMockTurn(
+      () => ({
+        fields: { service_area: { value: "Ikeja", label: "inferred" } },
+        question: { key: "service_area", prompt: "Ikeja — as in Ikeja, Lagos, Nigeria?", chips: ["Ikeja, Lagos, Nigeria"] },
+        done: false,
+      }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", { text: "ikeja", fields: {}, followups_used: 0 });
+        expect(res.body.question.prompt).toContain("Lagos");
+        expect(res.body.followups_used).toBe(1);
+      },
+    );
+  });
+
+  it("never overrides an owner-locked service_area with the location ask", async () => {
+    await withMockTurn(
+      () => ({ fields: { service_area: { value: "Ikeja", label: "inferred" } }, question: null, done: true }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", {
+          text: "x",
+          fields: { service_area: { value: "Ikeja", label: "unknown", locked: true } },
+          followups_used: 0,
+          skip_key: "service_area",
+        });
+        expect(res.body.question).toBeNull();
+        expect(res.body.done).toBe(true);
+      },
+    );
+  });
+
+  it("accepts multi-part locations without asking", async () => {
+    expect(needsLocationDisambiguation("Ikeja, Lagos, Nigeria")).toBe(false);
+    expect(needsLocationDisambiguation("Lagos, Nigeria")).toBe(false);
+    expect(needsLocationDisambiguation("Ikeja")).toBe(true);
+    expect(needsLocationDisambiguation("Ikeja, ")).toBe(true);
+    expect(needsLocationDisambiguation("")).toBe(false); // absent value: no guard
+    // Not rigid: a business may have no base or serve clients globally.
+    expect(needsLocationDisambiguation("Worldwide")).toBe(false);
+    expect(needsLocationDisambiguation("Online")).toBe(false);
+    expect(needsLocationDisambiguation("Global")).toBe(false);
+    expect(needsLocationDisambiguation("Nationwide delivery")).toBe(false);
+    await withMockTurn(
+      () => ({ fields: { service_area: { value: "Lagos, Nigeria", label: "inferred" } }, question: null, done: true }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", { text: "x", fields: {}, followups_used: 0 });
+        expect(res.body.question).toBeNull();
+        expect(res.body.done).toBe(true);
+      },
+    );
+  });
+
+  it("lets a global/online answer through without the location ask", async () => {
+    await withMockTurn(
+      () => ({ fields: { service_area: { value: "Worldwide", label: "inferred" } }, question: null, done: true }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", {
+          text: "we operate online, serving global clientele", fields: {}, followups_used: 0,
+        });
+        expect(res.body.done).toBe(true);
+        expect(res.body.question).toBeNull();
+        expect(res.body.fields.service_area.value).toBe("Worldwide");
+      },
+    );
   });
 });
 

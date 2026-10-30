@@ -1049,3 +1049,28 @@ landing alignment re-measured in browser: 192/48/40 exact at 1440/800/390,
 0 console errors, 0 failed requests. Remaining user step: speak one
 sentence into the live mic button ("We do AI systems for businesses")
 to confirm a clean single-line transcript. Nothing else pending.
+2026-10-30 (run stranding diagnosed + fixed; animation + location guard added):
+User-reported: progress view stranded at "Checking fit" (run_109a87e6, New
+Orleans brief "504 Yard Grills"). Evidence: workflow instance
+wf_743382dc errored 84s in — "assess stopped: budget_tool_rounds"; run row
+stuck at assessing, 0 assessments, UI polled a dead run for 12+ min. Root
+causes: (1) my consumed persistence made tool_rounds cumulative though the
+spec caps it per burst (6) — investigate's 19 rounds tripped the cap at
+assess entry; (2) instance errors never marked the run failed. Fixes:
+loadRunConsumed resets tool_rounds to 0 (per-burst, tested); workflow.ts
+wraps wf.run() and step-writes status=failed with the error reason before
+rethrowing (2 tests incl. marker-write-fails case); callResponses gets a
+120s AbortSignal.timeout (a stalled Meta call used to hang the step
+forever); postRun marks workflow_start_failed when the instance create
+fails (bestEffort now returns success). Stranded run repaired via remote
+D1 UPDATE to failed with the honest stop_reason. Also added (from user
+asks): speak-button recording feedback — accent pulse ring + equalizer
+bars while recording, unified pulse while transcribing, reduced-motion
+safe (--accent-rgb token added), verified via forced-state screenshots;
+location precision: onboardTurn prompt rule (never silently expand a bare
+place name; offer the full form as a chip) + deterministic backstop
+needsLocationDisambiguation in postOnboardTurn — a service_area with <2
+comma parts triggers a follow-up asking for e.g. "Ikeja, Lagos, Nigeria"
+(skips locked values, defers to the model's own location question, only
+within followup budget; 5 new tests; OB_SUB example updated). tsc clean,
+386/386 vitest, smoke PASS, node --check ok. NOT yet deployed.

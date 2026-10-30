@@ -5,7 +5,7 @@
  * onto WorkflowRuntime and builds deps from bindings + D1.
  */
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { getRun, type Db, type ResearchRun } from "./db";
+import { getRun, setRunStatus, type Db, type ResearchRun } from "./db";
 import { createMetaClient } from "./meta";
 import {
   ResearchWorkflow,
@@ -58,7 +58,22 @@ export class ResearchWorkflowEntrypoint extends WorkflowEntrypoint<WorkflowEnv, 
       },
       run_id: runId,
     });
-    await wf.run();
+    try {
+      await wf.run();
+    } catch (err) {
+      // The instance is dead (budget stop, model failure, gate timeout...).
+      // Without this marker the run row freezes at the last phase status and
+      // the UI keeps saying "Working now" forever. Mark failed, then rethrow
+      // so the instance still reports errored to the dashboard.
+      const reason = err instanceof Error ? err.message.slice(0, 200) : String(err);
+      try {
+        await step.do("mark-failed", STEP_RETRIES, async () => {
+          await setRunStatus(db, runId, "failed", `workflow_error: ${reason}`);
+          return { marked: true };
+        });
+      } catch { /* marker best-effort: the instance is errored either way */ }
+      throw err;
+    }
     return { ok: true, run_id: runId };
   }
 }

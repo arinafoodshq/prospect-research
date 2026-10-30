@@ -371,6 +371,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
   .view, .live-dot, .skel { animation: none; transition: none; }
+  .speak-btn.recording, .speak-btn.transcribing, .speak-eq i { animation: none; }
 }
 
 /* Landing v2 (Revamp references: desktop + phone PNGs). Mobile first.
@@ -635,7 +636,37 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   font-size: 1rem; min-height: var(--touch);
 }
 .speak-btn svg { width: 1rem; height: 1rem; }
-.speak-btn.listening { border-color: var(--accent); color: var(--accent); }
+/* Recording feedback: accent border + pulsing ring + equalizer bars while
+ * the mic is live; a slower unified pulse while transcribing. Reduced-motion
+ * users get the color change and the label text, never the motion. */
+.speak-btn.recording, .speak-btn.transcribing {
+  border-color: var(--accent); color: var(--accent);
+}
+.speak-btn.recording { animation: speak-pulse 1.6s ease-out infinite; }
+.speak-eq { display: none; align-items: center; gap: 2px; height: 1rem; }
+.speak-eq i {
+  width: 3px; border-radius: 2px; background: currentColor;
+  height: 35%; animation: speak-eq 0.9s ease-in-out infinite;
+}
+.speak-eq i:nth-child(2) { animation-delay: 0.15s; }
+.speak-eq i:nth-child(3) { animation-delay: 0.3s; }
+.speak-eq i:nth-child(4) { animation-delay: 0.45s; }
+.speak-btn.recording .speak-eq, .speak-btn.transcribing .speak-eq { display: inline-flex; }
+.speak-btn.recording > svg, .speak-btn.transcribing > svg { display: none; }
+.speak-btn.transcribing .speak-eq i { animation: speak-steady 1.2s ease-in-out infinite; }
+@keyframes speak-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.45); }
+  70% { box-shadow: 0 0 0 10px rgba(var(--accent-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
+}
+@keyframes speak-eq {
+  0%, 100% { height: 30%; }
+  50% { height: 95%; }
+}
+@keyframes speak-steady {
+  0%, 100% { height: 30%; opacity: 0.55; }
+  50% { height: 60%; opacity: 1; }
+}
 .speak-short { display: none; }
 #onboard-form .btn-gold { margin-top: 1.6rem; min-width: 16rem; }
 #onboard-form .l-micro { margin-top: 0.9rem; }

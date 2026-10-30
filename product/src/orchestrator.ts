@@ -104,6 +104,7 @@ export async function loadRunConsumed(db: Db, run_id: string): Promise<BudgetCon
     if (typeof parsed === "object" && parsed !== null) {
       const src = parsed as Record<string, unknown>;
       for (const key of Object.keys(consumed) as Array<keyof BudgetConsumed>) {
+        if (key === "tool_rounds") continue; // per-burst cap (spec §6): never cumulative
         const v = src[key];
         if (typeof v === "number" && Number.isFinite(v) && v > 0) consumed[key] = v;
       }

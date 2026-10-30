@@ -36,7 +36,18 @@ describe("loadRunConsumed", () => {
   it("seeds counters from the persisted run row", async () => {
     const { db } = makeDb({ consumed: JSON.stringify({ searches: 12, fetches: 20, candidates: 7, tool_rounds: 30, cost_usd_est: 0.4, active_compute_s: 60 }) });
     const consumed = await loadRunConsumed(db as never, RUN_ID);
-    expect(consumed).toEqual({ searches: 12, fetches: 20, candidates: 7, tool_rounds: 30, cost_usd_est: 0.4, active_compute_s: 60 });
+    expect(consumed).toEqual({ searches: 12, fetches: 20, candidates: 7, tool_rounds: 0, cost_usd_est: 0.4, active_compute_s: 60 });
+  });
+
+  it("resets tool_rounds to zero: the cap is per burst, never cumulative", async () => {
+    // run_109a87e6 regression: investigate's 19 rounds rode into assess and
+    // tripped the 6-per-burst cap at phase entry, erroring the instance.
+    const { db } = makeDb({ consumed: JSON.stringify({ searches: 1, fetches: 17, candidates: 25, tool_rounds: 19, cost_usd_est: 0.2, active_compute_s: 9 }) });
+    const consumed = await loadRunConsumed(db as never, RUN_ID);
+    expect(consumed.searches).toBe(1);
+    expect(consumed.fetches).toBe(17);
+    expect(consumed.candidates).toBe(25);
+    expect(consumed.tool_rounds).toBe(0);
   });
 
   it("starts from zeros when the row or counters are missing/corrupt", async () => {

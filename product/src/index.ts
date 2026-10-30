@@ -14,6 +14,7 @@ import {
   logActivity,
   makeId,
   nowIso,
+  setRunStatus,
   type Db,
   type DraftStatus,
   type RunStatus,
@@ -105,13 +106,16 @@ export async function decideDraftWithDb(
   await decideDraft(db, run_id, draft_id, decision, edited);
 }
 
-/** Best-effort Workflow call: records human-gate/trigger delivery, never throws. */
-async function bestEffort(fn: (() => Promise<unknown>) | undefined): Promise<void> {
-  if (!fn) return;
+/** Best-effort Workflow call: records human-gate/trigger delivery. Returns
+ * whether the call actually happened — callers use it to avoid silently
+ * stranding state (a swallowed create failure used to park runs at created). */
+async function bestEffort(fn: (() => Promise<unknown>) | undefined): Promise<boolean> {
+  if (!fn) return false;
   try {
     await fn();
+    return true;
   } catch {
-    /* Workflow not bound in tests/dev — D1 remains the source of truth. */
+    return false;
   }
 }
 
@@ -327,7 +331,15 @@ const postRun: Handler = async ({ req, env }) => {
   // Production owns execution via Workflow; dev runs stay parked at created
   // until the synchronous start-route drives them (never both at once).
   if (env.ENVIRONMENT === "production") {
-    await bestEffort(() => env.RESEARCH_WORKFLOW?.create?.({ id: wfId, params: { run_id: id } }) as Promise<unknown>);
+    const create = env.RESEARCH_WORKFLOW?.create?.bind(env.RESEARCH_WORKFLOW);
+    const started = await bestEffort(create ? () => create({ id: wfId, params: { run_id: id } }) : undefined);
+    if (!started) {
+      // The instance never started (binding missing, queue/auth failure): a
+      // silent park here means "Working now" forever. Mark failed honestly.
+      try {
+        await setRunStatus(env.DB, id, "failed", "workflow_start_failed");
+      } catch { /* marker best-effort */ }
+    }
   }
   return json(serializeRun((await getRun(env, id)) as RunRow), 201);
 };
@@ -727,6 +739,30 @@ const ONBOARD_VALUE_CAP = 280;
 const ONBOARD_FOLLOWUP_CAP = 3;
 const ONBOARD_KEYS = new Set<string>(ONBOARD_FIELD_KEYS);
 
+/** Follow-up shown when a stated location is too bare to place on a map
+ * (owner rule 2026-10-30: "get more than one word… e.g. Ikeja, Lagos, Nigeria").
+ * Deliberately not rigid: a business may have no fixed base or serve clients
+ * globally — the ask offers that way out, and global-sounding answers skip it. */
+export const LOCATION_ASK_PROMPT = "Where are you based, and how far do you serve? For example: 'Ikeja, Lagos, Nigeria', 'Lagos, Nigeria — nationwide', or 'Online / Worldwide' if there is no fixed base.";
+
+/** Answers that already say where the business plays (no base to pin). */
+const GLOBAL_LOCATION_WORDS = /\b(worldwide|global|globally|international|internationally|online|onlineonly|nationwide|remote|virtual|everywhere|anywhere)\b/i;
+
+/**
+ * Location precision check: a service_area with fewer than two comma-separated
+ * parts ("Ikeja") cannot be associated to a city/country downstream (search
+ * grounding and the brief's geos both need it). Global/online answers pass —
+ * a business may serve worldwide with no fixed base. Owner actions that lock
+ * the field skip this check at the call site. Pure function, unit-tested.
+ */
+export function needsLocationDisambiguation(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false; // nothing stated: nothing to expand
+  if (GLOBAL_LOCATION_WORDS.test(v)) return false;
+  const parts = v.split(",").map((s) => s.trim()).filter(Boolean);
+  return parts.length < 2;
+}
+
 interface OnboardFieldState {
   value: string;
   label: string;
@@ -793,6 +829,20 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   for (const [key, fv] of Object.entries(out.fields)) {
     if (!ONBOARD_KEYS.has(key) || fields[key]?.locked) continue;
     fields[key] = { value: fv.value, label: fv.label, locked: false };
+  }
+  // Location precision backstop: when the stated service_area is still too
+  // bare to place on a map, ask for the fuller form instead of running with
+  // it. Skipped when the owner locked the value (skip/edit) or the model is
+  // already asking about service_area (its chips carry world knowledge), and
+  // only while follow-up budget remains — the cap below still owns the end.
+  const sa = fields["service_area"];
+  const modelAsksLocation = out.question?.key === "service_area";
+  if (
+    sa && !sa.locked && needsLocationDisambiguation(sa.value)
+    && !modelAsksLocation && followupsUsed < ONBOARD_FOLLOWUP_CAP
+  ) {
+    out.question = { key: "service_area", prompt: LOCATION_ASK_PROMPT, chips: [] };
+    out.done = false;
   }
   const used = out.question ? followupsUsed + 1 : followupsUsed;
   return json({ fields, question: out.question, done: out.done, followups_used: used });

@@ -44,13 +44,20 @@ export interface ServiceArea {
  * ISO-2 form — a mispredicted country code would poison every search, so a
  * full country name is dropped and the city carries the bias.
  */
+/** Global/online words: reach, not a place. Never becomes a search city. */
+const GLOBAL_GEO_WORDS = /\b(worldwide|global|globally|international|internationally|online|nationwide|remote|virtual|everywhere|anywhere)\b/i;
+
 export function serviceAreaFromGeos(geos: string[]): ServiceArea | undefined {
   const parts = geos.flatMap((g) => g.split(",").map((s) => s.trim()).filter((s) => s !== ""));
-  const city = parts[0];
+  // A business may be purely online or serve worldwide (no base): a global
+  // word is not a place — biasing web_search with city "Worldwide" would
+  // poison every result. Drop such entries; nothing concrete => no bias.
+  const concrete = parts.filter((p) => !GLOBAL_GEO_WORDS.test(p));
+  const city = concrete[0];
   if (city === undefined) return undefined;
   const area: ServiceArea = { city };
-  const last = parts[parts.length - 1];
-  if (parts.length > 1 && typeof last === "string" && /^[A-Z]{2}$/.test(last)) area.country = last;
+  const last = concrete[concrete.length - 1];
+  if (concrete.length > 1 && typeof last === "string" && /^[A-Z]{2}$/.test(last)) area.country = last;
   return area;
 }
 
@@ -237,6 +244,9 @@ export function estimateCostUsd(inputTokens: number, outputTokens: number, price
 export const META_RESPONSES_ENDPOINT = "https://api.meta.ai/v1/responses";
 const MAX_PLAN_QUERIES_OUT = 8;
 const FETCH_TEXT_CAP = 200_000;
+/** Wall-clock cap per Responses call. Without it a stalled upstream hangs the
+ * Workflow step forever (Workers fetch has no default timeout). */
+const META_CALL_TIMEOUT_MS = 120_000;
 const DRAFT_CHANNELS = ["website_form", "email", "phone", "social_profile", "other"] as const;
 
 export interface MetaClientDeps {
@@ -591,6 +601,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       method: "POST",
       headers: { "content-type": "application/json", "Authorization": "Bearer " + deps.apiKey },
       body: JSON.stringify({ ...req, model }),
+      signal: AbortSignal.timeout(META_CALL_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`meta_http_${res.status}`);
     return parseResponsesResponse(await res.json());
@@ -801,7 +812,7 @@ function extractVisibleText(html: string): string {
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: brief || "New business onboarding.",
-      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
+      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Location rule: a service_area must be precise enough to place on a map — at least two parts, comma-separated (area, city or state, country — e.g. "Ikeja, Lagos, Nigeria"). Be a good strategist about reach: some businesses serve only locally, some nationwide, some purely online, and some are based in one place but serve clients worldwide. Capture what the owner actually says: the base precisely when known, plus the stated reach when they give one (e.g. "Ikeja, Lagos, Nigeria — nationwide delivery"); "Worldwide" or "Online" alone are valid values when there is no fixed base. Never invent a base, never invent a reach. When the owner names a bare one-word place and no known field already carries the wider area, spend the follow-up confirming it: ask for the fuller form and offer the most likely full location as a chip (world knowledge is allowed in chips — they are suggestions the owner confirms, never auto-applied). Never silently expand a bare place name into fields. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
