@@ -37,6 +37,7 @@ function makeClassList() {
       else if (force) s.add(name); else s.delete(name);
     },
     add(name) { s.add(name); },
+    remove(name) { s.delete(name); },
     contains(name) { return s.has(name); },
   };
 }
@@ -113,7 +114,7 @@ const IDS = [
   "view-landing", "view-onboard", "view-profile", "view-progress", "view-shortlist",
   "view-drafts", "view-status", "view-campaigns", "view-senders",
   "step-nav", "onboard-error", "onboard-form",
-  "f-businessName", "f-description",
+  "f-description", "ob-head", "btn-ob-back", "btn-ob-example", "btn-ob-speak",
   "ob-first", "ob-chat", "ob-step", "ob-segs", "ob-sub", "ob-yousaid-text", "ob-question-wrap", "ob-question",
   "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
   "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first",
@@ -204,7 +205,8 @@ await fire(startBtn, "click", evt());
 ok(visible("view-onboard"), "landing CTA -> onboard view");
 
 const DESCRIPTION = "We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.";
-els["f-businessName"].value = "Adaeze Catering Services";
+await fire(els["btn-ob-example"], "click", evt());
+ok(els["f-description"].value === DESCRIPTION, "example link fills the box");
 els["f-description"].value = DESCRIPTION;
 await fire(els["onboard-form"], "submit", evt());
 await tick(); await tick();
@@ -235,7 +237,11 @@ ok(/a guess/.test(els["ob-fields"].innerHTML), "inferred fields labelled a guess
 
 await fire(els["btn-ob-finish"], "click", evt());
 await tick(); await tick();
-ok(visible("view-profile"), "finish -> profile confirm view");
+ok(/call your business/.test(els["ob-question"].textContent), "nameless text asks for a business name (" + els["ob-question"].textContent + ")");
+els["ob-answer"].value = "Adaeze Catering Services";
+await fire(els["btn-ob-continue"], "click", evt());
+await tick(); await tick();
+ok(visible("view-profile"), "naming the business -> profile confirm view");
 
 {
   const guesses = els["profile-fields"].querySelectorAll("input[data-idx]");

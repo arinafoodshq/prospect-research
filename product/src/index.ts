@@ -186,16 +186,43 @@ async function draftsForRun(env: Env, runId: string): Promise<Array<Record<strin
 
 // --- Handlers ----------------------------------------------------------------
 
+/** Best-effort business-name extraction from free text. Returns null
+ * when nothing explicit is found; never invents a name. */
+export function extractBusinessName(text: string): string | null {
+  const quoted = text.match(/[""]([^"""]{2,60})[""]/)
+    || text.match(/"([^"]{2,60})"/);
+  if (quoted && quoted[1]) return quoted[1].trim();
+  const explicit = text.match(
+    /\b(?:my business is|i run|we are|this is|called)\s+([A-Z][\w&'-]*(?:\s+[A-Z][\w&'-]*){0,4})/i,
+  );
+  if (explicit && explicit[1]) return explicit[1].trim();
+  const suffixed = text.match(
+    /\b([A-Z][\w&'.-]*(?:\s+[A-Z][\w&'.-]*){0,3}\s+(?:Ltd|Limited|LLC|Services|Catering|Cleaning|Logistics|Ventures|Enterprises|Stores|Foods|Grills|Dispatch|Studios|Agency|Solutions))\b/,
+  );
+  if (suffixed && suffixed[1]) return suffixed[1].trim();
+  return null;
+}
+
 const postProfile: Handler = async ({ req, env }) => {
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
-  const name = parsed.body["name"];
-  if (typeof name !== "string" || name.trim() === "") return err("missing_name", 400);
   const str = (v: unknown, fb: string): string => (typeof v === "string" ? v : fb);
+  const description = str(parsed.body["description"], "");
+  let name = parsed.body["name"];
+  let nameProvenance = "stated";
+  if (typeof name !== "string" || name.trim() === "") {
+    const found = extractBusinessName(description);
+    if (!found) return err("missing_name", 400);
+    name = found;
+    nameProvenance = "assumed";
+  } else if (parsed.body["name_assumed"] === true) {
+    nameProvenance = "assumed";
+  }
+  const cleanName = typeof name === "string" ? name.trim() : "";
   const websiteUrl = parsed.body["website_url"];
   const id = makeId("bp");
-  const provenance: Record<string, string> = { name: "stated" };
+  const provenance: Record<string, string> = { name: nameProvenance };
   for (const f of ["description", "services", "value_proposition", "target_market", "service_area", "constraints", "website_url"]) {
     if (parsed.body[f] !== undefined) provenance[f] = "stated";
   }
@@ -203,7 +230,7 @@ const postProfile: Handler = async ({ req, env }) => {
     `INSERT INTO business_profile (id, name, website_url, description, services, value_proposition, target_market, service_area, constraints_json, provenance, status, version, confirmed_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
-    id, name.trim(),
+    id, cleanName,
     typeof websiteUrl === "string" ? websiteUrl : null,
     str(parsed.body["description"], ""),
     JSON.stringify(parsed.body["services"] ?? []),

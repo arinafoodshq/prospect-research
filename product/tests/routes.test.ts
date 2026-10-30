@@ -264,6 +264,42 @@ describe("profiles", () => {
     expect((await call(db, "POST", "/api/profiles", { name: " " })).status).toBe(400);
   });
 
+  it("extracts an explicit business name from the description", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/profiles", {
+      description: "I run Adaeze Catering Services. We deliver packed lunches to offices in Ikeja.",
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe("Adaeze Catering Services");
+    expect(res.body.provenance.name).toBe("assumed");
+  });
+
+  it("extracts a quoted business name from the description", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/profiles", {
+      description: 'We are "Sparkle Office Cleaning" and we clean offices in Abuja.',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe("Sparkle Office Cleaning");
+    expect(res.body.provenance.name).toBe("assumed");
+  });
+
+  it("returns missing_name when no name can be resolved", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/profiles", {
+      description: "We deliver packed lunches to offices in Ikeja and Yaba.",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("missing_name");
+  });
+
+  it("marks a skipped working name as assumed", async () => {
+    const db = makeMockDb();
+    const res = await call(db, "POST", "/api/profiles", { name: "My business", name_assumed: true });
+    expect(res.status).toBe(201);
+    expect(res.body.provenance.name).toBe("assumed");
+  });
+
   it("reads back a profile and 404s when absent", async () => {
     const db = makeMockDb();
     seedProfile(db);

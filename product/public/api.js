@@ -103,14 +103,27 @@
   function MockApi() {}
   MockApi.prototype.mode = "mock";
   MockApi.prototype.createProfile = function (input) {
+    var name = input.businessName || "";
+    var assumed = !!input.name_assumed;
+    if (!name) {
+      var m = String(input.description || "").match(/"([^"]{2,60})"/)
+        || String(input.description || "").match(/\b(?:my business is|i run|we are|this is|called)\s+([A-Z][\w&'-]*(?:\s+[A-Z][\w&'-]*){0,4})/i);
+      if (m && m[1]) { name = m[1].trim(); assumed = true; }
+    }
+    if (!name) {
+      var err = new Error("HTTP 400");
+      err.status = 400;
+      err.detail = "missing_name";
+      return Promise.reject(err);
+    }
     var profile = {
       id: "demo-profile-1",
-      businessName: input.businessName,
+      businessName: name,
       site: input.site || "",
       description: input.description,
       answers: [input.q1, input.q2, input.q3, input.q4, input.q5],
       fields: [
-        { key: "Business", value: input.businessName, provenance: "stated" },
+        { key: "Business", value: name, provenance: assumed ? "assumed" : "stated" },
         { key: "Offer", value: input.description, provenance: "stated" },
         { key: "Service area", value: input.q1 || "Ikeja and environs (assumed. Please edit)", provenance: input.q1 ? "stated" : "assumed" },
         { key: "Buyer", value: input.q3 || "Office admin / HR manager (assumed. Please edit)", provenance: input.q3 ? "stated" : "assumed" },
@@ -360,7 +373,8 @@
   };
   RealApi.prototype.createProfile = function (input) {
     var buyer = [input.q3, input.q5].filter(function (s) { return !!s; }).join(" | ");
-    var payload = { name: input.businessName, description: input.description };
+    var payload = { name: input.businessName || "", description: input.description };
+    if (input.name_assumed) payload.name_assumed = true;
     if (input.site) payload.website_url = input.site;
     if (buyer) payload.target_market = buyer;
     if (input.q1) payload.service_area = { note: input.q1 };

@@ -119,33 +119,32 @@
 
     <!-- View 1: onboard (PDF screen 2: conversational, one question at a time) -->
     <section id="view-onboard" class="view view-plain" aria-label="Describe your business">
-      <div class="ob-head">
+      <div class="ob-head" id="ob-head" hidden>
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
         <button type="button" id="btn-ob-exit" class="link-plain">Save and exit</button>
       </div>
       <div class="ob-progress">
+        <button type="button" id="btn-ob-back" class="link-plain">&larr; Back</button>
         <div class="segs" id="ob-segs" aria-hidden="true"><span></span><span></span><span></span></div>
-        <p class="muted small" id="ob-step">Step 2 of 3 · about 40 seconds left</p>
+        <p class="muted small" id="ob-step" hidden>Step 2 of 3 · about 40 seconds left</p>
       </div>
 
       <div id="ob-first">
-        <h2>Describe what you sell</h2>
-        <p class="hint">Type it like you would say it to a friend. One or two sentences is plenty.</p>
-        <div class="chips" role="group" aria-label="Try an example">
-          <span>Try one:</span>
-          <button type="button" data-preset data-name="Adaeze Catering Services" data-description="We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.">Catering</button>
-          <button type="button" data-preset data-name="Sparkle Office Cleaning" data-description="Daily office cleaning contracts for 10 to 50 staff offices in Abuja, supplies included.">Cleaning</button>
-          <button type="button" data-preset data-name="Swiftline Dispatch" data-description="Same-day dispatch for documents and parcels under 20kg across Lagos mainland.">Logistics</button>
-        </div>
+        <h2>What do you sell, and to whom?</h2>
+        <p class="hint">Say it the way you would to a friend.<span class="sub-long"> One or two sentences is plenty.</span></p>
         <form id="onboard-form">
-          <label>Business name
-            <input name="businessName" id="f-businessName" required maxlength="120" placeholder="e.g. Adaeze Catering Services" />
-          </label>
-          <label>What do you sell, and to whom?
-            <textarea name="description" id="f-description" required rows="3" maxlength="2000" placeholder="e.g. Office lunch packs for 20 to 200 staff, delivered before noon."></textarea>
-          </label>
+          <div class="ob-box">
+            <label class="vh" for="f-description">What do you sell, and to whom?</label>
+            <textarea name="description" id="f-description" required rows="4" maxlength="2000" placeholder="We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff."></textarea>
+            <div class="ob-box-foot">
+              <button type="button" id="btn-ob-speak" class="speak-btn" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1" width="4" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 7.5 a4.5 4.5 0 0 0 9 0 M8 12 v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="speak-long">Speak instead</span><span class="speak-short">Speak</span></button>
+              <button type="button" id="btn-ob-example" class="link-gold">Need an example?</button>
+            </div>
+          </div>
           <p class="form-error" id="onboard-error" hidden></p>
-          <button type="submit">Continue</button>
+          <p class="l-micro micro-short">Nothing is sent to anyone.</p>
+          <button type="submit" class="btn-gold">Continue <span aria-hidden="true">&rarr;</span></button>
+          <p class="l-micro micro-long">We may ask one or two quick questions next. Nothing is sent to anyone.</p>
         </form>
       </div>
 

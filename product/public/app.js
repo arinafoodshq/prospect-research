@@ -70,7 +70,8 @@
     decision_maker: ["One quick answer helps us write to the right person.", "For example: the office admin, sometimes HR"],
     timeline: ["One quick answer helps us time each approach.", "For example: they order weekly, a day ahead"],
     budget: ["One quick answer keeps every quote realistic.", "For example: 1500 to 2500 naira per pack"],
-    exclusions: ["One quick answer keeps wrong fits off your list.", "For example: no events under 50 guests"]
+    exclusions: ["One quick answer keeps wrong fits off your list.", "For example: no events under 50 guests"],
+    __name: ["So your shortlist has a name on it.", "For example: Adaeze Catering Services"]
   };
   var OB_SUB_FALLBACK = ["One quick answer helps us find buyers that fit.", "Type your answer here"];
 
@@ -90,24 +91,71 @@
 
   var ob = null;
 
+  function obFirstPhase() {
+    $("ob-head").hidden = true;
+    $("btn-ob-back").hidden = false;
+    $("ob-step").hidden = true;
+    $("ob-first").hidden = false;
+    $("ob-chat").hidden = true;
+    $("view-onboard").classList.add("ob-first-phase");
+    updateObSegs(1);
+  }
+
+  function obChatPhase() {
+    $("ob-head").hidden = false;
+    $("btn-ob-back").hidden = true;
+    $("ob-step").hidden = false;
+    $("ob-first").hidden = true;
+    $("ob-chat").hidden = false;
+    $("view-onboard").classList.remove("ob-first-phase");
+  }
+
+  var OB_EXAMPLE = "We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.";
+
+  var obRec = null;
+
+  function setupVoice() {
+    var btn = $("btn-ob-speak");
+    if (!btn) return;
+    var SR = (typeof window !== "undefined") && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) { btn.hidden = true; return; }
+    btn.hidden = false;
+    btn.addEventListener("click", function () {
+      var box = $("f-description");
+      if (obRec) { try { obRec.stop(); } catch (e) { /* already stopped */ } return; }
+      obRec = new SR();
+      obRec.lang = "en-GB";
+      obRec.interimResults = false;
+      btn.classList.add("listening");
+      obRec.onresult = function (e) {
+        var t = "";
+        for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript + " ";
+        box.value = (box.value ? box.value.replace(/\s+$/, "") + " " : "") + t.trim();
+        if (box.focus) box.focus();
+      };
+      var end = function () { obRec = null; btn.classList.remove("listening"); };
+      obRec.onend = end;
+      obRec.onerror = end;
+      try { obRec.start(); } catch (e) { end(); }
+    });
+  }
+
   function submitOnboard(event) {
     event.preventDefault();
     var err = $("onboard-error");
-    var businessName = $("f-businessName").value.trim();
     var description = $("f-description").value.trim();
-    if (!businessName || !description) {
-      err.textContent = "Please add your business name and a one-line description.";
+    if (!description) {
+      err.textContent = "Please describe what you sell in a sentence or two.";
       err.hidden = false;
       return false;
     }
     err.hidden = true;
     ob = {
-      businessName: businessName, firstText: description,
+      businessName: "", nameAssumed: false, firstText: description,
       fields: {}, followupsUsed: 0, question: null,
       done: false, busy: false, editingKey: null
     };
-    $("ob-first").hidden = true;
-    $("ob-chat").hidden = false;
+    obChatPhase();
     $("ob-yousaid-text").textContent = description;
     renderObChat();
     return obSend(description, {});
@@ -166,11 +214,27 @@
     if (!ob || ob.busy || ob.done) return false;
     var v = $("ob-answer").value.trim();
     if (!v) { obError("Type your answer, or skip to mark it as a guess."); return false; }
+    if (ob.question && ob.question.key === "__name") {
+      ob.businessName = v.slice(0, 120);
+      ob.nameAssumed = false;
+      ob.question = null;
+      ob.done = true;
+      renderObChat();
+      return obFinish();
+    }
     return obSend(v, {});
   }
 
   function obSkip() {
     if (!ob || ob.busy || ob.done || !ob.question) return false;
+    if (ob.question.key === "__name") {
+      ob.businessName = "My business";
+      ob.nameAssumed = true;
+      ob.question = null;
+      ob.done = true;
+      renderObChat();
+      return obFinish();
+    }
     return obSend("Skipped.", { skip_key: ob.question.key });
   }
 
@@ -190,7 +254,7 @@
       $("ob-question-wrap").hidden = true;
       $("ob-done-wrap").hidden = false;
     } else {
-      var left = Math.max(12, 40 - ob.followupsUsed * 12);
+      var left = Math.max(12, 40 - Math.max(0, ob.followupsUsed - 1) * 12);
       step.textContent = "Step 2 of 3 · about " + left + " seconds left";
       $("ob-question-wrap").hidden = false;
       $("ob-done-wrap").hidden = true;
@@ -269,13 +333,9 @@
 
   function obEditFirst() {
     if (!ob || ob.busy) return;
-    $("ob-chat").hidden = true;
-    $("ob-first").hidden = false;
-    updateObSegs(1);
-    $("f-businessName").value = ob.businessName;
+    obFirstPhase();
     $("f-description").value = ob.firstText;
     ob = null;
-    $("ob-step").textContent = "Step 2 of 3 · about 40 seconds left";
   }
 
   function obFinish() {
@@ -288,7 +348,7 @@
     if (fv("timeline")) desc += ". Timing: " + fv("timeline");
     if (fv("budget")) desc += ". Budget per order: " + fv("budget");
     var input = {
-      businessName: ob.businessName, site: "", description: desc,
+      businessName: ob.businessName || "", name_assumed: !!ob.nameAssumed, site: "", description: desc,
       q1: fv("service_area"), q2: fv("order_size"), q3: fv("decision_maker"),
       q4: fv("exclusions"), q5: fv("ideal_customer")
     };
@@ -298,8 +358,16 @@
       state.profile = res.profile;
       renderProfileConfirm(res.profile);
       showView("profile");
-    }, function () {
+    }, function (e) {
       setObButtons(false);
+      if (e && e.detail === "missing_name") {
+        ob.done = false;
+        ob.question = { key: "__name", prompt: "What should we call your business?", chips: [] };
+        renderObChat();
+        var ans = $("ob-answer");
+        if (ans && ans.focus) ans.focus();
+        return false;
+      }
       obError("Could not save your profile. Please try again.");
       return false;
     });
@@ -1396,7 +1464,7 @@
     if (!api) throw new Error("ApiLayer failed to load");
     showView("landing");
     Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
-      btn.addEventListener("click", function () { showView("onboard"); updateObSegs(1); });
+      btn.addEventListener("click", function () { showView("onboard"); obFirstPhase(); });
     });
     // No accounts exist yet: the Sign in link says so honestly instead of
     // pretending to authenticate.
@@ -1408,14 +1476,13 @@
       note.hidden = false;
     });
 
-    var chips = [];
-    try { chips = document.querySelectorAll("[data-preset]") || []; } catch (e) { chips = []; }
-    Array.prototype.forEach.call(chips, function (btn) {
-      btn.addEventListener("click", function () {
-        $("f-businessName").value = btn.getAttribute("data-name") || "";
-        $("f-description").value = btn.getAttribute("data-description") || "";
-      });
+    $("btn-ob-back").addEventListener("click", function () { showView("landing"); });
+    $("btn-ob-example").addEventListener("click", function () {
+      var box = $("f-description");
+      box.value = OB_EXAMPLE;
+      if (box.focus) box.focus();
     });
+    setupVoice();
     var stepNav = $("step-nav");
     if (stepNav) {
       stepNav.addEventListener("click", function (e) {

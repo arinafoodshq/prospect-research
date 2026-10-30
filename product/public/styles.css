@@ -2,6 +2,7 @@
  * Every existing view keeps its selectors and ids; only presentation changes. */
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -497,7 +498,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 #view-onboard h3 { font-family: var(--font-display); font-size: 1.5rem; margin: 1.2rem 0 0.2rem; }
 .ob-progress { display: flex; align-items: center; gap: 1rem; margin: 1rem 0 0.4rem; }
 .ob-progress p { margin: 0; }
-.segs { display: flex; gap: 0.4rem; flex: 0 1 22rem; }
+.segs { display: flex; gap: 0.4rem; flex: 0 1 14rem; }
+.ob-first-phase .segs { flex-basis: 8rem; }
 .segs span { height: 0.45rem; flex: 1; border-radius: var(--radius-pill); background: var(--border-strong); }
 .segs span.done { background: var(--accent); }
 .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--success); flex: 0 0 auto; display: inline-block; }
@@ -541,6 +543,51 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   border-radius: var(--radius-sm); padding: 0.9rem 1rem; margin-bottom: 0;
 }
 
+/* Onboarding first screen (Revamp screen 2): one box, one job. */
+.vh {
+  position: absolute; width: 1px; height: 1px;
+  clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+}
+#btn-ob-back { margin-right: auto; }
+#ob-first { max-width: 56rem; margin: 0 auto; padding-top: 2rem; }
+#ob-first h2 {
+  font-family: var(--font-display); font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  font-size: clamp(2.2rem, 5.5vw + 1rem, 3.4rem);
+  line-height: 1.06; margin: 0 0 0.6rem;
+}
+#ob-first .hint { font-size: 1.05rem; margin: 0 0 1.6rem; }
+.ob-box {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 20px; padding: 1.4rem 1.4rem 1rem;
+}
+.ob-box:focus-within { border-color: var(--accent); }
+#f-description {
+  width: 100%; box-sizing: border-box;
+  background: transparent; border: 0; resize: vertical;
+  color: var(--text); font: inherit;
+  font-size: 1.35rem; line-height: 1.5; min-height: 9rem;
+}
+#f-description:focus { outline: none; }
+#f-description::placeholder { color: var(--dim); }
+.ob-box-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  border-top: 1px solid var(--border); margin-top: 1rem; padding-top: 1rem;
+}
+.speak-btn {
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 1rem; min-height: var(--touch);
+}
+.speak-btn svg { width: 1rem; height: 1rem; }
+.speak-btn.listening { border-color: var(--accent); color: var(--accent); }
+.speak-short { display: none; }
+#onboard-form .btn-gold { margin-top: 1.6rem; min-width: 16rem; }
+#onboard-form .l-micro { margin-top: 0.9rem; }
+#onboard-form .micro-short { display: none; text-align: center; }
+
 @media (max-width: 800px) {
   .ob-grid { grid-template-columns: 1fr; }
   #view-onboard #ob-question { font-size: 2rem; }
@@ -548,6 +595,13 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   .ob-said .link-gold { align-self: flex-start; padding-top: 0; }
   .ob-progress { flex-wrap: wrap; }
   .segs { flex: 1 1 100%; }
+  #ob-first { padding-top: 0.5rem; }
+  #onboard-form .btn-gold { width: 100%; margin-top: 0.9rem; }
+  #onboard-form .micro-long { display: none; }
+  #onboard-form .micro-short { display: block; }
+  .sub-long { display: none; }
+  .speak-long { display: none; }
+  .speak-short { display: inline; }
 }
 
 /* Research progress (PDF screen 3). */
