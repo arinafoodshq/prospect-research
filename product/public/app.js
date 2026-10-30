@@ -164,6 +164,8 @@
   function obSend(text, extra) {
     if (ob.busy) return Promise.resolve(false);
     ob.busy = true;
+    ob.lastSend = { text: text, extra: extra || {} };
+    ob.lastAction = "send";
     obError(null);
     setObButtons(true);
     var payload = { text: text, fields: ob.fields, followups_used: ob.followupsUsed };
@@ -181,12 +183,21 @@
     }, function (e) {
       ob.busy = false;
       setObButtons(false);
-      obError(friendlyObError(e));
+      obError(friendlyObError(e), true);
       return false;
     });
   }
 
+  var NETWORK_MSG = "We could not reach the service. Check your connection and try again.";
+
+  function isNetworkError(e) {
+    if (!e) return true;
+    if (typeof TypeError !== "undefined" && e instanceof TypeError && e.status === undefined) return true;
+    return (e.status === undefined || e.status === null) && !e.detail;
+  }
+
   function friendlyObError(e) {
+    if (isNetworkError(e)) return NETWORK_MSG;
     var detail = e && e.detail ? String(e.detail) : "";
     if (detail === "model_not_configured") return "The assistant is not connected. Come back later.";
     if (detail === "model_error" || (e && e.status === 502)) return "The assistant did not reply. Check your connection and try again.";
@@ -194,11 +205,21 @@
     return "Something went wrong. Please try again.";
   }
 
-  function obError(msg) {
+  function obError(msg, canRetry) {
     var el = $("ob-error");
-    if (!msg) { el.hidden = true; el.textContent = ""; return; }
+    var retry = $("btn-ob-retry");
+    if (!msg) { el.hidden = true; el.textContent = ""; if (retry) retry.hidden = true; return; }
     el.textContent = msg;
     el.hidden = false;
+    if (retry) retry.hidden = !canRetry;
+  }
+
+  function obRetry() {
+    if (!ob || ob.busy) return false;
+    obError(null);
+    if (ob.lastAction === "finish") return obFinish();
+    var last = ob.lastSend || { text: ob.firstText, extra: {} };
+    return obSend(last.text, last.extra);
   }
 
   function setObButtons(disabled) {
@@ -340,6 +361,7 @@
 
   function obFinish() {
     if (!ob || ob.busy || !ob.done) return false;
+    ob.lastAction = "finish";
     var fv = function (k) { return (ob.fields[k] && ob.fields[k].value) || ""; };
     var desc = fv("offering") || ob.firstText;
     var ideal = fv("ideal_customer");
@@ -368,7 +390,7 @@
         if (ans && ans.focus) ans.focus();
         return false;
       }
-      obError("Could not save your profile. Please try again.");
+      obError(isNetworkError(e) ? NETWORK_MSG : "Could not save your profile. Please try again.", true);
       return false;
     });
   }
@@ -396,10 +418,18 @@
 
   function confirmBriefAndRun() {
     readProfileEdits();
+    var perr = $("profile-error");
+    if (perr) { perr.hidden = true; perr.textContent = ""; }
     return api.confirmBrief(state.profile).then(function (res) {
       state.runId = res.runId;
       showView("progress");
       return pollProgress();
+    }, function (e) {
+      if (perr) {
+        perr.textContent = isNetworkError(e) ? NETWORK_MSG : "We could not start the research. Please try again.";
+        perr.hidden = false;
+      }
+      return false;
     });
   }
 
@@ -429,12 +459,14 @@
         showView("shortlist");
       });
     }, function (err) {
-      var msg = err && err.message ? err.message : "unknown error";
       $("progress-eyebrow").textContent = "Stopped";
       $("progress-title").textContent = "Research stopped before it finished.";
       var perr = $("progress-error");
-      perr.textContent = "Research stopped: " + msg + " You can start over below.";
+      perr.textContent = isNetworkError(err) ? NETWORK_MSG
+        : "Research stopped before it finished. Your progress is saved. Retry, or start over below.";
       perr.hidden = false;
+      var retry = $("btn-retry-progress");
+      if (retry) retry.hidden = false;
       var again = $("btn-restart-progress");
       if (again) again.hidden = false;
     });
@@ -1432,12 +1464,7 @@
     state.profile = null; state.prospects = []; state.selectedId = null;
     state.drafts = []; state.decisions = {}; state.runId = null;
     ob = null;
-    var first = $("ob-first");
-    if (first) first.hidden = false;
-    var chat = $("ob-chat");
-    if (chat) chat.hidden = true;
-    var step = $("ob-step");
-    if (step) step.textContent = "Step 2 of 3 · about 40 seconds left";
+    obFirstPhase();
     showView("onboard");
   }
 
@@ -1499,6 +1526,7 @@
     $("btn-ob-continue").addEventListener("click", obContinue);
     $("btn-ob-skip").addEventListener("click", obSkip);
     $("btn-ob-finish").addEventListener("click", obFinish);
+    $("btn-ob-retry").addEventListener("click", obRetry);
     $("btn-ob-exit").addEventListener("click", function () { showView("landing"); });
     $("btn-ob-edit-first").addEventListener("click", obEditFirst);
     $("evidence-body").addEventListener("click", onEvidenceClick);
@@ -1522,6 +1550,7 @@
     $("btn-back-drafts").addEventListener("click", function () { showView("drafts"); });
     $("btn-restart").addEventListener("click", restart);
     $("btn-restart-progress").addEventListener("click", restart);
+    $("btn-retry-progress").addEventListener("click", pollProgress);
   }
 
   if (typeof module !== "undefined" && module.exports) {

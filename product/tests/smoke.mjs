@@ -117,7 +117,8 @@ const IDS = [
   "f-description", "ob-head", "btn-ob-back", "btn-ob-example", "btn-ob-speak",
   "ob-first", "ob-chat", "ob-step", "ob-segs", "ob-sub", "ob-yousaid-text", "ob-question-wrap", "ob-question",
   "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
-  "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first",
+  "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first", "btn-ob-retry",
+  "profile-error", "btn-retry-progress",
   "profile-fields", "progress-steps", "progress-budget",
   "progress-kicker", "progress-eyebrow", "progress-title", "progress-note",
   "stat-found", "stat-opened", "stat-kept",
@@ -223,11 +224,27 @@ ok(els["ob-first"].hidden === false && els["f-description"].value === DESCRIPTIO
 await fire(els["onboard-form"], "submit", evt());
 await tick(); await tick();
 
-els["ob-answer"].value = "HR manager";
-await fire(els["btn-ob-continue"], "click", evt());
-await tick(); await tick();
-ok(/budget range/.test(els["ob-question"].textContent), "answering moves to the next missing fact (" + els["ob-question"].textContent + ")");
-ok(/HR manager/.test(els["ob-fields"].innerHTML), "answer lands in the understood panel");
+{
+  const MockApi = sandbox.window.ApiLayer.MockApi;
+  const origTurn = MockApi.prototype.onboardTurn;
+  let failedOnce = false;
+  MockApi.prototype.onboardTurn = function (payload) {
+    if (!failedOnce) { failedOnce = true; return Promise.reject(new TypeError("Failed to fetch")); }
+    return origTurn.call(this, payload);
+  };
+  els["ob-answer"].value = "HR manager";
+  await fire(els["btn-ob-continue"], "click", evt());
+  await tick(); await tick();
+  ok(els["ob-error"].textContent === "We could not reach the service. Check your connection and try again.",
+    "network failure shows the plain message");
+  ok(els["btn-ob-retry"].hidden === false, "network failure offers retry");
+  ok(els["ob-answer"].value === "HR manager", "typed answer survives the failure");
+  await fire(els["btn-ob-retry"], "click", evt());
+  await tick(); await tick();
+  ok(/budget range/.test(els["ob-question"].textContent), "retry re-sends and advances (" + els["ob-question"].textContent + ")");
+  ok(/HR manager/.test(els["ob-fields"].innerHTML), "answer lands in the understood panel");
+  MockApi.prototype.onboardTurn = origTurn;
+}
 
 await fire(els["btn-ob-skip"], "click", evt());
 await tick(); await tick();

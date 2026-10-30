@@ -178,6 +178,7 @@
               <button type="button" id="btn-ob-finish">Review and start research</button>
             </div>
             <p class="form-error" id="ob-error" hidden></p>
+            <button type="button" id="btn-ob-retry" class="secondary" hidden>Retry</button>
           </div>
 
           <div class="card ob-got">
@@ -198,6 +199,7 @@
       <h2>Confirm what we understood</h2>
       <p class="hint">Check each fact. Sources: <strong>you said</strong>, <strong>from your site</strong>, or <strong>our guess</strong> (edit guesses before confirming).</p>
       <dl id="profile-fields"></dl>
+      <p class="form-error" id="profile-error" hidden></p>
       <div class="row">
         <button id="btn-back-onboard" type="button">Back</button>
         <button id="btn-confirm-profile" type="button">Confirm brief &amp; start research</button>
@@ -233,7 +235,10 @@
       </div>
       <p class="budget" id="progress-budget"></p>
       <p class="form-error" id="progress-error" hidden></p>
-      <button id="btn-restart-progress" type="button" class="secondary" hidden>Start over</button>
+      <div class="row">
+        <button id="btn-retry-progress" type="button" class="secondary" hidden>Retry</button>
+        <button id="btn-restart-progress" type="button" class="secondary" hidden>Start over</button>
+      </div>
     </section>
 
     <!-- View 4: shortlist + evidence (PDF screen 4: tabs, cards, sticky bar) -->
