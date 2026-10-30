@@ -28,7 +28,7 @@
   // /api/* falls through to the Worker. No separate binding needed.
   // SPA fallback serves index.html for navigation to /demo (judges path);
   // fetch() API calls are non-navigation and still reach the Worker.
-  "assets": { "directory": "./public", "not_found_handling": "single-page-application" },
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application" },
   // Campaign delivery tick: every 5 minutes (UTC). Changes take ~15 min to propagate.
   "triggers": { "crons": ["*/5 * * * *"] },
   // Delivery pipeline: cron/process enqueue due recipients; the consumer sends.

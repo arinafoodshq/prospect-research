@@ -840,3 +840,23 @@ describe("studio rewrite + test-send", () => {
     expect(acts[0].prospect_id).toBe("pr_1");
   });
 });
+
+describe("/demo path", () => {
+  it("serves the app shell for non-navigation /demo requests", async () => {
+    const db = makeMockDb();
+    const html = "<html>shell</html>";
+    const assets = { fetch: async () => new Response(html, { headers: { "content-type": "text/html" } }) };
+    const res = await (app as any).fetch(
+      new Request("https://test.local/demo"),
+      { DB: db, MODEL_API_KEY: "test", ASSETS: assets }, {});
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(html);
+  });
+  it("returns 404 for /demo without an ASSETS binding", async () => {
+    const db = makeMockDb();
+    const res = await (app as any).fetch(
+      new Request("https://test.local/demo"),
+      { DB: db, MODEL_API_KEY: "test" }, {});
+    expect(res.status).toBe(404);
+  });
+});

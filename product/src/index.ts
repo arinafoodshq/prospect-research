@@ -45,6 +45,7 @@ export interface Env {
   PUBLIC_BASE_URL?: string;
   DELIVERY_QUEUE?: { send(msg: unknown): Promise<void> };
   SMTP_RELAY?: DurableObjectNamespace<Container>;
+  ASSETS?: { fetch(req: Request): Promise<Response> };
 }
 
 export interface QueueMessageWire {
@@ -773,6 +774,12 @@ route("GET", "/api/prospects/:id/timeline", (c) => delivery.getTimeline(c.req, c
 export default {
   async fetch(req: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/demo" || url.pathname.startsWith("/demo/")) {
+      // Judges path: serve the app shell for requests the SPA fallback
+      // did not catch (non-navigation). Navigation gets index.html first.
+      if (!env.ASSETS) return err("not_found", 404);
+      return env.ASSETS.fetch(new Request(new URL("/index.html", url.origin), req));
+    }
     if (url.pathname.startsWith("/api/")) {
       for (const r of table) {
         if (r.method !== req.method) continue;
