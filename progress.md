@@ -1074,3 +1074,16 @@ comma parts triggers a follow-up asking for e.g. "Ikeja, Lagos, Nigeria"
 (skips locked values, defers to the model's own location question, only
 within followup budget; 5 new tests; OB_SUB example updated). tsc clean,
 386/386 vitest, smoke PASS, node --check ok. NOT yet deployed.
+2026-10-30 (DEPLOYED 19551f40, user-approved + pushed): location handling
+made strategist-grade per user pushback ("some serve online and offline;
+be a perfect salesman"): LOCATION_ASK_PROMPT now asks base AND reach;
+model prompt captures base + stated reach (e.g. "Ikeja, Lagos, Nigeria —
+nationwide delivery") with "Worldwide"/"Online" valid when no base;
+needsLocationDisambiguation passes global/online words (tested);
+serviceAreaFromGeos drops reach words so a worldwide business gets NO fake
+city geo-bias on web_search (tested). Deployed --containers-rollout=none:
+version 19551f40-6bd3-4eca-9641-c5f33b0ead0e; live styles carry speak-eq +
+speak-pulse; /api/transcribe junk -> 400. Pushed to main: commit 5a9a82f
+(13 files, +412/-22). tsc clean, 388/388 vitest, smoke PASS. User next
+step: re-run the grill-chicken brief — expect a base+reach ask for a bare
+"Ikeja", and a real recording animation on the speak button.
