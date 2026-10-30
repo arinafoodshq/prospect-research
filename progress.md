@@ -941,4 +941,10 @@ are non-navigation and still reach the Worker. Smoke updated:
 journey flow pinned to /demo sandbox, +2 selectApi assertions,
 stale SAMPLE RUN kicker assertion fixed to EXAMPLE DATA.
 Verified: typecheck clean, 358/358 vitest, smoke PASS, node --check
-clean on app.js + api.js.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
+clean on app.js + api.js.
+P0.1b: /demo returned 501 for non-navigation requests (SPA fallback
+only catches navigation). Added worker /demo route serving
+index.html via ASSETS binding + 2 route tests (RED then GREEN,
+360/360). Deployed c402e5be then 44d5111a
+(--containers-rollout=none). Live: / 200, /demo 200 text/html,
+API 404 JSON intact.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
