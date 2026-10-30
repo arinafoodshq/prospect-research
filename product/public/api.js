@@ -132,6 +132,9 @@
     };
     return Promise.resolve({ profile: profile });
   };
+  MockApi.prototype.stopRun = function () {
+    return Promise.resolve({ status: "stopped" });
+  };
   MockApi.prototype.confirmBrief = function () {
     return Promise.resolve({ briefId: "demo-brief-1", runId: "demo-run-1" });
   };
@@ -388,6 +391,12 @@
       });
   };
 
+  RealApi.prototype.stopRun = function (runId) {
+    return this._req("/api/runs/" + encodeURIComponent(runId) + "/resume", {
+      method: "POST",
+      body: JSON.stringify({ to: "stopped", stop_reason: "Stopped by the owner from the progress view." })
+    });
+  };
   RealApi.prototype.confirmBrief = function (profile) {
     var self = this;
     var answers = {};

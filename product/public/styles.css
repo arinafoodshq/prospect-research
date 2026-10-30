@@ -55,8 +55,35 @@ body {
   border-radius: var(--radius-card);
   padding: 1.5rem;
   margin-bottom: 1rem;
-  animation: rise var(--motion-rise) ease both;
+  animation: view-in 0.3s ease-out both;
 }
+@keyframes view-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+/* Skeletons for research steps + shortlist cards while data loads. */
+.skel {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--border) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: skel 1.2s ease-in-out infinite;
+}
+@keyframes skel {
+  to { background-position: -200% 0; }
+}
+li.skel-card {
+  list-style: none;
+  border-radius: var(--radius-card);
+  min-height: 12rem;
+  margin-bottom: 1rem;
+}
+.checklist li.skel-step {
+  border-radius: var(--radius-sm);
+  min-height: 3.2rem;
+  border-top: 0;
+  padding: 0;
+  margin-bottom: 0.6rem;
+}
+.checklist li.skel-step::before { display: none; }
 .view h2 {
   margin-top: 0;
   font-family: var(--font-display);
@@ -189,7 +216,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   margin: 0 0 0.25rem; font-size: 0.8rem; font-weight: 700;
   color: var(--accent); letter-spacing: 0.02em;
 }
-.pick-cols p { margin: 0.2rem 0; }
+.pick-cols p { margin: 0.2rem 0; overflow-wrap: anywhere; }
 .pick-open { margin: 0.9rem 0 0 2.3rem; padding-top: 0.7rem; border-top: 1px solid var(--border); }
 #shortlist-bar {
   position: sticky; bottom: 0; z-index: 5;
@@ -333,7 +360,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .view, .live-dot { animation: none; transition: none; }
+  .view, .live-dot, .skel { animation: none; transition: none; }
 }
 
 /* Landing v2 (Revamp references: desktop + phone PNGs). Mobile first.
@@ -488,6 +515,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .ob-head .brand { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; margin: 0; white-space: nowrap; }
 .ob-head > :last-child { text-align: right; }
 .ob-head .linklike, .ob-head .link-plain, .ob-head .kicker { margin-left: auto; }
+.ob-head .link-plain { white-space: nowrap; }
 .linklike {
   background: transparent; color: var(--muted);
   padding: 0.7rem 0.2rem; min-height: var(--touch);
@@ -664,6 +692,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .budget { color: var(--dim); font-size: 0.9rem; margin: 1rem 0 0; }
 
 @media (max-width: 800px) {
+  .trio.stats { grid-template-columns: 1fr; }
   .progress-grid { grid-template-columns: 1fr; }
   .pick-cols { grid-template-columns: 1fr; gap: 0.8rem; }
   .pick-sub, .pick-cols, .pick-open { margin-left: 0; }

@@ -131,7 +131,8 @@ const IDS = [
   "drafts-kicker", "status-kicker", "campaigns-kicker", "senders-kicker",
   "link-signin", "signin-note",
   "site-footer",
-  "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status",
+  "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
+  "campaign-wizard",
   "btn-back-shortlist", "btn-back-drafts", "btn-restart", "btn-restart-progress",
 ];
 const els = {};
@@ -173,11 +174,17 @@ const documentStub = new Proxy({
 /* Journey flow runs on the /demo path (deterministic mock); live adapter
  * mapping is covered separately below with a fetch stub. */
 const windowStub = { location: { pathname: "/demo", search: "" }, scrollTo() {} };
+const localStore = {};
+const localStorageStub = {
+  getItem: (k) => (Object.prototype.hasOwnProperty.call(localStore, k) ? localStore[k] : null),
+  setItem: (k, v) => { localStore[k] = String(v); },
+};
 
 const sandbox = {
   document: documentStub,
   window: windowStub,
   location: windowStub.location,
+  localStorage: localStorageStub,
   setInterval, clearInterval, setTimeout, clearTimeout,
   Promise, URLSearchParams, encodeURIComponent, JSON, Math, Object, Array, String, Number, parseInt,
   console,
@@ -204,6 +211,12 @@ await fire(els["link-signin"], "click", evt());
 ok(els["signin-note"].hidden === false && /coming soon/.test(els["signin-note"].textContent), "sign in says accounts are coming soon");
 await fire(startBtn, "click", evt());
 ok(visible("view-onboard"), "landing CTA -> onboard view");
+els["f-description"].value = "Saved draft text.";
+await fire(els["btn-ob-exit"], "click", evt());
+ok(visible("view-landing"), "save and exit returns to landing");
+els["f-description"].value = ""; // fresh load loses the box; the saved draft must return
+await fire(startBtn, "click", evt());
+ok(els["f-description"].value === "Saved draft text.", "saved draft restores on return");
 
 const DESCRIPTION = "We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.";
 await fire(els["btn-ob-example"], "click", evt());
@@ -393,6 +406,14 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   ok(/deferred/.test(studio().querySelector(".decision").textContent), "skip defers the draft");
   await clickOn("studio-prev");
   ok(/MESSAGE 1 OF 3/.test(studio().innerHTML), "pager goes back");
+  await clickOn("studio-next");
+  await clickOn("studio-next");
+  ok(/MESSAGE 3 OF 3/.test(studio().innerHTML), "pager reaches the last message");
+  await clickOn("approve");
+  await tick(); await tick();
+  ok(visible("view-campaigns"), "approving the last message opens the scheduler");
+  await fire(els["btn-back-campaigns"], "click", evt());
+  ok(visible("view-drafts"), "scheduler leads back to messages");
 }
 
 await fire(els["btn-to-status"], "click", evt());
@@ -477,6 +498,7 @@ ok(visible("view-profile"), "stop returns to the brief");
     "POST /api/drafts/dr_9/decision": { draft: { id: "dr_9", status: "approved" } },
     "POST /api/drafts/dr_9/rewrite": { draft: { id: "dr_9", subject: "Warmer subject", body: "Warmer body" } },
     "POST /api/drafts/dr_9/test-send": { to: "me@co.ng", status: "sent" },
+    "POST /api/runs/run_9/resume": { id: "run_9", status: "stopped" },
   };
   const fetchStub = async (url, opts) => {
     const method = (opts && opts.method) || "GET";
@@ -566,6 +588,9 @@ ok(visible("view-profile"), "stop returns to the brief");
   const ts = await api.testSend("dr_9");
   ok(calls.some((c) => c.key === "POST /api/drafts/dr_9/test-send"), "test-send POSTs to the draft");
   ok(ts.to === "me@co.ng" && ts.status === "sent", "test-send maps the self-send receipt");
+  await api.stopRun("run_9");
+  const stop = calls.find((c) => c.key === "POST /api/runs/run_9/resume");
+  ok(stop && stop.body.to === "stopped", "stop posts the stopped transition");
 }
 
 console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters");

@@ -359,6 +359,37 @@
     ob = null;
   }
 
+  var OB_DRAFT_KEY = "pr-draft";
+
+  function obSaveExit() {
+    try {
+      if (typeof localStorage === "undefined") { showView("landing"); return; }
+      var draft = { v: 1, savedAt: Date.now(), firstText: "", fields: {}, followupsUsed: 0 };
+      if (ob) {
+        draft.firstText = ob.firstText || "";
+        draft.fields = ob.fields || {};
+        draft.followupsUsed = ob.followupsUsed || 0;
+      } else {
+        var box = $("f-description");
+        if (box) draft.firstText = box.value.trim();
+      }
+      if (draft.firstText) localStorage.setItem(OB_DRAFT_KEY, JSON.stringify(draft));
+    } catch (e) { /* private mode: exiting still works */ }
+    showView("landing");
+  }
+
+  function obRestoreDraft() {
+    var box = $("f-description");
+    if (!box || box.value.trim()) return;
+    try {
+      if (typeof localStorage === "undefined") return;
+      var raw = localStorage.getItem(OB_DRAFT_KEY);
+      if (!raw) return;
+      var draft = JSON.parse(raw);
+      if (draft && draft.firstText) box.value = draft.firstText;
+    } catch (e) { /* corrupt draft: start blank */ }
+  }
+
   function obFinish() {
     if (!ob || ob.busy || !ob.done) return false;
     ob.lastAction = "finish";
@@ -446,6 +477,10 @@
       : "Research keeps running on the server. Come back any time.";
     $("progress-error").hidden = true;
     $("btn-restart-progress").hidden = true;
+    var steps = $("progress-steps");
+    if (steps && !steps.children.length) {
+      steps.innerHTML = '<li class="skel skel-step" aria-hidden="true"></li>'.repeat(3);
+    }
     refreshProgressSnapshot();
     return api.runProgress(state.runId, function () {
       refreshProgressSnapshot();
@@ -455,6 +490,8 @@
         state.selectedId = null;
         state.selectedIds = null;
         state.tab = null;
+        // The owner may have moved on (stop, preview): never yank them back.
+        if ($("view-progress").hidden && $("view-shortlist").hidden) return;
         renderShortlist();
         showView("shortlist");
       });
@@ -517,6 +554,11 @@
 
   function previewProgress() {
     if (!state.runId) return false;
+    var list = $("prospect-list");
+    showView("shortlist");
+    if (list && !list.children.length) {
+      list.innerHTML = '<li class="skel skel-card" aria-hidden="true"></li>'.repeat(3);
+    }
     return api.getShortlist(state.runId).then(function (res) {
       state.prospects = res.prospects;
       state.selectedId = null;
@@ -935,7 +977,19 @@
     if (act === "studio-sender") { renderSendersView("drafts"); return; }
     if (act === "studio-tone" && ds.id) { studioTone(d, ds.id); return; }
     if (act === "studio-test") { studioTest(d); return; }
-    if (act === "approve" || act === "save-edit" || act === "reject" || act === "skip") {
+    if (act === "approve") {
+      // "Approve and schedule" earns its label: approving the last undecided
+      // message carries the owner to the campaign scheduler.
+      decideDraft(d.prospectId, act, state.studio.el).then(function () {
+        var rest = state.studio.list.filter(function (x) {
+          var dec = decisionOf(x);
+          return dec !== "approved" && dec !== "rejected" && dec !== "deferred";
+        });
+        if (!rest.length) renderCampaignView();
+      });
+      return;
+    }
+    if (act === "save-edit" || act === "reject" || act === "skip") {
       decideDraft(d.prospectId, act, state.studio.el);
     }
   }
@@ -1460,6 +1514,17 @@
     if (ds.act === "go-senders") renderSendersView("campaigns");
   }
 
+  function stopRunAndEdit() {
+    if (!state.runId) { showView("profile"); return; }
+    api.stopRun(state.runId).then(function () {
+      showView("profile");
+    }, function (e) {
+      var perr = $("progress-error");
+      perr.textContent = isNetworkError(e) ? NETWORK_MSG : "We could not stop the research. Please try again.";
+      perr.hidden = false;
+    });
+  }
+
   function restart() {
     state.profile = null; state.prospects = []; state.selectedId = null;
     state.drafts = []; state.decisions = {}; state.runId = null;
@@ -1491,7 +1556,7 @@
     if (!api) throw new Error("ApiLayer failed to load");
     showView("landing");
     Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
-      btn.addEventListener("click", function () { showView("onboard"); obFirstPhase(); });
+      btn.addEventListener("click", function () { showView("onboard"); obFirstPhase(); obRestoreDraft(); });
     });
     // No accounts exist yet: the Sign in link says so honestly instead of
     // pretending to authenticate.
@@ -1527,13 +1592,13 @@
     $("btn-ob-skip").addEventListener("click", obSkip);
     $("btn-ob-finish").addEventListener("click", obFinish);
     $("btn-ob-retry").addEventListener("click", obRetry);
-    $("btn-ob-exit").addEventListener("click", function () { showView("landing"); });
+    $("btn-ob-exit").addEventListener("click", obSaveExit);
     $("btn-ob-edit-first").addEventListener("click", obEditFirst);
     $("evidence-body").addEventListener("click", onEvidenceClick);
     $("status-board").addEventListener("click", onBoardClick);
     $("btn-back-onboard").addEventListener("click", function () { showView("onboard"); });
     $("btn-preview-progress").addEventListener("click", previewProgress);
-    $("btn-stop-progress").addEventListener("click", function () { showView("profile"); });
+    $("btn-stop-progress").addEventListener("click", stopRunAndEdit);
     $("btn-confirm-profile").addEventListener("click", confirmBriefAndRun);
     $("shortlist-tabs").addEventListener("click", function (e) {
       var t = e.target || {};
@@ -1548,6 +1613,7 @@
     $("btn-to-status").addEventListener("click", renderStatuses);
     $("btn-back-shortlist").addEventListener("click", function () { showView("shortlist"); });
     $("btn-back-drafts").addEventListener("click", function () { showView("drafts"); });
+    $("btn-back-campaigns").addEventListener("click", function () { showView("drafts"); });
     $("btn-restart").addEventListener("click", restart);
     $("btn-restart-progress").addEventListener("click", restart);
     $("btn-retry-progress").addEventListener("click", pollProgress);
