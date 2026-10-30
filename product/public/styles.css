@@ -372,6 +372,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .view, .live-dot, .skel { animation: none; transition: none; }
   .speak-btn.recording, .speak-btn.transcribing, .speak-eq i { animation: none; }
+  .thinking-line { animation: none; background: none; color: var(--muted); }
+  .thinking-dots i, .btn-spinner { animation: none; }
 }
 
 /* Landing v2 (Revamp references: desktop + phone PNGs). Mobile first.
@@ -636,6 +638,43 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   font-size: 1rem; min-height: var(--touch);
 }
 .speak-btn svg { width: 1rem; height: 1rem; }
+/* Thinking state (Gemini-style shimmer + soft dots) while the model reads
+ * the reply and picks the next question. The working button morphs instead
+ * of going dead: spinner inside, label "Working…", secondary dims. */
+#ob-thinking { margin: 0.4rem 0 1.4rem; }
+.thinking-line {
+  font-family: var(--font-display); font-weight: 700; font-size: 1.7rem;
+  display: flex; align-items: center; gap: 0.6rem; margin: 0;
+  background: linear-gradient(90deg, var(--muted) 25%, var(--white) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: thinking-shimmer 1.8s linear infinite;
+}
+.thinking-dots { display: inline-flex; gap: 4px; }
+.thinking-dots i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  animation: thinking-dot 1.2s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes thinking-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes thinking-dot {
+  0%, 100% { transform: translateY(0); opacity: 0.5; }
+  50% { transform: translateY(-4px); opacity: 1; }
+}
+.btn-spinner {
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  display: inline-block; vertical-align: middle;
+  margin-right: 8px;
+  animation: btn-spin 0.8s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+#btn-ob-continue[aria-busy="true"] { min-width: 10.5rem; }
+#ob-actions button:disabled { opacity: 0.45; transition: opacity 0.2s ease-out; }
 /* Recording feedback: accent border + pulsing ring + equalizer bars while
  * the mic is live; a slower unified pulse while transcribing. Reduced-motion
  * users get the color change and the label text, never the motion. */

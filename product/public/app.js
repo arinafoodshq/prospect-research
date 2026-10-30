@@ -112,6 +112,44 @@
 
   var OB_EXAMPLE = "We deliver packed lunches to offices in Ikeja and Yaba. Mostly 20 to 200 staff.";
 
+  /* Thinking state (Gemini-style): shimmering status line + soft dots while
+   * the model reads the reply; the Continue button morphs to "Working…"
+   * with a spinner instead of going dead. Copy rotates, honestly. */
+  var THINKING_LINES = [
+    "Reading what you said…",
+    "Pulling out the facts…",
+    "Deciding what to ask next…",
+    "Almost there…",
+  ];
+  var thinkingTimer = null;
+
+  function setObThinking(on) {
+    var el = $("ob-thinking");
+    var text = $("ob-thinking-text");
+    var answerUi = $("ob-answer-ui");
+    var q = $("ob-question");
+    var sub = $("ob-sub");
+    if (!el) return;
+    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
+    if (on) {
+      var i = 0;
+      if (text) text.textContent = THINKING_LINES[0];
+      el.hidden = false;
+      if (answerUi) answerUi.hidden = true;
+      if (q) q.hidden = true;
+      if (sub) sub.hidden = true;
+      thinkingTimer = setInterval(function () {
+        i = (i + 1) % THINKING_LINES.length;
+        if (text) text.textContent = THINKING_LINES[i];
+      }, 2200);
+    } else {
+      el.hidden = true;
+      if (answerUi) answerUi.hidden = false;
+      if (q) q.hidden = !ob || !ob.question;
+      if (sub) sub.hidden = !ob || !ob.question;
+    }
+  }
+
   /* Dictation via Muse Voice Transcribe (Meta Model API). The browser records
    * one utterance per click, converts it to a 24 kHz mono WAV, and POSTs it to
    * /api/transcribe; the Worker holds the key and calls Meta server-side.
@@ -303,13 +341,17 @@
     };
     obChatPhase();
     $("ob-yousaid-text").textContent = description;
-    renderObChat();
+    // obSend flips busy and renders the thinking state itself.
     return obSend(description, {});
   }
 
   function obSend(text, extra) {
     if (ob.busy) return Promise.resolve(false);
     ob.busy = true;
+    // Every turn shows the thinking state: park the previous question so the
+    // shimmer + working button take over while the model responds.
+    ob.question = null;
+    renderObChat();
     ob.lastSend = { text: text, extra: extra || {} };
     ob.lastAction = "send";
     obError(null);
@@ -330,6 +372,9 @@
       ob.busy = false;
       setObButtons(false);
       obError(friendlyObError(e), true);
+      // Re-render without the thinking state; the owner's typed answer
+      // survives (only a NEW question clears it) and Retry sits below.
+      renderObChat();
       return false;
     });
   }
@@ -373,6 +418,18 @@
       var b = $(id);
       if (b) b.disabled = disabled;
     });
+    // Working-state morph (never a dead gray button): spinner inside the
+    // Continue button, label "Working…", arrow parked, aria-busy set.
+    var cont = $("btn-ob-continue");
+    if (cont) {
+      var spin = $("ob-continue-spinner");
+      var arrow = $("ob-continue-arrow");
+      var lbl = $("ob-continue-label");
+      if (spin) spin.hidden = !disabled;
+      if (arrow) arrow.hidden = disabled;
+      if (lbl) lbl.textContent = disabled ? "Working…" : "Continue";
+      cont.setAttribute("aria-busy", disabled ? "true" : "false");
+    }
     var ans = $("ob-answer");
     if (ans) ans.disabled = disabled;
   }
@@ -420,6 +477,7 @@
     // "Step 2 of 3 · 28 seconds" script — questions adapt to what's missing.
     var filled = OB_CORE.filter(function (k) { return ob.fields[k] && ob.fields[k].value; }).length;
     if (ob.done) {
+      setObThinking(false);
       step.textContent = "All understood · review and start below";
       updateObSegs(3);
       $("ob-question-wrap").hidden = true;
@@ -429,10 +487,16 @@
       updateObSegs(Math.max(1, Math.round((filled / OB_CORE.length) * 3)));
       $("ob-question-wrap").hidden = false;
       $("ob-done-wrap").hidden = true;
-      $("ob-question").textContent = ob.question ? ob.question.prompt : "Thinking…";
-      $("ob-answer").value = "";
-      renderObChips();
-      updateObSub();
+      var thinking = !!ob.busy && !ob.question;
+      setObThinking(thinking);
+      // Only clear the typed answer when a NEW question is shown — never
+      // on a failure (the owner's text must survive for retry).
+      $("ob-question").textContent = ob.question ? ob.question.prompt : "";
+      if (ob.question) {
+        $("ob-answer").value = "";
+        renderObChips();
+        updateObSub();
+      }
     }
     renderObFields();
   }

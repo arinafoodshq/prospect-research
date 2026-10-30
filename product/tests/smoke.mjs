@@ -117,6 +117,8 @@ const IDS = [
   "f-description", "ob-head", "btn-ob-back", "btn-ob-example", "btn-ob-speak",
   "ob-first", "ob-chat", "ob-step", "ob-segs", "ob-sub", "ob-yousaid-text", "ob-question-wrap", "ob-question",
   "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
+  "ob-thinking", "ob-thinking-text", "ob-answer-ui", "ob-actions", "ob-continue-label",
+  "ob-continue-spinner", "ob-continue-arrow",
   "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first", "btn-ob-retry",
   "profile-error", "btn-retry-progress",
   "profile-fields", "progress-steps", "progress-budget",

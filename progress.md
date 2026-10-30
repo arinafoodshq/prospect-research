@@ -1128,3 +1128,22 @@ now in production. User next step: re-run the grill-chicken brief live —
 expect at most one base+reach ask, event-host buyers around the expanded
 Ikeja area, directory junk excluded, and a QA loop before anything shows
 in the shortlist. Watch first-run behavior and report any drift.
+2026-10-30 (Gemini-style thinking state + working button morph): user asked
+for the between-questions gap to animate ("what would Google do"). Built:
+(1) #ob-thinking block shown whenever a turn is in flight — shimmering
+gradient sweep across the status text (background-clip:text, Gemini
+signature) + three staggered gold dots; copy rotates honestly every 2.2s
+(Reading what you said -> Pulling out the facts -> Deciding what to ask
+next -> Almost there), role=status for screen readers. (2) The answer
+form + orphaned empty box hide during the turn (they used to sit there
+enabled with no question). (3) Continue button morphs instead of going
+dead: spinner arc inside, label "Working…", arrow parked, aria-busy,
+min-width prevents layout jump; Skip dims to 0.45. (4) Typed answers
+still survive failures (only a NEW question clears the box — smoke
+assertion kept); every turn (send/retry) shows the state; error path
+re-renders without it. Reduced-motion: shimmer/dots/spinner stop, color +
+label carry the state. Verified: smoke PASS (new ids registered in the
+DOM surface guard; fixed busy-init guard that swallowed the first send),
+393/393 vitest, node --check; headless screenshots of the live-flow
+thinking state (shimmer + spinner + hidden answer UI) via a suspended
+/ api/onboard/turn route. NOT yet deployed.

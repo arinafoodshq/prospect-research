@@ -162,14 +162,19 @@
             </div>
 
             <div id="ob-question-wrap" aria-live="polite">
+              <div id="ob-thinking" hidden role="status">
+                <p class="thinking-line"><span id="ob-thinking-text">Reading what you said…</span><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></p>
+              </div>
               <h3 id="ob-question"></h3>
               <p class="hint" id="ob-sub">One quick answer helps us find buyers that fit.</p>
-              <label>Your answer
-                <textarea id="ob-answer" class="input-answer" rows="2" maxlength="280" autocomplete="off"></textarea>
-              </label>
-              <div class="chips" id="ob-chips" role="group" aria-label="Suggested answers"></div>
-              <div class="row">
-                <button type="button" id="btn-ob-continue">Continue <span aria-hidden="true">-&gt;</span></button>
+              <div id="ob-answer-ui">
+                <label>Your answer
+                  <textarea id="ob-answer" class="input-answer" rows="2" maxlength="280" autocomplete="off"></textarea>
+                </label>
+                <div class="chips" id="ob-chips" role="group" aria-label="Suggested answers"></div>
+              </div>
+              <div class="row" id="ob-actions">
+                <button type="button" id="btn-ob-continue"><span class="btn-spinner" id="ob-continue-spinner" aria-hidden="true" hidden></span><span id="ob-continue-label">Continue</span><span class="btn-arrow" id="ob-continue-arrow" aria-hidden="true">-&gt;</span></button>
                 <button type="button" id="btn-ob-skip" class="linklike">Skip, I will mark it as a guess</button>
               </div>
             </div>
