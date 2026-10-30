@@ -73,6 +73,8 @@ class FakeEl {
       si.value = subj ? unesc(subj[1]) : "";
       const bi = new FakeEl("textarea");
       bi.value = body ? unesc(body[1]) : "";
+      const status = new FakeEl("p");
+      this._q["#studio-status"] = status;
       const badge = new FakeEl("span");
       const m = this._html.match(/<span class="decision ([^"]*)">\[([\s\S]*?)\]<\/span>/);
       badge.textContent = m ? "[" + unesc(m[2]) + "]" : "";
@@ -112,7 +114,7 @@ const IDS = [
   "view-drafts", "view-status", "view-campaigns", "view-senders",
   "step-nav", "onboard-error", "onboard-form",
   "f-businessName", "f-description",
-  "ob-first", "ob-chat", "ob-step", "ob-yousaid-text", "ob-question-wrap", "ob-question",
+  "ob-first", "ob-chat", "ob-step", "ob-segs", "ob-sub", "ob-yousaid-text", "ob-question-wrap", "ob-question",
   "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
   "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first",
   "profile-fields", "progress-steps", "progress-budget",
@@ -121,10 +123,10 @@ const IDS = [
   "progress-setaside", "progress-setaside-empty", "progress-error",
   "btn-preview-progress", "btn-stop-progress",
   "prospect-list", "evidence-body", "evidence-hint", "draft-list", "drafts-note", "status-board",
-  "shortlist-kicker", "shortlist-title", "shortlist-tabs", "shortlist-empty",
+  "shortlist-kicker", "shortlist-title", "shortlist-sub", "shortlist-tabs", "shortlist-empty",
   "tab-ready", "tab-warm", "tab-look", "tab-ready-n", "tab-warm-n", "tab-look-n",
   "shortlist-count",
-  "demo-banner", "mode-line",
+  "demo-banner", "mode-line", "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status",
   "btn-back-shortlist", "btn-back-drafts", "btn-restart", "btn-restart-progress",
 ];
@@ -203,6 +205,8 @@ await tick(); await tick();
 ok(els["ob-first"].hidden === true && els["ob-chat"].hidden === false, "submit description -> chat view");
 ok(els["ob-yousaid-text"].textContent === DESCRIPTION, "chat shows the first message back");
 ok(/says yes/.test(els["ob-question"].textContent), "first follow-up asks the decision maker (" + els["ob-question"].textContent + ")");
+ok(/right person/.test(els["ob-sub"].textContent), "helper line matches the live question");
+ok(/office admin/.test(els["ob-answer"].placeholder), "answer box shows a worked example");
 ok(/data-chip="HR manager"/.test(els["ob-chips"].innerHTML), "answer chips render");
 ok(/Asking you now/.test(els["ob-fields"].innerHTML), "understood panel marks the live question");
 
@@ -271,7 +275,7 @@ ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site 
 ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
 ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "2" && els["tab-look-n"].textContent === "2",
   "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent + ")");
-ok(els["shortlist-title"].textContent === "6 buyers worth your time.", "title counts the shortlist");
+ok(els["shortlist-title"].textContent === "Six buyers worth your time.", "title counts the shortlist");
 ok(els["prospect-list"].children.length === 2, "ready tab lists 2 qualified, saw " + els["prospect-list"].children.length);
 {
   const card = els["prospect-list"].children[0].innerHTML;
@@ -297,6 +301,7 @@ ok(els["prospect-list"].children.length === 2
   && /NEEDS A LOOK/.test(els["prospect-list"].children[0].innerHTML),
   "look tab lists needs-review picks");
 ok(/No published route found yet/.test(els["prospect-list"].children[0].innerHTML), "routeless card stays honest");
+ok(/human look/.test(els["shortlist-sub"].textContent), "look tab warns the picks need review");
 await fire(els["shortlist-tabs"], "click", tabTarget("ready"));
 await tick();
 
@@ -347,6 +352,13 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   await clickOn("studio-save");
   await tick();
   ok(/Edited message body for the test/.test(studio().innerHTML), "saved edit refreshes the draft text");
+  await clickOn("studio-tone", { id: "warmer" });
+  await tick();
+  ok(/No pressure either way/.test(studio().innerHTML), "warmer rewrite lands in the draft");
+  ok(/Rewrite ready/.test(studio().querySelector("#studio-status").textContent), "rewrite confirms review");
+  await clickOn("studio-test");
+  await tick();
+  ok(/Test sent to your own address/.test(studio().querySelector("#studio-status").textContent), "test send confirms the self-send");
   await clickOn("skip");
   ok(/deferred/.test(studio().querySelector(".decision").textContent), "skip defers the draft");
   await clickOn("studio-prev");
@@ -433,6 +445,8 @@ ok(visible("view-profile"), "stop returns to the brief");
     "GET /api/runs/run_9/drafts": { run_id: "run_9", drafts: [{ id: "dr_9", prospect_id: "pr_9", channel_suggestion: "email", subject: "Lunches", body: "Hi [ev_9]", next_action: "Offer a trial week.", status: "draft" }] },
     "PATCH /api/drafts/dr_9": { draft: { id: "dr_9", status: "draft", edited_by_human: 1 } },
     "POST /api/drafts/dr_9/decision": { draft: { id: "dr_9", status: "approved" } },
+    "POST /api/drafts/dr_9/rewrite": { draft: { id: "dr_9", subject: "Warmer subject", body: "Warmer body" } },
+    "POST /api/drafts/dr_9/test-send": { to: "me@co.ng", status: "sent" },
   };
   const fetchStub = async (url, opts) => {
     const method = (opts && opts.method) || "GET";
@@ -507,6 +521,14 @@ ok(visible("view-profile"), "stop returns to the brief");
   await api.decideDraft("dr_9", "approved", { subject: "S", body: "B", edited: false });
   const dec = calls.find((c) => c.key === "POST /api/drafts/dr_9/decision");
   ok(dec && dec.body.decision === "approved", "approve POSTs the decision");
+
+  const rw = await api.rewriteDraft("dr_9", "warmer");
+  const rwCall = calls.find((c) => c.key === "POST /api/drafts/dr_9/rewrite");
+  ok(rwCall && rwCall.body.tone === "warmer", "rewrite POSTs the tone");
+  ok(rw.subject === "Warmer subject" && rw.body === "Warmer body", "rewrite maps the new text");
+  const ts = await api.testSend("dr_9");
+  ok(calls.some((c) => c.key === "POST /api/drafts/dr_9/test-send"), "test-send POSTs to the draft");
+  ok(ts.to === "me@co.ng" && ts.status === "sent", "test-send maps the self-send receipt");
 }
 
 console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters");

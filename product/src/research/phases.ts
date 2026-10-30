@@ -124,6 +124,20 @@ export interface OnboardTurnInput {
   followups_used: number;
 }
 
+export type RewriteTone = "warmer" | "more_direct" | "another";
+
+export interface RewriteInput {
+  subject: string;
+  body: string;
+  channel: string;
+  tone: RewriteTone;
+}
+
+export interface RewriteResult {
+  subject: string;
+  body: string;
+}
+
 /** Mockable Meta client surface (no live calls; mocked in tests). */
 export interface MetaClient {
   planQueries?: (briefExcerpt: string) => Promise<string[]>;
@@ -138,6 +152,8 @@ export interface MetaClient {
   setBrief?: (brief: import("./commercial").CommercialBrief) => void;
   /** Model id stamped on assessments (absent in old mocks = default model). */
   modelId?: string;
+  /** Rewrite one outreach draft in a requested tone (studio rewrite buttons). */
+  rewriteDraft?: (input: RewriteInput) => Promise<RewriteResult>;
   /** One conversational-onboarding turn: extract facts, ask at most one question. */
   onboardTurn?: (input: OnboardTurnInput) => Promise<OnboardTurnResult>;
 }

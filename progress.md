@@ -843,3 +843,68 @@ shortlist lands on the first non-empty tab; empty-drafts status
 board says "nothing qualified" instead of "all reviewed".
 Verified: smoke PASS (+3 asserts), 349/349 vitest green, empty-
 drafts board viewed via transient local probe (reverted).
+
+## 2026-10-30 - Exact-PDF pass DONE (passes A-G, user review response)
+
+User rejected the first revamp as not exact: "screenshot the pages
+and get the design ui elements and replicate it exactly". Rendered
+all 8 PDF pages to PNG (C:/Temp/pdf-p1..p8.png) and rebuilt each
+screen against the screenshots in vanilla JS/CSS. Research stayed
+FROZEN throughout; only frontend + two new studio endpoints changed.
+
+Pass A (chrome/tokens): --white/--info/--gold-deep/--green-deep/
+--navy-deep/--ink-strong tokens; favicon.svg replaced with the gold
+rounded-square-dot mark; brand mark prepended to all 9 brand rows;
+flow views (landing/onboard/profile/progress/shortlist/drafts) hide
+the site header/footer and drop the outer card (view-plain);
+kicker variants (dim/green/blue), white active tabs, gold + plain
+link variants, view-source gold, base anchor gold.
+Pass B (landing): eyebrow pill with green dot, display serif hero
+with gold italic "buy", gold + outline hero buttons with arrows,
+2-col tick list with inline SVG checks, sample prospect card with
+inset why-box, green WhatsApp card, approval bar, full-bleed strip
+band, 3+1 shift cards with strikethrough befores, stacked engine
+cards with filled tags, hairline steps with giant gold numerals,
+2+1 message cards with bubbles, trust columns with gold top rules,
+gold CTA panel with dark pill, landing footer line.
+Pass C (onboard): segmented progress (segs + step text, 1 filled
+on first view, 2 in chat), 2-col chat + understood panel, big
+serif question, per-key helper line + worked-example placeholder
+(OB_SUB, 8 keys + fallback, no endpoint change), tall gold-border
+answer box, hairline stacked panel rows with gold "Asking you now"
+and inset note box.
+Pass D (progress): green Working-now line, 3 stat cards (gold kept
+card), checklist card with circled green checks + hairlines + bold
+active row with gold "n of m" and progress bar, set-aside card with
+inset boxes holding the gold Preview button + stop link. Kept the
+honest close-page note (PDF "we will message you" would be false).
+Pass E (shortlist): full-width pick cards (checkbox + serif name +
+filled fit pill, 2-col why/reach, hairline unconfirmed), white
+active tab, spelled-out title ("Six buyers…"), per-tab sub-line
+(look tab warns), full-bleed sticky bar. Evidence + contact-log
+panel moved below the list (preserves contact tracking; only
+visible layout deviation from PDF screen 4).
+Pass F (studio): 2-col studio + why panel (coloured h4s, hairlines,
+gold source links incl. scheme-less domains, inset note), big
+draft text, green word line with SVG tick, sender card with gold
+Change-sender link, approve/test/skip/reject actions row.
+Pass G (TDD endpoints): POST /api/drafts/:id/rewrite
+{warmer|more_direct|another} via meta.rewriteDraft structured burst
+(validated, facts-preserving prompt), persisted through editDraft
+(illegal after decision); POST /api/drafts/:id/test-send emails
+the draft to the sender's own address through the connected
+provider, email-only, 409 without sender, activity test_send
+logged. MockApi deterministic demo transforms; studio tone
+buttons + test button + aria-live status wired.
+
+Verified: 7 RED -> GREEN route tests, +2 meta tests, 358/358
+vitest green, typecheck clean, smoke PASS (+13 asserts incl. tone
+rewrite, test-send, adapter mappings), node --check clean.
+Screenshots viewed at 1440 (hero/landing/chat/progress/shortlist/
+studio) and 390 (landing/chat/shortlist/studio): 0px overflow, 0
+console errors, 0 failed requests everywhere.
+Deliberate deviations from PDF (all honest-function): no "we will
+message you" claim; look-tab sub warns; evidence/contact panel
+kept below shortlist cards; reject link kept beside skip; pager
+kept for multi-message studios; test-send email-only.
+Next action: commit + deploy + live endpoint validation.

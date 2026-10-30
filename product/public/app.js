@@ -21,13 +21,18 @@
 
   function $(id) { return document.getElementById(id); }
 
+  var CHROMELESS = ["landing", "onboard", "profile", "progress", "shortlist", "drafts"];
+
   function showView(name) {
     VIEWS.forEach(function (v) {
       var el = $("view-" + v);
       if (el) el.hidden = (v !== name);
     });
+    var plain = CHROMELESS.indexOf(name) >= 0;
     var header = document.querySelector(".site-header");
-    if (header) header.hidden = (name === "landing");
+    if (header) header.hidden = plain;
+    var footer = $("site-footer");
+    if (footer) footer.hidden = plain;
     var nav = $("step-nav");
     if (nav) {
       var items = nav.querySelectorAll("li");
@@ -52,6 +57,34 @@
     timeline: "Timing", budget: "Price range", exclusions: "Not for"
   };
   var OB_CORE = ["offering", "ideal_customer", "service_area", "decision_maker", "budget"];
+
+  /* Per-question helper line + example (PDF screen 2). Static copy per known
+   * field key; unknown keys fall back to a generic line. */
+  var OB_SUB = {
+    offering: ["One clear line helps us describe you to buyers.", "For example: packed office lunches, delivered before noon"],
+    ideal_customer: ["One quick answer helps us find the right buyers.", "For example: offices with 20 to 200 staff"],
+    service_area: ["One quick answer keeps the search where you deliver.", "For example: Ikeja and Yaba"],
+    order_size: ["One quick answer helps us size each chance.", "For example: 20 to 200 packs per order"],
+    decision_maker: ["One quick answer helps us write to the right person.", "For example: the office admin, sometimes HR"],
+    timeline: ["One quick answer helps us time each approach.", "For example: they order weekly, a day ahead"],
+    budget: ["One quick answer keeps every quote realistic.", "For example: 1500 to 2500 naira per pack"],
+    exclusions: ["One quick answer keeps wrong fits off your list.", "For example: no events under 50 guests"]
+  };
+  var OB_SUB_FALLBACK = ["One quick answer helps us find buyers that fit.", "Type your answer here"];
+
+  function updateObSub() {
+    var pair = (ob.question && OB_SUB[ob.question.key]) || OB_SUB_FALLBACK;
+    $("ob-sub").textContent = pair[0];
+    $("ob-answer").placeholder = pair[1];
+  }
+
+  function updateObSegs(filled) {
+    var segs = $("ob-segs");
+    if (!segs || !segs.children) return;
+    for (var i = 0; i < segs.children.length; i++) {
+      segs.children[i].className = i < filled ? "done" : "";
+    }
+  }
 
   var ob = null;
 
@@ -162,6 +195,8 @@
       $("ob-question").textContent = ob.question ? ob.question.prompt : "Thinking…";
       $("ob-answer").value = "";
       renderObChips();
+      updateObSub();
+      updateObSegs(2);
     }
     renderObFields();
   }
@@ -201,7 +236,7 @@
       return head + '<dd><span class="muted">Marked as a guess</span>' + editBtn + "</dd></div>";
     }
     if (k === qkey) {
-      return head + '<dd><span class="muted">Asking you now</span></dd></div>';
+      return head + '<dd><span class="ask-now">Asking you now</span></dd></div>';
     }
     return head + '<dd><span class="muted">Optional, you can add it later</span>' + editBtn + "</dd></div>";
   }
@@ -234,6 +269,7 @@
     if (!ob || ob.busy) return;
     $("ob-chat").hidden = true;
     $("ob-first").hidden = false;
+    updateObSegs(1);
     $("f-businessName").value = ob.businessName;
     $("f-description").value = ob.firstText;
     ob = null;
@@ -351,7 +387,7 @@
     var steps = [
       { doneAt: 1, active: "Understanding your offer and must-haves", done: "Understood your offer and your must-haves" },
       { doneAt: 2, active: "Searching for " + snap.searchLine, done: "Searched for " + snap.searchLine },
-      { doneAt: 3, active: "Opening each business's own pages " + snap.opened + " of " + Math.max(snap.found, snap.opened), done: "Opened each business's own pages" },
+      { doneAt: 3, active: "Opening each business's own pages", done: "Opened each business's own pages", frac: [snap.opened, Math.max(snap.found, snap.opened)] },
       { doneAt: 4, active: "Checking fit against your must-haves", done: "Checked fit against your must-haves" },
       { doneAt: 4, active: "Looking for a reason to reach out now", done: "Looked for a reason to reach out now" },
       { doneAt: 5, active: "Finding a published contact route", done: "Found published contact routes" },
@@ -361,13 +397,19 @@
     $("progress-steps").innerHTML = steps.map(function (s) {
       var cls, text;
       if (idx >= s.doneAt) { cls = "done"; text = s.done; } else if (!activated) { cls = "active"; text = s.active; activated = true; } else { cls = ""; text = s.active; }
+      if (cls === "active" && s.frac) {
+        var pct = s.frac[1] > 0 ? Math.round(100 * s.frac[0] / s.frac[1]) : 0;
+        return '<li class="active"><span class="step-top"><span>' + esc(text) +
+          '</span><span class="step-count">' + s.frac[0] + " of " + s.frac[1] +
+          '</span></span><span class="bar" aria-hidden="true"><span style="width: ' + pct + '%"></span></span></li>';
+      }
       return "<li class=\"" + cls + "\">" + esc(text) + "</li>";
     }).join("");
     $("progress-budget").textContent = "Budget so far: " + snap.searches + " searches, " +
       snap.fetches + " page opens (caps 30 / 40)." + (api.mode === "live" ? "" : " Sample data.");
     var aside = $("progress-setaside");
     aside.innerHTML = (snap.setAside || []).map(function (d) {
-      return "<li><strong>" + esc(d.name) + "</strong><br/><span>" + esc(d.reason) + "</span></li>";
+      return "<li><strong>" + esc(d.name) + "</strong><span>" + esc(d.reason) + "</span></li>";
     }).join("");
     $("progress-setaside-empty").hidden = (snap.setAside || []).length > 0;
   }
@@ -440,6 +482,12 @@
     return "NEEDS A LOOK";
   }
 
+  function fitClass(p) {
+    if (p.verdict === "qualified") return "tag-green";
+    if (p.verdict === "no_signal") return "tag-gold";
+    return "tag-line";
+  }
+
   function prospectSource(p) {
     if (p.sourceUrl) return p.sourceUrl;
     var ev = (p.evidence || [])[0];
@@ -449,6 +497,13 @@
   function isSelected(id) {
     if (!state.selectedIds) return true;
     return state.selectedIds.indexOf(id) >= 0;
+  }
+
+  var NUM_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
+    "Eight", "Nine", "Ten", "Eleven", "Twelve"];
+
+  function numWord(n) {
+    return n >= 0 && n < NUM_WORDS.length ? NUM_WORDS[n] : String(n);
   }
 
   function renderShortlist() {
@@ -461,9 +516,10 @@
       state.tab = counts.ready ? "ready" : counts.warm ? "warm" : counts.look ? "look" : "ready";
     }
     $("shortlist-kicker").textContent = api.mode === "live" ? "LIVE SHORTLIST" : "SAMPLE SHORTLIST";
-    $("shortlist-title").textContent = shown.length === 1
-      ? "One buyer worth your time."
-      : shown.length + " buyers worth your time.";
+    $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer worth your time." : " buyers worth your time.");
+    $("shortlist-sub").textContent = state.tab === "look"
+      ? "These need a human look before they join your list."
+      : "Each one passed your must-haves. Tick the ones you want, and we write the messages.";
     ["ready", "warm", "look"].forEach(function (t) {
       $("tab-" + t + "-n").textContent = String(counts[t]);
       $("tab-" + t).setAttribute("aria-selected", state.tab === t ? "true" : "false");
@@ -489,16 +545,15 @@
       var open = (p.uncertainties || []).slice(0, 2);
       var src = sourceLabel(prospectSource(p));
       li.innerHTML =
-        "<label class=\"pick-tick\"><input type=\"checkbox\" data-sel=\"" + esc(p.id) + "\"" +
+        "<div class=\"pick-top\"><label class=\"pick-tick\"><input type=\"checkbox\" data-sel=\"" + esc(p.id) + "\"" +
         (isSelected(p.id) ? " checked" : "") + " aria-label=\"Select " + esc(p.name) + "\" /></label>" +
-        "<div class=\"pick-body\"><strong>" + esc(p.name) + "</strong> " +
-        "<span class=\"fit\">" + esc(fitBadge(p)) + "</span><br/>" +
-        "<span>" + esc(p.category) + " · " + esc(p.area) + "</span>" +
-        "<h4>Why now</h4><p>" + esc(whyNowFor(p)) + "</p>" +
-        (src ? "<p class=\"muted small\">Source: " + esc(src) + "</p>" : "") +
-        "<h4>How to reach them</h4><p>" + routeLine + "</p>" +
-        (open.length ? "<p class=\"muted small\">Still unconfirmed: " + esc(open.join(", ")) + "</p>" : "") +
-        "</div>";
+        "<h3>" + esc(p.name) + "</h3>" +
+        "<span class=\"tag " + fitClass(p) + "\">" + esc(fitBadge(p)) + "</span></div>" +
+        "<p class=\"muted pick-sub\">" + esc(p.category) + " · " + esc(p.area) + "</p>" +
+        "<div class=\"pick-cols\"><div><h4>Why now</h4><p>" + esc(whyNowFor(p)) + "</p>" +
+        (src ? "<p class=\"muted small\">Source: " + esc(src) + "</p>" : "") + "</div>" +
+        "<div><h4>How to reach them</h4><p>" + routeLine + "</p></div></div>" +
+        (open.length ? "<p class=\"muted small pick-open\">Still unconfirmed: " + esc(open.join(", ")) + "</p>" : "");
       li.addEventListener("click", function (e) {
         var t = e.target || {};
         if (t.getAttribute && t.getAttribute("data-sel")) {
@@ -638,8 +693,10 @@
   }
 
   function sourceLink(url, label) {
-    if (/^https?:\/\//i.test(String(url || ""))) {
-      return "<a href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noreferrer\">View source: " + esc(label) + "</a>";
+    var u = String(url || "");
+    var href = /^https?:\/\//i.test(u) ? u : (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(u) ? "https://" + u : "");
+    if (href) {
+      return "<a href=\"" + esc(href) + "\" target=\"_blank\" rel=\"noreferrer\">View source: " + esc(label) + "</a>";
     }
     return "View source: " + esc(label);
   }
@@ -664,7 +721,7 @@
       $("drafts-note").textContent = notes.join(" ");
       var wrap = $("draft-list");
       wrap.innerHTML = "";
-      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {} };
+      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {}, busy: false };
       if (!drafts.length) {
         wrap.innerHTML = "<p class=\"hint\">No drafts for your selected picks yet. The research may still be writing, or nothing qualified.</p>";
         showView("drafts");
@@ -701,6 +758,66 @@
     renderStudioInner();
   }
 
+  function studioStatus(msg) {
+    var s = state.studio.el.querySelector("#studio-status");
+    if (s) s.textContent = msg;
+  }
+
+  function studioKey(d) {
+    return api.mode === "live" ? d.id : d.prospectId;
+  }
+
+  function studioTone(d, tone) {
+    var st = state.studio;
+    if (st.busy) return;
+    st.busy = true;
+    studioStatus("Rewriting…");
+    // Unsaved editor text is stored first: the server rewrites stored text.
+    var saveFirst = !st.editing ? Promise.resolve() : decideDraft(d.prospectId, "save-edit", st.el).then(function () {
+      d.subject = st.el.querySelector('[data-field="subject"]').value;
+      d.body = st.el.querySelector('[data-field="body"]').value;
+      st.editing = false;
+    });
+    saveFirst.then(function () {
+      return api.rewriteDraft(studioKey(d), tone, { subject: d.subject, body: d.body });
+    }).then(function (res) {
+      d.subject = res.subject;
+      d.body = res.body;
+      st.busy = false;
+      renderStudioInner();
+      decideDraft(d.prospectId, "save-edit", st.el);
+      studioStatus("Rewrite ready. Review it before you approve.");
+    }, function (e) {
+      st.busy = false;
+      renderStudioInner();
+      studioStatus("Rewrite failed (" + ((e && e.detail) || "please try again") + "). Your text is unchanged.");
+    });
+  }
+
+  function studioTest(d) {
+    var st = state.studio;
+    if (st.busy) return;
+    if (d.channel !== "email") {
+      studioStatus("Test sends are email-only for now.");
+      return;
+    }
+    st.busy = true;
+    renderStudioInner();
+    studioStatus("Sending a test to yourself…");
+    api.testSend(studioKey(d)).then(function (res) {
+      st.busy = false;
+      renderStudioInner();
+      studioStatus("Test sent to " + res.to + ". Nothing went to the prospect.");
+    }, function (e) {
+      st.busy = false;
+      renderStudioInner();
+      var msg = (e && e.status === 409)
+        ? "Connect an email sender first, then try again."
+        : "Test send failed (" + ((e && e.detail) || "please try again") + ").";
+      studioStatus(msg);
+    });
+  }
+
   function onStudioClick(e) {
     var ds = e.target && e.target.dataset ? e.target.dataset : {};
     var act = ds.act;
@@ -727,6 +844,8 @@
       return;
     }
     if (act === "studio-sender") { renderSendersView("drafts"); return; }
+    if (act === "studio-tone" && ds.id) { studioTone(d, ds.id); return; }
+    if (act === "studio-test") { studioTest(d); return; }
     if (act === "approve" || act === "save-edit" || act === "reject" || act === "skip") {
       decideDraft(d.prospectId, act, state.studio.el);
     }
@@ -757,6 +876,12 @@
         "the research wrote one " + esc(studioSuggestionLabel(d.channel).toLowerCase()) + " draft.</p>";
     }
     var n = countWords(d.body);
+    var tones = st.tab === primary
+      ? [["warmer", "Warmer"], ["more_direct", "More direct"], ["another", "Write another"]].map(function (t) {
+        return "<button type=\"button\" data-act=\"studio-tone\" data-id=\"" + t[0] + "\"" +
+          (st.busy ? " disabled" : "") + ">" + t[1] + "</button>";
+      }).join("")
+      : "";
     var editor = "<div class=\"studio-editor\"" + (st.editing ? "" : " hidden") + ">" +
       "<label>Subject <input data-field=\"subject\" value=\"" + esc(d.subject || "") + "\" /></label>" +
       "<label>Message <textarea data-field=\"body\" rows=\"6\">" + esc(d.body) + "</textarea></label>" +
@@ -769,31 +894,35 @@
     var fact = ev[0];
     var hypothesis = (p && p.hypothesis) || rationaleRemainder(p && p.rationale) ||
       "The research flagged no separate hypothesis.";
-    var why = "<div class=\"card why\"><p class=\"kicker\">Why this message</p>" +
-      "<h4>A fact we found</h4>" +
+    var why = "<div class=\"card why\"><p class=\"kicker kicker-dim\">Why this message</p>" +
+      "<div class=\"why-row\"><h4 class=\"why-fact\">A fact we found</h4>" +
       (fact ? "<p>" + esc(fact.quote) + "</p><p class=\"muted small\">" +
         sourceLink(fact.source, sourceLabel(fact.source)) + "</p>"
-        : "<p class=\"muted\">No linked evidence for this draft.</p>") +
-      "<h4>Our hypothesis, not confirmed</h4><p>" + esc(hypothesis) + "</p>" +
-      "<h4>Your offer</h4><p>" + esc(profileOffer()) + "</p>" +
-      "<h4>A small ask</h4><p>" + esc(d.next_action || "Ask for a quick reply.") + "</p></div>" +
-      "<p class=\"hint\">We never claim a problem we have not confirmed. If the facts change, the message says so too.</p>";
+        : "<p class=\"muted\">No linked evidence for this draft.</p>") + "</div>" +
+      "<div class=\"why-row\"><h4 class=\"why-hyp\">Our hypothesis, not confirmed</h4><p>" + esc(hypothesis) + "</p></div>" +
+      "<div class=\"why-row\"><h4 class=\"why-dim\">Your offer</h4><p>" + esc(profileOffer()) + "</p></div>" +
+      "<div class=\"why-row\"><h4 class=\"why-dim\">A small ask</h4><p>" + esc(d.next_action || "Ask for a quick reply.") + "</p></div>" +
+      "<p class=\"muted small note-box\">We never claim a problem we have not confirmed. If the facts change, the message says so too.</p></div>";
     st.el.innerHTML =
       "<p class=\"kicker\">MESSAGE " + (st.idx + 1) + " OF " + st.list.length + "</p>" +
-      "<h2>Your note to " + esc(pname) + ". <span class=\"decision " + esc(dec) + "\">[" + esc(dec) + "]</span></h2>" +
+      "<h2 class=\"studio-title\">Your note to " + esc(pname) + ". <span class=\"decision " + esc(dec) + "\">[" + esc(dec) + "]</span></h2>" +
       "<div class=\"row studio-pager\"><button type=\"button\" class=\"secondary\" data-act=\"studio-prev\"" +
       (st.idx === 0 ? " disabled" : "") + ">← Previous</button>" +
       "<button type=\"button\" class=\"secondary\" data-act=\"studio-next\"" +
       (st.idx === st.list.length - 1 ? " disabled" : "") + ">Next →</button></div>" +
+      "<div class=\"studio-grid\"><div class=\"studio-main\">" +
       "<div role=\"tablist\" aria-label=\"Message channel\" class=\"tabs\">" + tabs + "</div>" +
-      "<div class=\"card studio-card\"><p class=\"kicker\">Draft</p>" + bodyHtml + editor + mirror +
-      "<p class=\"muted small\">" + n + " words. " + esc(wordGuidance(n)) + "</p></div>" +
-      "<p>" + esc(STUDIO_SENDER[st.tab]) + " Every message includes a way to opt out. " +
-      "<button type=\"button\" class=\"linklike\" data-act=\"studio-sender\">Change sender</button></p>" +
-      "<div class=\"row\"><button type=\"button\" data-act=\"approve\">Approve and schedule</button>" +
-      "<button type=\"button\" class=\"secondary\" data-act=\"skip\">Skip this one</button>" +
+      "<div class=\"card studio-card\"><p class=\"kicker kicker-dim\">Draft, tap to edit</p>" + bodyHtml + editor + mirror +
+      "<p class=\"word-line\"><svg class=\"tick\" viewBox=\"0 0 12 10\" aria-hidden=\"true\"><path d=\"M1 5.5 4.5 9 11 1\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>" +
+      n + " words. " + esc(wordGuidance(n)) + "</p><div class=\"chips tone-row\" id=\"studio-tones\">" + tones + "</div></div>" +
+      "<div class=\"card sender-card\"><p>" + esc(STUDIO_SENDER[st.tab]) + " Every message includes a way to opt out.</p>" +
+      "<button type=\"button\" class=\"link-gold\" data-act=\"studio-sender\">Change sender</button></div>" +
+      "<div class=\"row studio-actions\"><button type=\"button\" data-act=\"approve\">Approve and schedule <span aria-hidden=\"true\">→</span></button>" +
+      "<button type=\"button\" class=\"secondary\" data-act=\"studio-test\"" + (st.busy ? " disabled" : "") + ">Send a test to myself</button>" +
+      "<button type=\"button\" class=\"linklike\" data-act=\"skip\">Skip this one</button>" +
       "<button type=\"button\" class=\"linklike\" data-act=\"reject\">Reject instead</button></div>" +
-      why;
+      "<p class=\"studio-status\" id=\"studio-status\" aria-live=\"polite\"></p>" +
+      "</div>" + why + "</div>";
     if (st.editing) {
       var ta = st.el.querySelector('[data-field="body"]');
       if (ta && ta.focus) ta.focus();
@@ -1276,7 +1405,7 @@
     setModeBanner();
     showView("landing");
     Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
-      btn.addEventListener("click", function () { showView("onboard"); });
+      btn.addEventListener("click", function () { showView("onboard"); updateObSegs(1); });
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-sample]"), function (btn) {
       btn.addEventListener("click", showSampleShortlist);

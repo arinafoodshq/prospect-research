@@ -234,6 +234,26 @@
   MockApi.prototype.decideDraft = function (prospectId, decision, editedBody) {
     return Promise.resolve({ prospectId: prospectId, decision: decision, body: editedBody || null });
   };
+  var TONE_OPENERS = ["Hello", "Hi", "Good day"];
+  MockApi.prototype.rewriteDraft = function (prospectId, tone, current) {
+    var body = String((current && current.body) || "");
+    if (tone === "warmer") {
+      body = body.replace(/^(Hi|Hello|Good day)\b/, "Hello").replace(/^Hello\b/, "Hello,");
+      if (!/No pressure either way\.$/.test(body)) body += " No pressure either way.";
+    } else if (tone === "more_direct") {
+      var sents = body.split(/(?<=[.?!])\s+/).slice(0, 2).join(" ");
+      body = /[?]$/.test(sents) ? sents : sents + " Worth a quick chat?";
+    } else {
+      var pick = TONE_OPENERS[body.length % TONE_OPENERS.length];
+      body = /^(Hi|Hello|Good day)\b/.test(body)
+        ? body.replace(/^(Hi|Hello|Good day)\b/, pick)
+        : pick + ", " + body;
+    }
+    return Promise.resolve({ subject: (current && current.subject) || "", body: body });
+  };
+  MockApi.prototype.testSend = function (prospectId) {
+    return Promise.resolve({ to: "your own address (demo)", status: "sent" });
+  };
   MockApi.prototype.getCampaigns = function () {
     return Promise.resolve({ campaigns: [{
       id: "demo-cmp-1", name: "Ikeja offices — week 1", status: "scheduled",
@@ -532,6 +552,14 @@
     if (ex.edited) { payload.subject = ex.subject; payload.body = ex.body; }
     return this._req("/api/drafts/" + encodeURIComponent(draftId) + "/decision", { method: "POST", body: JSON.stringify(payload) })
       .then(function (res) { return { draftId: draftId, decision: decision, draft: res.draft }; });
+  };
+
+  RealApi.prototype.rewriteDraft = function (draftId, tone) {
+    return this._req("/api/drafts/" + encodeURIComponent(draftId) + "/rewrite", { method: "POST", body: JSON.stringify({ tone: tone }) })
+      .then(function (res) { return { subject: res.draft.subject, body: res.draft.body }; });
+  };
+  RealApi.prototype.testSend = function (draftId) {
+    return this._req("/api/drafts/" + encodeURIComponent(draftId) + "/test-send", { method: "POST", body: "{}" });
   };
 
   RealApi.prototype.getCampaigns = function () {

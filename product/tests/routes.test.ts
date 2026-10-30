@@ -7,6 +7,8 @@
 import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 import { dedupeKey } from "../src/db";
+import { sealSecret } from "../src/delivery/crypto";
+import { mockOutbox, resetMockOutbox } from "../src/delivery/providers";
 
 vi.mock("../src/meta", () => ({
   MODEL_ID: "muse-spark-1.3",
@@ -48,6 +50,10 @@ vi.mock("../src/meta", () => ({
       question: { key: "order_size", prompt: "Typical order size?", chips: ["20-50", "50-200"] },
       done: false,
     }),
+    rewriteDraft: async (input: { subject: string; body: string; tone: string }) => ({
+      subject: input.subject + " (" + input.tone + ")",
+      body: input.body + " [" + input.tone + " rewrite]",
+    }),
   }),
 }));
 
@@ -65,6 +71,7 @@ function makeMockDb(seed: Record<string, Row[]> = {}) {
     contact_route: [],
     outreach_draft: [],
     activity: [],
+    sender_connection: [],
     ...Object.fromEntries(Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
   };
 
@@ -730,5 +737,106 @@ describe("conversational onboarding", () => {
     });
     expect(badSkip.status).toBe(400);
     expect(badSkip.body.error).toBe("unknown_field_key");
+  });
+});
+
+describe("studio rewrite + test-send", () => {
+  const TEST_KEY = btoa("0123456789abcdef0123456789abcdef");
+
+  function seededStudio(channel = "email") {
+    const db = makeMockDb();
+    seedProfile(db, { status: "confirmed" });
+    seedRun(db, { status: "awaiting_approval" });
+    db.__tables.prospect.push({
+      id: "pr_1", run_id: "run_1", name: "Venue One", status: "shortlisted",
+    });
+    db.__tables.outreach_draft.push({
+      id: "dr_1", prospect_id: "pr_1", channel_suggestion: channel,
+      subject: "Hello", body: "Saw the new branch.", next_action: "Call",
+      follow_up_days: 7, status: "draft", edited_by_human: 0,
+      decided_at: null, created_at: new Date().toISOString(),
+    });
+    return db;
+  }
+
+  async function seedConn(db: ReturnType<typeof makeMockDb>) {
+    const now = new Date().toISOString();
+    const blob = await sealSecret(JSON.stringify({ api_key: "k" }), TEST_KEY);
+    db.__tables.sender_connection.push({
+      id: "conn_1", provider: "mock", label: "Mock", sender_email: "me@co.ng",
+      sender_name: null, status: "connected", secret_blob: JSON.stringify(blob),
+      metadata_json: "{}", last_verified_at: now, last_error: null,
+      created_at: now, updated_at: now,
+    });
+  }
+
+  it("POST /api/drafts/:id/rewrite 404s on unknown draft, 400s on bad tone", async () => {
+    const db = seededStudio();
+    const nope = await call(db, "POST", "/api/drafts/nope/rewrite", { tone: "warmer" });
+    expect(nope.status).toBe(404);
+    expect(nope.body.error).toBe("draft_not_found");
+    const bad = await call(db, "POST", "/api/drafts/dr_1/rewrite", { tone: "shouty" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe("unknown_tone");
+    const empty = await call(db, "POST", "/api/drafts/dr_1/rewrite", {});
+    expect(empty.status).toBe(400);
+  });
+
+  it("rewrite persists the new text and marks the draft edited", async () => {
+    const db = seededStudio();
+    const res = await call(db, "POST", "/api/drafts/dr_1/rewrite", { tone: "warmer" });
+    expect(res.status).toBe(200);
+    expect(res.body.draft.body).toContain("[warmer rewrite]");
+    expect(res.body.draft.subject).toContain("(warmer)");
+    expect(res.body.draft.edited_by_human).toBe(1);
+    const again = await call(db, "POST", "/api/drafts/dr_1/rewrite", { tone: "more_direct" });
+    expect(again.status).toBe(200);
+    expect(again.body.draft.body).toContain("[more_direct rewrite]");
+  });
+
+  it("rewrite refuses decided drafts", async () => {
+    const db = seededStudio();
+    await call(db, "POST", "/api/drafts/dr_1/decision", { decision: "approved" });
+    const res = await call(db, "POST", "/api/drafts/dr_1/rewrite", { tone: "warmer" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("illegal_edit");
+  });
+
+  it("POST /api/drafts/:id/test-send 404s on unknown draft", async () => {
+    const db = seededStudio();
+    await seedConn(db);
+    const res = await call(db, "POST", "/api/drafts/nope/test-send", {}, { CRED_KEY: TEST_KEY });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("draft_not_found");
+  });
+
+  it("test-send needs a connected sender", async () => {
+    const db = seededStudio();
+    const res = await call(db, "POST", "/api/drafts/dr_1/test-send", {}, { CRED_KEY: TEST_KEY });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("no_sender");
+  });
+
+  it("test-send refuses non-email drafts", async () => {
+    const db = seededStudio("whatsapp");
+    await seedConn(db);
+    const res = await call(db, "POST", "/api/drafts/dr_1/test-send", {}, { CRED_KEY: TEST_KEY });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("wrong_channel");
+  });
+
+  it("test-send delivers to the sender address and logs activity", async () => {
+    const db = seededStudio();
+    await seedConn(db);
+    resetMockOutbox();
+    const res = await call(db, "POST", "/api/drafts/dr_1/test-send", {}, { CRED_KEY: TEST_KEY });
+    expect(res.status).toBe(200);
+    expect(res.body.to).toBe("me@co.ng");
+    expect(mockOutbox).toHaveLength(1);
+    expect(mockOutbox[0].req.to).toBe("me@co.ng");
+    expect(mockOutbox[0].req.subject).toContain("[Test]");
+    const acts = db.__tables.activity.filter((a) => a.event === "test_send");
+    expect(acts).toHaveLength(1);
+    expect(acts[0].prospect_id).toBe("pr_1");
   });
 });

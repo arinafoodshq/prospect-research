@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cleanBusinessName, createMetaClient, isDirectoryHost, isPlausibleName, normUrl, parseResponsesResponse, serviceAreaFromGeos, validateOnboardTurn } from "../src/meta";
+import { cleanBusinessName, createMetaClient, isDirectoryHost, isPlausibleName, normUrl, parseResponsesResponse, serviceAreaFromGeos, validateOnboardTurn, validateRewrite } from "../src/meta";
 import s0Fixture from "./fixtures/s0_ikeja_venues.json";
 
 describe("parseResponsesResponse", () => {
@@ -651,5 +651,28 @@ describe("validateOnboardTurn", () => {
     expect(ended.question).toBeNull();
     expect(() => validateOnboardTurn(null)).toThrow("did not return an object");
     expect(() => validateOnboardTurn("just chatter")).toThrow("did not return an object");
+  });
+});
+
+describe("validateRewrite", () => {
+  it("keeps subject + body, throws on missing parts", () => {
+    expect(validateRewrite({ subject: "Hi", body: "Hello there" })).toEqual({ subject: "Hi", body: "Hello there" });
+    expect(() => validateRewrite(null)).toThrow("did not return an object");
+    expect(() => validateRewrite({ body: "x" })).toThrow("missing subject");
+    expect(() => validateRewrite({ subject: "x", body: "  " })).toThrow("missing body");
+  });
+
+  it("rewriteDraft parses one burst and sends a tool-free structured request", async () => {
+    const burst = { subject: "Warmer hello", body: "Hello, neighbour" };
+    const fetchImpl = stubFetch({
+      id: "resp_rewrite",
+      output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(burst), annotations: [] }] }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    const out = await client.rewriteDraft!({ subject: "Hi", body: "Hello", channel: "email", tone: "warmer" });
+    expect(out).toEqual(burst);
+    const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
+    expect(sent.tools).toEqual([]);
   });
 });

@@ -11,6 +11,7 @@ import {
   decideDraft,
   DbValidationError,
   editDraft,
+  logActivity,
   makeId,
   nowIso,
   type Db,
@@ -18,11 +19,12 @@ import {
   type RunStatus,
 } from "./db";
 import { createMetaClient } from "./meta";
-import { ONBOARD_FIELD_KEYS } from "./research/phases";
+import { ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
+import { openSecret } from "./delivery/crypto";
 import { consumeDeliveryBatch, enqueueDueJobs, warmSmtpRelay, type DeliveryJob } from "./delivery/processor";
-import { containerRelay, smtpProvider } from "./delivery/providers";
+import { containerRelay, providerFor, smtpProvider, type ProviderId } from "./delivery/providers";
 import type { Container } from "@cloudflare/containers";
 
 export { ResearchWorkflowEntrypoint } from "./workflow";
@@ -411,6 +413,101 @@ const patchDraft: Handler = async ({ req, env, params }) => {
   return json({ draft: updated });
 };
 
+const REWRITE_TONES = ["warmer", "more_direct", "another"] as const;
+
+const postRewriteDraft: Handler = async ({ req, env, params }) => {
+  const draftId = params["id"] as string;
+  const parsed = await readJson(req);
+  if (!parsed.ok) return parsed.res;
+  if (!isObj(parsed.body)) return err("invalid_body", 400);
+  const tone = parsed.body["tone"];
+  if (typeof tone !== "string" || !(REWRITE_TONES as readonly string[]).includes(tone)) {
+    return err("unknown_tone", 400);
+  }
+  const draft = await env.DB.prepare(
+    "SELECT id, subject, body, channel_suggestion, status FROM outreach_draft WHERE id = ?",
+  ).bind(draftId).first<{ id: string; subject: string; body: string; channel_suggestion: string; status: string }>();
+  if (!draft) return err("draft_not_found", 404);
+  if (draft.status !== "draft") return err("illegal_edit", 400, "only undecided drafts can be rewritten");
+  if (!env.MODEL_API_KEY) return err("model_not_configured", 500);
+  const meta = createMetaClient({
+    apiKey: env.MODEL_API_KEY,
+    ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
+  });
+  if (!meta.rewriteDraft) return err("model_not_configured", 500);
+  let out;
+  try {
+    out = await meta.rewriteDraft({
+      subject: draft.subject ?? "",
+      body: draft.body ?? "",
+      channel: draft.channel_suggestion ?? "other",
+      tone: tone as RewriteTone,
+    });
+  } catch {
+    return err("model_error", 502);
+  }
+  try {
+    await editDraft(env.DB, { draft_id: draftId, subject: out.subject, body: out.body });
+  } catch (e) {
+    if (e instanceof DbValidationError) {
+      if (e.message.includes("does not exist")) return err("draft_not_found", 404);
+      return err("illegal_edit", 400, e.message);
+    }
+    throw e;
+  }
+  const updated = await env.DB.prepare("SELECT * FROM outreach_draft WHERE id = ?").bind(draftId)
+    .first<Record<string, unknown>>();
+  return json({ draft: updated });
+};
+
+const postTestSend: Handler = async ({ env, params }) => {
+  const draftId = params["id"] as string;
+  const draft = await env.DB.prepare(
+    "SELECT id, prospect_id, subject, body, channel_suggestion FROM outreach_draft WHERE id = ?",
+  ).bind(draftId).first<{ id: string; prospect_id: string; subject: string; body: string; channel_suggestion: string }>();
+  if (!draft) return err("draft_not_found", 404);
+  if ((draft.channel_suggestion ?? "") !== "email") {
+    return err("wrong_channel", 400, "test sends are email-only for now");
+  }
+  if (!env.CRED_KEY) return err("credentials_unavailable", 501, "server credential key not configured");
+  const conn = await env.DB.prepare("SELECT * FROM sender_connection WHERE status = ? ORDER BY updated_at DESC LIMIT 1")
+    .bind("connected").first<Record<string, unknown>>();
+  if (!conn) return err("no_sender", 409, "connect an email sender first");
+  const providerId = conn["provider"] as ProviderId;
+  let provider;
+  try {
+    provider = providerId === "smtp" ? smtpProvider(delivery.relayFromEnv(env)) : providerFor(providerId);
+  } catch {
+    return err("relay_unavailable", 503, "smtp relay container is not bound");
+  }
+  let secret: string;
+  try {
+    secret = await openSecret(JSON.parse(conn["secret_blob"] as string), env.CRED_KEY);
+  } catch {
+    return err("verification_failed", 400, "cannot open credentials");
+  }
+  const to = conn["sender_email"] as string;
+  const res = await provider.send({ secret, senderEmail: to }, {
+    fromEmail: to,
+    to,
+    subject: "[Test] " + (draft.subject ?? "(no subject)"),
+    text: "This is a test of your draft. Nothing was sent to the prospect.\n\n" + (draft.body ?? ""),
+    idempotencyKey: `test-${draftId}-${Date.now()}`,
+  });
+  if (!res.ok) return err("send_failed", 502, res.errorDetail ?? "provider refused the test send");
+  const prospect = await env.DB.prepare("SELECT id, run_id FROM prospect WHERE id = ?").bind(draft.prospect_id)
+    .first<{ id: string; run_id: string }>();
+  if (prospect) {
+    await logActivity(env.DB, {
+      run_id: prospect.run_id, prospect_id: draft.prospect_id, event: "test_send", note: `Test send to ${to}`,
+    });
+  }
+  return json({
+    to, status: "sent",
+    ...(res.providerMessageId ? { provider_message_id: res.providerMessageId } : {}),
+  });
+};
+
 const postStart: Handler = async ({ env, params }) => {
   if (env.ENVIRONMENT === "production") return err("use_workflow", 501);
   const row = await getRun(env, params["id"] as string);
@@ -641,6 +738,8 @@ route("GET", "/api/runs/:id/evidence", getEvidence);
 route("GET", "/api/runs/:id/drafts", getDrafts);
 route("POST", "/api/drafts/:id/decision", postDecision);
 route("PATCH", "/api/drafts/:id", patchDraft);
+route("POST", "/api/drafts/:id/rewrite", postRewriteDraft);
+route("POST", "/api/drafts/:id/test-send", postTestSend);
 route("GET", "/api/prospects/:id", getProspectDetail);
 route("POST", "/api/runs/:id/start", postStart);
 route("GET", "/api/runs/:id/statuses", getStatuses);

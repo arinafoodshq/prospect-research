@@ -19,7 +19,7 @@ export type RouteChannel = "website_form" | "email" | "phone" | "social_profile"
 export type DraftStatus = "draft" | "approved" | "rejected" | "deferred";
 export type ActivityEvent =
   | "created" | "assessed" | "shortlisted" | "drafted" | "approved" | "rejected"
-  | "deferred" | "contacted" | "follow_up_logged" | "stopped";
+  | "deferred" | "contacted" | "follow_up_logged" | "stopped" | "test_send";
 
 export interface BusinessProfile {
   id: string; name: string; website_url: string | null; description: string;

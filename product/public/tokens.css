@@ -29,6 +29,14 @@
   --warn: #ee9350;
   --danger: #f27e7e;
 
+  /* PDF accents */
+  --white: #ffffff;
+  --info: #8ea2ff;
+  --gold-deep: #3a2f17;
+  --green-deep: #123b2e;
+  --navy-deep: #1d2a52;
+  --ink-strong: #141414;
+
   /* Type */
   --font-display: "Fraunces", Georgia, "Times New Roman", serif;
   --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;

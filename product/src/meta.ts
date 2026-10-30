@@ -11,7 +11,7 @@
 import type { Evidence, Prospect } from "./db";
 import type {
   AssessProposal, DraftProposal, MetaClient, OnboardFieldKey,
-  OnboardTurnInput, OnboardTurnResult, SearchHit,
+  OnboardTurnInput, OnboardTurnResult, RewriteInput, RewriteResult, SearchHit,
 } from "./research/phases";
 import { ONBOARD_FIELD_KEYS } from "./research/phases";
 import {
@@ -560,6 +560,25 @@ export function validateOnboardTurn(item: unknown): OnboardTurnResult {
   return { fields, question: done ? null : question, done };
 }
 
+const REWRITE_TONE_GUIDE: Record<string, string> = {
+  warmer: "Rewrite warmer and friendlier, like a helpful neighbour.",
+  more_direct: "Rewrite shorter and more direct. Lead with the ask.",
+  another: "Write a fresh version with a different opening angle.",
+};
+
+export function validateRewrite(item: unknown): RewriteResult {
+  if (!isRecord(item)) throw new Error("rewrite burst did not return an object");
+  const subject = item["subject"];
+  const body = item["body"];
+  if (typeof subject !== "string" || subject.trim() === "") {
+    throw new Error("rewrite burst missing subject");
+  }
+  if (typeof body !== "string" || body.trim() === "") {
+    throw new Error("rewrite burst missing body");
+  }
+  return { subject: subject.slice(0, 200), body: body.slice(0, 4000) };
+}
+
 /** Live MetaClient: grounded search + structured bursts, all validated. */
 export function createMetaClient(deps: MetaClientDeps): MetaClient {
   const model = deps.modelId ?? MODEL_ID;
@@ -798,6 +817,27 @@ function extractVisibleText(html: string): string {
     return validateOnboardTurn(item);
   }
 
+  async function rewriteDraft(input: RewriteInput): Promise<RewriteResult> {
+    const guide = REWRITE_TONE_GUIDE[input.tone] ?? REWRITE_TONE_GUIDE["another"];
+    const req = buildPhaseRequest({
+      phase: "plan",
+      briefExcerpt: brief || "Outreach draft rewrite.",
+      phaseGoal: `${guide} Keep every fact, name and number exactly as written; change only wording and tone. Keep it under 80 words. Reply ONLY a JSON object: {"subject": "...", "body": "..."}. Channel: ${input.channel}. Subject: ${JSON.stringify(input.subject)}. Body: ${JSON.stringify(input.body)}.`,
+    });
+    req.tools = []; // structured burst: answer in text, no tool loop offered
+    const parsed = await callResponses(req);
+    const raw = parsed.outputText;
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    let item: unknown = null;
+    if (start >= 0 && end > start) {
+      try {
+        item = JSON.parse(raw.slice(start, end + 1)) as unknown;
+      } catch { item = null; }
+    }
+    return validateRewrite(item);
+  }
+
   async function buildBrief(profile: {
     name: string; website_url: string; description: string;
     target_market: string; service_area_note: string; constraints_note: string;
@@ -829,5 +869,5 @@ function extractVisibleText(html: string): string {
     activeBrief = b;
   }
 
-  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, modelId: model };
+  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, rewriteDraft, modelId: model };
 }
