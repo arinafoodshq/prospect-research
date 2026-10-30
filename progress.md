@@ -907,4 +907,15 @@ Deliberate deviations from PDF (all honest-function): no "we will
 message you" claim; look-tab sub warns; evidence/contact panel
 kept below shortlist cards; reject link kept beside skip; pager
 kept for multi-message studios; test-send email-only.
-Next action: commit + deploy + live endpoint validation.
+
+Shipped 2026-10-30 (user-approved): commit 7e60140 pushed to
+main; worker deployed (version d4a23d22, --containers-rollout=none
+because Docker daemon was down; relay container untouched by this
+pass). Live validation, zero frozen-data mutation: rewrite 404 /
+unknown_tone 400 / illegal_edit 400 on decided draft, test-send
+404 / wrong_channel 400, all exact; one scratch draft inserted,
+live warmer rewrite returned 200 with facts preserved and
+edited_by_human=1, scratch deleted after. Served HTML contains
+the new build markers. Test-send happy path NOT fired live (would
+send a real email); covered by mock-provider route test.
+Next action: post-freeze Workflow brief-excerpt fix + live re-run.
