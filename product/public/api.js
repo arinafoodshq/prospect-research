@@ -1,7 +1,7 @@
-/* api.js — API contract layer.
+/* api.js. API contract layer.
  * MockApi: realistic S-0-derived demo data (Ikeja prospects, evidence, drafts).
  * RealApi: fetch() stubs against Worker routes (specs/architecture.md §4).
- * Selection: default mock; ?live=1 selects RealApi.
+ * Selection: always live except on the /demo path (judges).
  */
 (function (global) {
   "use strict";
@@ -85,10 +85,10 @@
     var ch = DRAFT_CHANNEL[p.id] || "email";
     var body = ch === "phone"
       ? "Hello " + p.name + " team. We deliver office lunch packs around " + p.area +
-        " before noon. Could we run a one-week trial for your team? — Adaeze Catering, 0803 000 1234"
+        " before noon. Could we run a one-week trial for your team? Adaeze Catering, 0803 000 1234"
       : "Hello " + p.name + " team,\n\nWe deliver office lunch packs around " + p.area +
-        " before noon, 20–200 portions. Teams your size usually want a fixed weekly schedule so lunch just arrives. " +
-        "Could we run a one-week trial for your team?\n\n— Adaeze Catering Services\n0803 000 1234";
+        " before noon, 20 to 200 portions. Teams your size usually want a fixed weekly schedule so lunch just arrives. " +
+        "Could we run a one-week trial for your team?\n\nAdaeze Catering Services\n0803 000 1234";
     return {
       id: "dd-" + p.id,
       prospectId: p.id,
@@ -112,9 +112,9 @@
       fields: [
         { key: "Business", value: input.businessName, provenance: "stated" },
         { key: "Offer", value: input.description, provenance: "stated" },
-        { key: "Service area", value: input.q1 || "Ikeja and environs (assumed — please edit)", provenance: input.q1 ? "stated" : "assumed" },
-        { key: "Buyer", value: input.q3 || "Office admin / HR manager (assumed — please edit)", provenance: input.q3 ? "stated" : "assumed" },
-        { key: "Site headline", value: input.site ? "Checked " + input.site + " — catering page found" : "No site given — using your description only", provenance: input.site ? "extracted" : "assumed" }
+        { key: "Service area", value: input.q1 || "Ikeja and environs (assumed. Please edit)", provenance: input.q1 ? "stated" : "assumed" },
+        { key: "Buyer", value: input.q3 || "Office admin / HR manager (assumed. Please edit)", provenance: input.q3 ? "stated" : "assumed" },
+        { key: "Site headline", value: input.site ? "Checked " + input.site + ". Catering page found" : "No site given. Using your description only", provenance: input.site ? "extracted" : "assumed" }
       ]
     };
     return Promise.resolve({ profile: profile });
@@ -252,11 +252,11 @@
     return Promise.resolve({ subject: (current && current.subject) || "", body: body });
   };
   MockApi.prototype.testSend = function (prospectId) {
-    return Promise.resolve({ to: "your own address (demo)", status: "sent" });
+    return Promise.resolve({ to: "your own address (example)", status: "sent" });
   };
   MockApi.prototype.getCampaigns = function () {
     return Promise.resolve({ campaigns: [{
-      id: "demo-cmp-1", name: "Ikeja offices — week 1", status: "scheduled",
+      id: "demo-cmp-1", name: "Ikeja offices. Week 1", status: "scheduled",
       scheduled_at_utc: new Date(Date.now() + 3600000).toISOString(), timezone: "Africa/Lagos",
       stats: {}, recipients: [
         { email: "admin@brightline.ng", status: "queued" },
@@ -268,7 +268,7 @@
   MockApi.prototype.getTimeline = function () {
     return Promise.resolve({ timeline: [
       { kind: "activity", at: new Date(Date.now() - 7200000).toISOString(), event: "shortlisted", note: "rank 1 of 6" },
-      { kind: "contact", at: new Date(Date.now() - 3600000).toISOString(), channel: "whatsapp", direction: "outbound", note: "Sent intro + menu (demo)" }
+      { kind: "contact", at: new Date(Date.now() - 3600000).toISOString(), channel: "whatsapp", direction: "outbound", note: "Sent intro + menu (example)" }
     ] });
   };
   MockApi.prototype.logContact = function (prospectId, payload) {
@@ -276,14 +276,14 @@
   };
   MockApi.prototype.listConnections = function () {
     this._conns = this._conns || [
-      { id: "demo-conn-1", provider: "mock", label: "Demo sender", sender_email: "sender@example.ng", status: "connected" }
+      { id: "demo-conn-1", provider: "mock", label: "Example sender", sender_email: "sender@example.ng", status: "connected" }
     ];
     return Promise.resolve({ connections: this._conns.slice() });
   };
   MockApi.prototype.createConnection = function (payload) {
     this._conns = this._conns || [];
     var conn = { id: "demo-conn-" + (this._conns.length + 1), provider: payload.provider,
-      label: payload.label || "Demo sender", sender_email: payload.sender_email, status: "pending" };
+      label: payload.label || "Example sender", sender_email: payload.sender_email, status: "pending" };
     this._conns.push(conn);
     return Promise.resolve(conn);
   };
@@ -313,7 +313,7 @@
     return Promise.resolve({ id: id, status: "scheduled", scheduled_at_utc: payload.scheduled_at_utc });
   };
 
-  /* RealApi — live Worker routes with UI-shape adapters. */
+  /* RealApi. Live Worker routes with UI-shape adapters. */
   function RealApi(base) { this.base = base || ""; this._evCache = {}; }
   RealApi.prototype.mode = "live";
   RealApi.prototype._req = function (path, opts) {
@@ -492,7 +492,7 @@
             area: loc.area || loc.note || loc.city || "Area unconfirmed",
             category: p.category || "unclassified",
             score: rating ? rating * 20 : 0,
-            summary: asmt && asmt.rationale ? String(asmt.rationale).slice(0, 140) : "Not scored yet — thin evidence.",
+            summary: asmt && asmt.rationale ? String(asmt.rationale).slice(0, 140) : "Not scored yet. Thin evidence.",
             status: p.status,
             verdict: asmt ? (asmt.verdict || null) : null,
             readiness: typeof dims.readiness === "number" ? dims.readiness : 0,
@@ -605,10 +605,15 @@
       { method: "POST", body: JSON.stringify(payload) });
   };
 
+  /* Main journey always runs live. Only the /demo path (for judges)
+   * uses the example-data stand-in. Never a query string. */
   function selectApi() {
-    var live = false;
-    try { live = new URLSearchParams(global.location.search).get("live") === "1"; } catch (e) { live = false; }
-    return live ? new RealApi("") : new MockApi();
+    var demo = false;
+    try {
+      var p = String((global.location && global.location.pathname) || "/").replace(/\/+$/, "") || "/";
+      demo = p === "/demo";
+    } catch (e) { demo = false; }
+    return demo ? new MockApi() : new RealApi("");
   }
 
   global.ApiLayer = { MockApi: MockApi, RealApi: RealApi, selectApi: selectApi, DEMO_PROSPECTS: DEMO_PROSPECTS };

@@ -126,7 +126,8 @@ const IDS = [
   "shortlist-kicker", "shortlist-title", "shortlist-sub", "shortlist-tabs", "shortlist-empty",
   "tab-ready", "tab-warm", "tab-look", "tab-ready-n", "tab-warm-n", "tab-look-n",
   "shortlist-count",
-  "demo-banner", "mode-line", "site-footer",
+  "drafts-kicker", "status-kicker", "campaigns-kicker", "senders-kicker",
+  "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status",
   "btn-back-shortlist", "btn-back-drafts", "btn-restart", "btn-restart-progress",
 ];
@@ -166,7 +167,9 @@ const documentStub = new Proxy({
   },
 });
 
-const windowStub = { location: { search: "" }, scrollTo() {} };
+/* Journey flow runs on the /demo path (deterministic mock); live adapter
+ * mapping is covered separately below with a fetch stub. */
+const windowStub = { location: { pathname: "/demo", search: "" }, scrollTo() {} };
 
 const sandbox = {
   document: documentStub,
@@ -249,7 +252,7 @@ let confirmedProfile = null;
 const runDone = fire(els["btn-confirm-profile"], "click", evt());
 await new Promise((r) => setTimeout(r, 1200)); // 3 of 5 mock ticks landed
 await tick(); await tick();
-ok(els["progress-kicker"].textContent === "SAMPLE RUN", "progress kicker marks the sample run");
+ok(els["progress-kicker"].textContent === "EXAMPLE DATA", "progress kicker marks the example run");
 ok(els["stat-found"].textContent === "25" && els["stat-opened"].textContent === "14" && els["stat-kept"].textContent === "3",
   "progress stats count found/opened/kept (" + els["stat-found"].textContent + "/" + els["stat-opened"].textContent + "/" + els["stat-kept"].textContent + ")");
 ok(/Searched for offices/.test(els["progress-steps"].innerHTML), "finished steps render past-tense");
@@ -317,6 +320,7 @@ ok(els["shortlist-count"].textContent === "5 selected · nothing is sent yet", "
 await fire(els["btn-to-drafts"], "click", evt());
 await tick(); await tick(); await tick();
 ok(visible("view-drafts"), "shortlist -> drafts view");
+ok(els["drafts-kicker"].textContent === "EXAMPLE DATA", "drafts kicker marks the example run");
 ok(els["draft-list"].children.length === 1, "studio shows one message at a time");
 {
   const html = els["draft-list"].children[0].innerHTML;
@@ -457,13 +461,20 @@ ok(visible("view-profile"), "stop returns to the brief");
     if (body === undefined) throw new Error("unstubbed live call " + key);
     return { ok: true, status: 200, json: async () => body };
   };
-  const liveSandbox = { location: { search: "?live=1" }, fetch: fetchStub, setTimeout, clearTimeout, setInterval, clearInterval, Promise, URLSearchParams, encodeURIComponent, JSON, console };
+  const liveSandbox = { location: { pathname: "/", search: "" }, fetch: fetchStub, setTimeout, clearTimeout, setInterval, clearInterval, Promise, URLSearchParams, encodeURIComponent, JSON, console };
   liveSandbox.globalThis = liveSandbox;
   liveSandbox.window = liveSandbox;
   vm.createContext(liveSandbox);
   vm.runInContext(apiSrc, liveSandbox, { filename: "api.js/live" });
   const api = liveSandbox.ApiLayer.selectApi();
-  ok(api.mode === "live", "selectApi picks RealApi on ?live=1");
+  ok(api.mode === "live", "selectApi picks RealApi on the main journey");
+  const demoSandbox = { location: { pathname: "/demo", search: "" }, fetch: fetchStub, setTimeout, clearTimeout, setInterval, clearInterval, Promise, URLSearchParams, encodeURIComponent, JSON, console };
+  demoSandbox.globalThis = demoSandbox;
+  demoSandbox.window = demoSandbox;
+  vm.createContext(demoSandbox);
+  vm.runInContext(apiSrc, demoSandbox, { filename: "api.js/demo" });
+  const demoApi = demoSandbox.ApiLayer.selectApi();
+  ok(demoApi.mode === "mock", "selectApi picks MockApi on /demo");
 
   const turn = await api.onboardTurn({ text: "We deliver lunches", fields: {}, followups_used: 0 });
   const turnPost = calls.find((c) => c.key === "POST /api/onboard/turn");

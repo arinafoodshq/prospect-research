@@ -1,4 +1,4 @@
-/* app.js — view rendering + flow state machine (no backend).
+/* app.js. View rendering + flow state machine (no backend).
  * Flow: onboard -> confirm -> progress -> shortlist -> drafts -> status.
  * State machine fns: showView, submitOnboard, confirmBriefAndRun,
  *   pollProgress, renderShortlist, selectProspect, renderDrafts,
@@ -33,6 +33,8 @@
     if (header) header.hidden = plain;
     var footer = $("site-footer");
     if (footer) footer.hidden = plain;
+    ["progress-kicker", "shortlist-kicker", "drafts-kicker", "status-kicker",
+     "campaigns-kicker", "senders-kicker"].forEach(setDemoKicker);
     var nav = $("step-nav");
     if (nav) {
       var items = nav.querySelectorAll("li");
@@ -138,7 +140,7 @@
 
   function friendlyObError(e) {
     var detail = e && e.detail ? String(e.detail) : "";
-    if (detail === "model_not_configured") return "The assistant is not connected. Please try the demo instead, or come back later.";
+    if (detail === "model_not_configured") return "The assistant is not connected. Come back later.";
     if (detail === "model_error" || (e && e.status === 502)) return "The assistant did not reply. Check your connection and try again.";
     if (detail === "text_too_long") return "That message is too long. Please shorten it and try again.";
     return "Something went wrong. Please try again.";
@@ -341,10 +343,9 @@
   var progressSeq = 0;
 
   function pollProgress() {
-    $("progress-kicker").textContent = api.mode === "live" ? "LIVE RUN" : "SAMPLE RUN";
-    $("progress-note").textContent = api.mode === "live"
-      ? "Research keeps running on the server. Come back any time."
-      : "Sample run, keep this page open while it works.";
+    $("progress-note").textContent = isDemo()
+      ? "Example run. Keep this page open while it works."
+      : "Research keeps running on the server. Come back any time.";
     $("progress-error").hidden = true;
     $("btn-restart-progress").hidden = true;
     refreshProgressSnapshot();
@@ -406,7 +407,7 @@
       return "<li class=\"" + cls + "\">" + esc(text) + "</li>";
     }).join("");
     $("progress-budget").textContent = "Budget so far: " + snap.searches + " searches, " +
-      snap.fetches + " page opens (caps 30 / 40)." + (api.mode === "live" ? "" : " Sample data.");
+      snap.fetches + " page opens (caps 30 / 40)." + (isDemo() ? " Example data." : "");
     var aside = $("progress-setaside");
     aside.innerHTML = (snap.setAside || []).map(function (d) {
       return "<li><strong>" + esc(d.name) + "</strong><span>" + esc(d.reason) + "</span></li>";
@@ -417,18 +418,6 @@
   function previewProgress() {
     if (!state.runId) return false;
     return api.getShortlist(state.runId).then(function (res) {
-      state.prospects = res.prospects;
-      state.selectedId = null;
-      state.selectedIds = null;
-      state.tab = null;
-      renderShortlist();
-      showView("shortlist");
-    });
-  }
-
-  function showSampleShortlist() {
-    if (api.mode === "live" && !state.runId) { showView("onboard"); return; }
-    api.getShortlist(state.runId || "sample").then(function (res) {
       state.prospects = res.prospects;
       state.selectedId = null;
       state.selectedIds = null;
@@ -515,7 +504,7 @@
     if (!state.tab) {
       state.tab = counts.ready ? "ready" : counts.warm ? "warm" : counts.look ? "look" : "ready";
     }
-    $("shortlist-kicker").textContent = api.mode === "live" ? "LIVE SHORTLIST" : "SAMPLE SHORTLIST";
+
     $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer worth your time." : " buyers worth your time.");
     $("shortlist-sub").textContent = state.tab === "look"
       ? "These need a human look before they join your list."
@@ -599,9 +588,9 @@
       var body = $("evidence-body");
       $("evidence-hint").textContent = api.mode === "live"
         ? "Why " + res.prospect.name + " made your shortlist:"
-        : "Why " + res.prospect.name + " made the demo shortlist:";
+        : "Why " + res.prospect.name + " made the example shortlist:";
       body.innerHTML = res.evidence.map(function (ev) {
-        return "<blockquote>" + esc(ev.quote) + "<cite>Source: " + esc(ev.source) + " (" + esc(ev.type) + (api.mode === "live" ? "" : ", demo data") + ")</cite></blockquote>";
+        return "<blockquote>" + esc(ev.quote) + "<cite>Source: " + esc(ev.source) + " (" + esc(ev.type) + (isDemo() ? ", example data" : "") + ")</cite></blockquote>";
       }).join("");
       return renderTimeline(id, body);
     });
@@ -612,16 +601,16 @@
     try { when = new Date(t.at).toLocaleString(); } catch (e) { when = String(t.at || ""); }
     if (t.kind === "contact") {
       return "<li class=\"contact\">" + esc(t.direction === "inbound" ? "Heard back" : "Contacted") +
-        " via " + esc(t.channel) + " · " + esc(when) + (t.note ? " — " + esc(t.note) : "") + "</li>";
+        " via " + esc(t.channel) + " · " + esc(when) + (t.note ? ". " + esc(t.note) : "") + "</li>";
     }
-    return "<li>" + esc(t.event || "update") + " · " + esc(when) + (t.note ? " — " + esc(t.note) : "") + "</li>";
+    return "<li>" + esc(t.event || "update") + " · " + esc(when) + (t.note ? ". " + esc(t.note) : "") + "</li>";
   }
 
   function renderTimeline(id, body) {
     return api.getTimeline(id).then(function (res) {
       var items = (res.timeline || []).map(timelineItem).join("");
       body.innerHTML += "<h4>History</h4><ul class=\"timeline\">" +
-        (items || "<li>No contact yet — log your first touch below.</li>") + "</ul>" +
+        (items || "<li>No contact yet. Log your first touch below.</li>") + "</ul>" +
         "<div class=\"log-contact\">" +
         "<label>Channel <select data-field=\"contact-channel\">" +
         ["whatsapp", "email", "telegram", "phone", "sms", "in_person", "other"].map(function (c) {
@@ -676,7 +665,7 @@
   function wordGuidance(n) {
     if (n <= 40) return "Short enough to read in one glance.";
     if (n <= 80) return "Room for context, still under 80 words.";
-    return "Over 80 words — shorter usually earns the reply.";
+    return "Over 80 words. Shorter usually earns the reply.";
   }
 
   function rationaleRemainder(rationale) {
@@ -717,7 +706,7 @@
         var p = state.prospects.filter(function (x) { return x.id === id; })[0];
         return p ? p.name : id;
       });
-      if (missing.length) notes.push("No draft yet for " + missing.join(", ") + " — the research did not write one.");
+      if (missing.length) notes.push("No draft yet for " + missing.join(", ") + ". The research did not write one.");
       $("drafts-note").textContent = notes.join(" ");
       var wrap = $("draft-list");
       wrap.innerHTML = "";
@@ -872,8 +861,8 @@
       bodyHtml = subj + "<div class=\"studio-text\">" + paras + "</div>" +
         "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
     } else {
-      bodyHtml = "<p class=\"hint\">No " + esc(STUDIO_TAB_LABEL[st.tab].toLowerCase()) + " version for this pick — " +
-        "the research wrote one " + esc(studioSuggestionLabel(d.channel).toLowerCase()) + " draft.</p>";
+      bodyHtml = "<p class=\"hint\">No " + esc(STUDIO_TAB_LABEL[st.tab].toLowerCase()) + " version for this pick. " +
+        "The research wrote one " + esc(studioSuggestionLabel(d.channel).toLowerCase()) + " draft.</p>";
     }
     var n = countWords(d.body);
     var tones = st.tab === primary
@@ -953,11 +942,11 @@
   }
 
   var STATUS_COLS = [
-    { key: "approved", title: "Approved — follow up yourself" },
+    { key: "approved", title: "Approved. Follow up yourself" },
     { key: "pending", title: "Pending review" },
-    { key: "deferred", title: "Deferred — revisit later" },
+    { key: "deferred", title: "Deferred. Revisit later" },
     { key: "rejected", title: "Rejected" },
-    { key: "followups", title: "Follow-ups (manual — handled by you)" }
+    { key: "followups", title: "Follow-ups (manual. Handled by you)" }
   ];
 
   function decisionOf(d) {
@@ -966,14 +955,14 @@
 
   function emptyCopy(key) {
     if (!state.drafts.length) {
-      return "<li>" + esc("No drafts yet — nothing qualified for messages.") + "</li>";
+      return "<li>" + esc("No drafts yet. Nothing qualified for messages.") + "</li>";
     }
     var notes = {
-      approved: "No approved drafts yet — approve one above to see it here.",
-      pending: "All drafts reviewed — nice. Decided drafts are listed in their columns.",
-      deferred: "No deferred drafts — drafts you pause will wait here.",
-      rejected: "No rejected drafts — every draft is still live or approved.",
-      followups: "No follow-ups yet — approve a draft first. Follow-ups are manual; nothing goes out from this demo."
+      approved: "No approved drafts yet. Approve one above to see it here.",
+      pending: "All drafts reviewed. Nice. Decided drafts are listed in their columns.",
+      deferred: "No deferred drafts. Drafts you pause will wait here.",
+      rejected: "No rejected drafts. Every draft is still waiting or approved.",
+      followups: "No follow-ups yet. Approve a draft first. Follow-ups are manual; nothing is sent without your approval."
     };
     return "<li>" + esc(notes[key] || "Nothing to show here yet.") + "</li>";
   }
@@ -996,7 +985,7 @@
         return dec === c.key;
       }).map(function (d) {
         var p = state.prospects.filter(function (x) { return x.id === d.prospectId; })[0];
-        var suffix = c.key === "followups" ? " — follow up manually (e.g. nudge in 3 days)" : "";
+        var suffix = c.key === "followups" ? ". Follow up manually (e.g. nudge in 3 days)" : "";
         return "<li>" + esc(p ? p.name : d.prospectId) + esc(suffix) + "</li>";
       });
       if (!names.length) names = [emptyCopy(c.key)];
@@ -1013,18 +1002,18 @@
       div.className = "campaigns";
       var list = res.campaigns || [];
       if (!list.length) {
-        div.innerHTML = "<h3>Email campaigns</h3><p class=\"hint\">No campaigns yet — approve drafts, then schedule a campaign.</p>";
+        div.innerHTML = "<h3>Email campaigns</h3><p class=\"hint\">No campaigns yet. Approve drafts, then schedule a campaign.</p>";
       } else {
         div.innerHTML = "<h3>Email campaigns</h3>" + list.map(function (c) {
           var recs = (c.recipients || []).map(function (r) {
-            return "<li>" + esc(r.email) + " — " + esc(r.status) + "</li>";
+            return "<li>" + esc(r.email) + ". " + esc(r.status) + "</li>";
           }).join("");
           var stats = c.stats && Object.keys(c.stats).length
             ? " <span class=\"meta\">(" + Object.keys(c.stats).map(function (k) { return esc(k) + ": " + esc(c.stats[k]); }).join(", ") + ")</span>" : "";
           var when = c.scheduled_at_utc ? " · sends " + esc(c.scheduled_at_utc) : "";
           var cancel = (c.status === "scheduled" || c.status === "sending")
             ? " <button type=\"button\" class=\"secondary\" data-act=\"cancel-campaign\" data-id=\"" + esc(c.id) + "\">Cancel</button>" : "";
-          return "<div class=\"campaign\"><h4>" + esc(c.name) + " — " + esc(c.status) + "</h4>" +
+          return "<div class=\"campaign\"><h4>" + esc(c.name) + ". " + esc(c.status) + "</h4>" +
             "<p class=\"meta\">" + esc(c.id) + when + stats + "</p><ul>" + recs + "</ul>" + cancel + "</div>";
         }).join("");
       }
@@ -1049,7 +1038,7 @@
   var senderNotice = "";
 
   function providerName(p) {
-    return { smtp: "SMTP", resend: "Resend", gmail: "Gmail", mock: "Demo" }[p] || String(p);
+    return { smtp: "SMTP", resend: "Resend", gmail: "Gmail", mock: "Example" }[p] || String(p);
   }
 
   function senderStatusPill(status) {
@@ -1091,13 +1080,13 @@
         "<div class=\"row\">" + actions + "</div></div>";
     }).join("");
     wrap.innerHTML = (notice ? "<p>" + esc(notice) + "</p>" : "") +
-      (cards || "<p class=\"hint\">No senders yet — connect one below.</p>") +
+      (cards || "<p class=\"hint\">No senders yet. Connect one below.</p>") +
       "<h3>Connect a sender</h3>" +
       "<p class=\"hint\">Where do you send email from?</p>" +
       "<div class=\"choice-row\" role=\"group\" aria-label=\"Email provider\">" +
       choiceBtn("gmail", "Gmail", "A @gmail.com address") +
       choiceBtn("smtp", "Business email", "Zoho, cPanel, Microsoft 365…") +
-      choiceBtn("resend", "Resend", "API key (developers)") +
+      choiceBtn("resend", "Resend", "Key from your Resend dashboard") +
       "</div>" +
       "<p class=\"form-error\" id=\"sender-error\" hidden></p>" +
       "<div id=\"sender-form\"></div>" +
@@ -1114,7 +1103,7 @@
     if (senderChoice === "gmail") {
       box.innerHTML =
         "<div class=\"help-box\">" +
-        "<strong>Use a Google app password — never your normal password.</strong>" +
+        "<strong>Use a Google app password. Never your normal password.</strong>" +
         "<p>Your normal Google password will not work here, and you should never type it into another website. " +
         "An app password is a separate 16-letter code that can only send email. You can delete it any time without changing your Google login.</p>" +
         "<ol>" +
@@ -1142,7 +1131,7 @@
         "<p>Your email provider publishes them. Search their help site for “SMTP settings”. Common ones:</p>" +
         "<ul><li><strong>Zoho Mail:</strong> help.zoho.com → “SMTP settings” (usually smtp.zoho.com, port 587).</li>" +
         "<li><strong>cPanel hosting:</strong> your hosting control panel → Email Accounts → Connect Devices (uses your domain's mail server).</li>" +
-        "<li><strong>Microsoft 365:</strong> usually outlook.office365.com, port 587 — your IT admin can confirm.</li></ul>" +
+        "<li><strong>Microsoft 365:</strong> usually outlook.office365.com, port 587. Your IT admin can confirm.</li></ul>" +
         "<p>No luck? Ask the person who set up your email or website. Copy this message to them:</p>" +
         "<div class=\"row\"><button type=\"button\" class=\"secondary\" data-act=\"sender-copydev\">Copy message for my developer</button></div>" +
         "</details>" +
@@ -1151,10 +1140,10 @@
     } else {
       box.innerHTML =
         "<label>Sender email <input data-field=\"snd-email\" type=\"email\" autocomplete=\"email\" placeholder=\"you@yourbusiness.com\" /></label>" +
-        "<label>Resend API key <input data-field=\"snd-key\" type=\"password\" autocomplete=\"new-password\" placeholder=\"re_…\" /></label>" +
+        "<label>Resend key <input data-field=\"snd-key\" type=\"password\" autocomplete=\"new-password\" placeholder=\"re_…\" /></label>" +
         "<label>Label (optional) <input data-field=\"snd-label\" placeholder=\"Resend\" /></label>" +
         "<div class=\"row\"><button type=\"button\" data-act=\"sender-submit\">Test &amp; connect</button></div>" +
-        "<p class=\"hint\">Find it at resend.com → API Keys. We store it encrypted and only use it to send campaigns you approve.</p>";
+        "<p class=\"hint\">Find it in your Resend dashboard under Keys. We store it encrypted and only use it to send campaigns you approve.</p>";
     }
   }
 
@@ -1162,8 +1151,8 @@
     var detail = (e && e.detail) || "";
     if (/password|login|535|Username|auth/i.test(detail)) {
       return choice === "gmail"
-        ? "Google rejected that code. It must be a 16-letter app password, not your normal Google password — follow the steps above to make one."
-        : "The mail server rejected that username or password. Check both — some providers need an app password, not the login password.";
+        ? "Google rejected that code. It must be a 16-letter app password, not your normal Google password. Follow the steps above to make one."
+        : "The mail server rejected that username or password. Check both. Some providers need an app password, not the login password.";
     }
     if (/ECONN|ENOTFOUND|ETIMEDOUT|timed out|reach|EAI_AGAIN/i.test(detail)) {
       return "We could not reach that mail server. Check the host and port, then try again.";
@@ -1203,13 +1192,13 @@
       var port = parseInt(get('[data-field="snd-port"]') || "587", 10);
       var user = get('[data-field="snd-user"]');
       var pass = get('[data-field="snd-password"]');
-      if (!host) { fail("Enter the mail server host — see “Where do I find these settings?” above."); return; }
+      if (!host) { fail("Enter the mail server host. See “Where do I find these settings?” above."); return; }
       if (!user || !pass) { fail("Enter the username and password for that mail server."); return; }
       payload = { provider: "smtp", label: get('[data-field="snd-label"]') || email, sender_email: email,
         secret: { host: host, port: port, username: user, password: pass } };
     } else {
       var key = get('[data-field="snd-key"]');
-      if (!key) { fail("Paste your Resend API key (it starts with “re_”)."); return; }
+      if (!key) { fail("Paste your Resend key (it starts with “re_”)."); return; }
       payload = { provider: "resend", label: get('[data-field="snd-label"]') || "Resend", sender_email: email,
         secret: { api_key: key } };
     }
@@ -1225,7 +1214,7 @@
     }).then(function (conn) {
       return api.verifyConnection(conn.id);
     }).then(function () {
-      senderNotice = "Connected — the test passed and this sender is ready for campaigns.";
+      senderNotice = "Connected. The test passed and this sender is ready for campaigns.";
       renderSendersView(sendersReturn);
     }, function (e) {
       setSenderBusy(false);
@@ -1236,9 +1225,9 @@
   var DEV_MSG = "Hello! To connect our email sender in Prospect Research, please send me our SMTP settings: (1) SMTP host, (2) port, (3) username, and (4) password or app password. Thank you!";
 
   function copyDevMessage(btn) {
-    var done = function () { btn.textContent = "Copied — paste it anywhere."; };
+    var done = function () { btn.textContent = "Copied. Paste it anywhere."; };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(DEV_MSG).then(done, function () { btn.textContent = "Copy failed — long-press the text below."; });
+      navigator.clipboard.writeText(DEV_MSG).then(done, function () { btn.textContent = "Copy failed. Long-press the text below."; });
     } else {
       var ta = document.createElement("textarea");
       ta.value = DEV_MSG;
@@ -1263,7 +1252,7 @@
     if (ds.act === "sender-test" && ds.id) {
       setSenderBusy(true, "Testing… (can take 20 seconds)");
       api.verifyConnection(ds.id).then(function () {
-        senderNotice = "Test passed — this sender is connected.";
+        senderNotice = "Test passed. This sender is connected.";
         renderSendersView(sendersReturn);
       }, function (err) {
         setSenderBusy(false);
@@ -1319,7 +1308,7 @@
           var opts = conns.map(function (c) {
             return "<option value=\"" + esc(c.id) + "\">" + esc(c.label) + " (" + esc(c.sender_email) + ")</option>";
           }).join("");
-          wiz.innerHTML = "<label>Campaign name <input data-field=\"cmp-name\" value=\"Outreach — week 1\" /></label>" +
+          wiz.innerHTML = "<label>Campaign name <input data-field=\"cmp-name\" value=\"Outreach. Week 1\" /></label>" +
             "<label>Sender <select data-field=\"cmp-sender\">" + opts + "</select></label>" +
             "<label>Send at <input data-field=\"cmp-when\" type=\"datetime-local\" /></label>" +
             "<h3>Recipients (" + state.campaignRows.length + ")</h3>" +
@@ -1357,7 +1346,7 @@
     api.createCampaign({ name: name, connection_id: connectionId, recipients: recipients })
       .then(function (cmp) { return api.approveCampaign(cmp.id, { scheduled_at_utc: scheduled }); })
       .then(function (ok) {
-        wiz.innerHTML = "<p>Scheduled — " + recipients.length + " message(s), first send " +
+        wiz.innerHTML = "<p>Scheduled. " + recipients.length + " message(s), first send " +
           esc(ok.scheduled_at_utc || scheduled) + ". Watch it land on the status board.</p>";
       }, function (e) {
         wiz.innerHTML = "<p>Could not schedule: " + esc((e && e.message) || e) + "</p>";
@@ -1384,32 +1373,32 @@
     showView("onboard");
   }
 
-  function setModeBanner() {
-    var live = false;
-    try { live = new URLSearchParams(window.location.search).get("live") === "1"; } catch (e) { live = false; }
-    var banner = $("demo-banner");
-    var modeLine = $("mode-line");
-    if (live) {
-      banner.textContent = "LIVE MODE — connected to the Worker API.";
-      banner.classList.add("live");
-      modeLine.textContent = "Live mode: requests go to the Worker API.";
+  /* Demo mode (the /demo path only) marks example data inside the
+   * content area. The main journey never shows a mode label. */
+  function isDemo() {
+    return api && api.mode !== "live";
+  }
+
+  function setDemoKicker(id) {
+    var el = $(id);
+    if (!el) return;
+    if (isDemo()) {
+      el.textContent = "EXAMPLE DATA";
+      el.hidden = false;
     } else {
-      banner.innerHTML = "DEMO DATA — mock results for illustration, not live research. Add <code>?live=1</code> to use the real API.";
-      modeLine.textContent = "Demo mode: showing sample Ikeja prospects.";
+      el.textContent = "";
+      el.hidden = true;
     }
   }
 
   function init() {
     api = (typeof window.ApiLayer !== "undefined") ? window.ApiLayer.selectApi() : null;
     if (!api) throw new Error("ApiLayer failed to load");
-    setModeBanner();
     showView("landing");
     Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
       btn.addEventListener("click", function () { showView("onboard"); updateObSegs(1); });
     });
-    Array.prototype.forEach.call(document.querySelectorAll("[data-sample]"), function (btn) {
-      btn.addEventListener("click", showSampleShortlist);
-    });
+
     var chips = [];
     try { chips = document.querySelectorAll("[data-preset]") || []; } catch (e) { chips = []; }
     Array.prototype.forEach.call(chips, function (btn) {

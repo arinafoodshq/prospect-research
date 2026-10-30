@@ -19,17 +19,6 @@ body {
   padding: 1rem 1.5rem;
 }
 
-/* Banner: demo (gold tint) vs live (success tint). */
-.demo-banner {
-  background: #2a2113;
-  color: var(--accent);
-  border-bottom: 1px solid var(--border-strong);
-  padding: 0.6rem 1.5rem;
-  font-weight: 600;
-  text-align: center;
-}
-.demo-banner code { color: var(--text); }
-.demo-banner.live { background: var(--surface-success); color: var(--success); }
 
 /* Header */
 .site-header h1 {

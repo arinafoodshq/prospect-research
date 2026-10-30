@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prospect Research — Demo</title>
+  <title>Prospect Research. Find your next customers</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Manrope:wght@400;500;600;700&display=swap" />
@@ -13,11 +13,10 @@
   <meta name="theme-color" content="#0b0f1a" />
 </head>
 <body>
-  <div id="demo-banner" class="demo-banner" role="status">DEMO DATA — mock results for illustration, not live research. Add <code>?live=1</code> to use the real API when the backend lands.</div>
   <header class="site-header">
     <img class="site-logo" src="./favicon.svg" alt="" aria-hidden="true" />
     <h1>Prospect Research</h1>
-    <p class="tagline">Describe what you sell. We find businesses likely to buy — every pick backed by evidence, every message approved by you.</p>
+    <p class="tagline">Describe what you sell. We find businesses likely to buy. Every pick backed by evidence, every message approved by you.</p>
     <nav class="steps" aria-label="Progress">
       <ol id="step-nav">
         <li data-view="onboard" class="active">1. Onboard</li>
@@ -276,11 +275,11 @@
     <section id="view-progress" class="view view-plain" hidden aria-label="Research progress">
       <div class="ob-head">
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
-        <p class="kicker kicker-dim" id="progress-kicker">SAMPLE RUN</p>
+        <p class="kicker kicker-dim" id="progress-kicker" hidden></p>
       </div>
       <p class="working" id="progress-eyebrow"><span class="dot" aria-hidden="true"></span>Working now</p>
       <h2 id="progress-title">Finding the buyers that truly fit.</h2>
-      <p class="hint" id="progress-note">Sample run, keep this page open while it works.</p>
+      <p class="hint" id="progress-note">Research keeps running on the server. Come back any time.</p>
       <div class="trio stats" id="progress-stats">
         <div class="stat-card"><p class="stat-num" id="stat-found">0</p><p class="muted small">businesses found</p></div>
         <div class="stat-card"><p class="stat-num" id="stat-opened">0</p><p class="muted small">had their own pages opened</p></div>
@@ -308,7 +307,7 @@
     <section id="view-shortlist" class="view view-plain" hidden aria-label="Ranked shortlist">
       <div class="ob-head">
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
-        <p class="kicker kicker-dim" id="shortlist-kicker">SAMPLE SHORTLIST</p>
+        <p class="kicker kicker-dim" id="shortlist-kicker" hidden></p>
       </div>
       <h2 id="shortlist-title">Buyers worth your time.</h2>
       <p class="hint" id="shortlist-sub">Each one passed your must-haves. Tick the ones you want, and we write the messages.</p>
@@ -336,6 +335,7 @@
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
         <button id="btn-back-shortlist" type="button" class="link-plain">Back to shortlist</button>
       </div>
+      <p class="kicker kicker-dim" id="drafts-kicker" hidden></p>
       <p class="hint" id="drafts-note"></p>
       <div id="draft-list"></div>
       <div class="row">
@@ -349,6 +349,7 @@
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
         <p class="kicker">STATUS</p>
       </div>
+      <p class="kicker kicker-dim" id="status-kicker" hidden></p>
       <h2>Status board</h2>
       <div class="board" id="status-board"></div>
       <div class="row">
@@ -362,6 +363,7 @@
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
         <p class="kicker">CAMPAIGNS</p>
       </div>
+      <p class="kicker kicker-dim" id="campaigns-kicker" hidden></p>
       <h2>Schedule a campaign</h2>
       <p class="hint">Pick approved prospects, review each message, choose a sender, and approve. Nothing sends until you say so.</p>
       <div id="campaign-wizard"><p class="hint">Loading…</p></div>
@@ -372,6 +374,7 @@
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
         <p class="kicker">SENDERS</p>
       </div>
+      <p class="kicker kicker-dim" id="senders-kicker" hidden></p>
       <h2>Email senders</h2>
       <p class="hint">Connect the address your campaigns send from. We test every sender before it can be used.</p>
       <div id="senders-wrap"><p class="hint">Loading…</p></div>
@@ -379,7 +382,6 @@
   </main>
 
   <footer class="site-footer" id="site-footer">
-    <p id="mode-line">Demo mode: showing sample Ikeja prospects.</p>
   </footer>
 
   <script src="./api.js"></script>

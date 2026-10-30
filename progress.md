@@ -918,4 +918,27 @@ live warmer rewrite returned 200 with facts preserved and
 edited_by_human=1, scratch deleted after. Served HTML contains
 the new build markers. Test-send happy path NOT fired live (would
 send a real email); covered by mock-provider route test.
-Next action: post-freeze Workflow brief-excerpt fix + live re-run.
+V2 revamp (user-approved new reference set 2026-10-30):
+Prospect Research Revamp (1).pdf + Revamp-png.zip + Revamp.html.
+Minimalist, mobile-first, production grade. Research FROZEN;
+frontend + approved studio endpoints only. References extracted
+to C:/Temp/revamp-png, downscaled to C:/Temp/revamp-small, 9 PDF
+pages rendered to C:/Temp/v2-p1..p9.png and viewed. Em-dash scrub
+done (frontend total 0).
+
+V2 P0.1 done (mode system rework): main journey always live via
+RealApi; selectApi checks pathname === /demo only (MockApi for
+judges). Removed #demo-banner + #mode-line markup, .demo-banner
+CSS, showSampleShortlist + [data-sample] wiring. No user-visible
+LIVE MODE / DEMO DATA / ?live=1 anywhere; per-screen EXAMPLE DATA
+kickers on all six data views (progress, shortlist, drafts, status,
+campaigns, senders), set centrally in showView() and gated by
+isDemo(). Title no longer says Demo. SPA fallback
+added (assets.not_found_handling = single-page-application, schema
+verified in wrangler 4.155; run_worker_first arrays need 4.20+ so
+not used): navigation to /demo serves index.html, fetch() API calls
+are non-navigation and still reach the Worker. Smoke updated:
+journey flow pinned to /demo sandbox, +2 selectApi assertions,
+stale SAMPLE RUN kicker assertion fixed to EXAMPLE DATA.
+Verified: typecheck clean, 358/358 vitest, smoke PASS, node --check
+clean on app.js + api.js.Next action: post-freeze Workflow brief-excerpt fix + live re-run.
