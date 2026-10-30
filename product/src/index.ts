@@ -828,7 +828,22 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   }
   for (const [key, fv] of Object.entries(out.fields)) {
     if (!ONBOARD_KEYS.has(key) || fields[key]?.locked) continue;
-    fields[key] = { value: fv.value, label: fv.label, locked: false };
+    let value = fv.value;
+    // Cleanup: keep the place, drop the hedging verb ("around Ikeja" made
+    // the value read as a location while actually being a hedge).
+    if (key === "service_area") value = value.replace(/^(around|near|in|at)\s+/i, "").trim() || value;
+    fields[key] = { value, label: fv.label, locked: false };
+  }
+  // Anti-re-ask backstop: the model must never ask about a field that
+  // already carries a value (or that the owner skipped). If it does, the
+  // turn ends instead — the owner edits on the summary rather than being
+  // nagged. This is deterministic; the prompt rule alone was not enough.
+  if (out.question) {
+    const asked = fields[out.question.key];
+    if (asked && (asked.value !== "" || asked.locked)) {
+      out.question = null;
+      out.done = true;
+    }
   }
   // Location precision backstop: when the stated service_area is still too
   // bare to place on a map, ask for the fuller form instead of running with

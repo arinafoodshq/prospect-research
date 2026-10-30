@@ -106,8 +106,10 @@ export class DbValidationError extends Error {
 const RUN_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   created: ["discovering", "awaiting_brief", "stopped", "failed"],
   discovering: ["investigating", "awaiting_brief", "awaiting_approval", "stopped", "failed"],
-  investigating: ["assessing", "awaiting_brief", "awaiting_approval", "stopped", "failed"],
-  assessing: ["drafting", "awaiting_brief", "awaiting_approval", "stopped", "failed"],
+  investigating: ["assessing", "awaiting_brief", "awaiting_approval", "stopped", "failed",
+    "discovering"], // QA loop: weak batch goes back for a re-planned sweep
+  assessing: ["drafting", "awaiting_brief", "awaiting_approval", "stopped", "failed",
+    "discovering"], // QA loop
   drafting: ["complete", "awaiting_brief", "awaiting_approval", "stopped", "failed"],
   awaiting_brief: ["created", "discovering", "investigating", "assessing", "drafting", "stopped", "failed"],
   awaiting_approval: ["drafting", "complete", "stopped", "failed"],

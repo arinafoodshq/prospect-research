@@ -1087,3 +1087,36 @@ speak-pulse; /api/transcribe junk -> 400. Pushed to main: commit 5a9a82f
 (13 files, +412/-22). tsc clean, 388/388 vitest, smoke PASS. User next
 step: re-run the grill-chicken brief — expect a base+reach ask for a bare
 "Ikeja", and a real recording animation on the speak button.
+2026-10-30 (agentic QA loop + strategist brief + onboarding dynamics + nav):
+User verdict on the run shortlist: "sick and terrible" — barbers/IT firms
+for a chicken caterer, enbizopedia/beautynailhairsalons sources, "http 404"
+shown as evidence, all "unclassified · Area unconfirmed". Direction: make
+research an agentic loop with QA orchestration on Cloudflare Workflows; be
+a business strategist (grill chicken in Ikeja -> corporate event hosts
+around Ogba/Allen/Maryland); dynamic questions only for what's missing;
+real navigation (campaign -> dashboard -> describe another business).
+Implemented: (1) QA LOOP in ResearchWorkflow.run() AND dev runPhases():
+sweep(discover/investigate/assess) -> deterministic quality snapshot
+(runQuality: good=fit>=3 non-junk, junk=directory-only evidence,
+unlocated) -> stop when good>=4 / planner dry / budget low / 3 sweeps;
+else replan step (meta.planMore: fresh queries given previous+whyNot)
+rewrites run.plan {queries, all_queries}; run-status loop-backs added to
+RUN_TRANSITIONS. (2) STRATEGIST: buildBriefGoal rules (buyers are hosts/
+organizers/budget-owners, never lookalike sellers; expand base to known
+neighbour districts; honor stated reach) feeding plan/search/assess;
+buildPlanGoal/buildSearchGoal carry buyer_roles defensively. (3) QUALITY
+GATES: isJunkProspect + runQuality; rank excludes directory-only
+prospects from qualified+steady; investigate failure details no longer
+saved as evidence (http 404 fix); candidates inherit the brief's area
+(Area unconfirmed fix); isDirectoryHost gains aggregator patterns
+(/pedia/ etc. — enbizopedia class). (4) ONBOARDING: prompt forbids
+re-asking any Known field ("Ikeja, Lagos" is complete; country never
+worth an ask) + deterministic anti-re-ask guard (asked-key with value/
+locked -> turn ends); "around/near/in/at" prefix stripped from
+service_area; UI step line now honest ("N of 5 details captured · we
+only ask what is missing") with segs reflecting captured fields.
+(5) NAV: after scheduling a campaign -> "Go to the status board" +
+"Describe another business" buttons (restartToLanding). Tests: runQuality
+pure tests, never-re-ask + strip, planMore replan client test, fetch
+failure no-evidence assertion (old test flipped), 393/393 vitest, tsc
+clean, smoke PASS, node --check ok. NOT yet deployed.

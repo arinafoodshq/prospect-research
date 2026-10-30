@@ -634,6 +634,27 @@ describe("createMetaClient", () => {
   });
 });
 
+describe("planMore (QA-loop replan)", () => {
+  it("asks for fresh queries, carrying previous + whyNot", async () => {
+    const burst = {
+      id: "resp_1",
+      output: [{
+        type: "message",
+        content: [{ type: "output_text", text: '["event planners Ikeja","event centres Opebi"]' }],
+      }],
+    };
+    const fetchImpl = stubFetch(burst);
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    const out = await client.planMore!({ previousQueries: ["old query"], whyNot: "only 0 of 3 good; 2 junk" });
+    expect(out).toEqual(["event planners Ikeja", "event centres Opebi"]);
+    const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);
+    expect(sent.input[0].content).toContain("Already searched");
+    expect(sent.input[0].content).toContain("old query");
+    expect(sent.input[0].content).toContain("only 0 of 3 good");
+    expect(sent.tools).toEqual([]);
+  });
+});
+
 describe("validateOnboardTurn", () => {
   it("drops unknown keys, forces inferred labels, caps chips", () => {
     const out = validateOnboardTurn({

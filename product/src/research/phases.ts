@@ -141,6 +141,8 @@ export interface RewriteResult {
 /** Mockable Meta client surface (no live calls; mocked in tests). */
 export interface MetaClient {
   planQueries?: (briefExcerpt: string) => Promise<string[]>;
+  /** QA-loop replan: fresh queries after a sweep fell short (absent = no loop). */
+  planMore?: (input: { previousQueries: string[]; whyNot: string }) => Promise<string[]>;
   search?: (query: string) => Promise<SearchHit[]>;
   proposeAssessments?: (prospects: Prospect[], evidence: Evidence[]) => Promise<AssessProposal[]>;
   proposeDrafts?: (prospects: Prospect[], evidence?: Evidence[]) => Promise<DraftProposal[]>;
@@ -296,6 +298,12 @@ export async function discover(
   const queries: string[] = (run?.plan as { queries?: string[] } | null)?.queries ?? [];
   if (queries.length === 0) return stopped("no_plan", "discover needs a stored plan");
   if (!meta.search) return stopped("no_candidates", "no search client; honest empty shortlist");
+  // Candidate locations inherit the stored brief's area (queries are
+  // locale-scoped; hits themselves carry no geo).
+  let geos: string[] = [];
+  if (run?.commercial_brief) {
+    try { geos = validateBrief(JSON.parse(run.commercial_brief)).primary_segment.geos; } catch { geos = []; }
+  }
   let searched = 0;
   let skipped = 0;
   for (const q of queries) {
@@ -324,9 +332,15 @@ export async function discover(
           conflicts_with: null, supersedes: null,
         });
         if (h.candidateEligible === false) continue; // evidence kept, chatter never becomes a candidate
+        // Location inheritance: search hits carry no geo. The queries are
+        // already locale-scoped, so a candidate without its own location
+        // inherits the brief's area instead of rendering "Area unconfirmed".
+        const inherited = Object.keys(h.location ?? {}).length > 0
+          ? h.location as Record<string, string>
+          : (geos.length ? { area: geos.slice(0, 3).join(", "), source: "brief" } : {});
         const r = await saveCandidate(db, {
           run_id: budgets.run_id, name: h.name, category: h.category,
-          location: h.location ?? {},
+          location: inherited,
           ...(h.domainOrHandle !== undefined ? { domainOrHandle: h.domainOrHandle } : {}),
           evidence_ids: [evId],
         });
@@ -375,12 +389,9 @@ export async function investigate(
     const own = (await listEvidence(db, budgets.run_id)).filter((e) => ownIds.has(e.id));
     const target = own.find((e) => e.source_url);
     if (!target?.source_url) {
-      await saveEvidence(db, {
-        run_id: budgets.run_id, claim: `no fetchable source url for ${p.name}`,
-        quote: "candidate discovery recorded no source url", source_url: null, source_type: "fetched_page",
-        retrieved_at: new Date().toISOString(), reliability: "unknown",
-        conflicts_with: null, supersedes: null,
-      });
+      // No fetchable url: the candidate keeps its discovery evidence and
+      // moves to investigating; no synthetic "no fetchable source url"
+      // evidence row (it read as junk evidence downstream).
       try {
         await setProspectStatus(db, budgets.run_id, p.id, "investigating");
         investigated += 1;
@@ -425,14 +436,9 @@ export async function investigate(
         }
       }
     } else {
-      // Explicit fetch-failure evidence (never a silent skip).
-      const evId = await saveEvidence(db, {
-        run_id: budgets.run_id, claim: `fetch failed for ${p.name}: ${res.error}`,
-        quote: res.reason ?? res.error, source_url: target.source_url, source_type: "fetched_page",
-        retrieved_at: new Date().toISOString(), reliability: "unknown",
-        conflicts_with: null, supersedes: null,
-      });
-      await attach(evId);
+      // Fetch failure: recorded in the phase outcome, NEVER as an evidence
+      // row — a failure detail is not a claim, and attaching it made the
+      // UI show "http 404" as evidence and fed junk into assess/draft.
     }
     try {
       await setProspectStatus(db, budgets.run_id, p.id, "investigating");
@@ -620,11 +626,44 @@ export async function assess(
   return completed(`${done} prospects assessed`);
 }
 
+/**
+ * Deterministic quality signals for the agentic QA loop. Junk = every
+ * evidence url is a directory host (aggregator profiles are pages ABOUT
+ * businesses; they reached the shortlist before). Good = latest assessment
+ * fit >= 3 and not disqualified and not junk. Pure function, unit-tested.
+ */
+export function isJunkProspect(p: Prospect, evidence: Evidence[]): boolean {
+  const ids = new Set(p.evidence_ids);
+  const urls = evidence
+    .filter((e) => ids.has(e.id) && e.source_url)
+    .map((e) => e.source_url as string);
+  return urls.length > 0 && urls.every((u) => isDirectoryHost(u));
+}
+
+export interface RunQuality {
+  good: number; junk: number; candidates: number; unlocated: number;
+}
+
+export function runQuality(
+  prospects: Prospect[],
+  amap: Map<string, Assessment & { supporting: string[] }>,
+  evidence: Evidence[],
+): RunQuality {
+  let good = 0, junk = 0, unlocated = 0;
+  for (const p of prospects) {
+    if (isJunkProspect(p, evidence)) { junk += 1; continue; }
+    const a = amap.get(p.id);
+    if (p.status !== "disqualified" && (a?.fit_rating ?? 0) >= 3) good += 1;
+    if (!p.location || Object.keys(p.location).length === 0) unlocated += 1;
+  }
+  return { good, junk, candidates: prospects.length, unlocated };
+}
+
 // --- rank ---------------------------------------------------------------------
 
 export interface MergeProposal { from_id: string; into_id: string; rationale: string; evidence_ids: string[] }
 
-async function fetchAssessmentMap(db: Db, prospectIds: string[]): Promise<Map<string, Assessment & { supporting: string[] }>> {
+export async function fetchAssessmentMap(db: Db, prospectIds: string[]): Promise<Map<string, Assessment & { supporting: string[] }>> {
   const map = new Map<string, Assessment & { supporting: string[] }>();
   for (const pid of prospectIds) {
     const { results } = await db.prepare("SELECT * FROM assessment WHERE prospect_id = ?")
@@ -712,14 +751,19 @@ export async function rank(
     await applyMerges(db, budgets.run_id, opts.merges);
   }
   const prospects = await listProspects(db, budgets.run_id);
-  const qualified = prospects.filter((p) => p.status === "qualified");
+  const evidence = await listEvidence(db, budgets.run_id);
+  // Junk gate: directory-aggregator profiles reached the shortlist before
+  // (enbizopedia/beautynailhairsalons shipped barbers for a caterer). A
+  // prospect whose only evidence lives on directories never joins the list.
+  const sellable = (p: (typeof prospects)[number]): boolean => !isJunkProspect(p, evidence);
+  const qualified = prospects.filter((p) => p.status === "qualified" && sellable(p));
   // Steady seconds: suitable-but-no-signal prospects (fit + evidence +
   // route, no dated trigger) join the shortlist after the qualified.
   // Nigerian SME triggers are rarely published; withholding drafts from
   // perfect-fit accounts over an unobservable "why now" wastes the run
   // (run_c5d01d96: 6 boutiques at icp_fit 5, zero shortlisted).
   const amap = await fetchAssessmentMap(db, prospects.map((p) => p.id));
-  const steady = prospects.filter((p) => p.status === "investigating" && amap.get(p.id)?.verdict === "no_signal");
+  const steady = prospects.filter((p) => p.status === "investigating" && amap.get(p.id)?.verdict === "no_signal" && sellable(p));
   // Honest empty: the dimensional bar may qualify nobody (0/25 on
   // run_5538b2b3). Stopping here throws on the Workflow path and freezes
   // the run; completing lets draft park visibly with per-prospect reasons.
@@ -734,9 +778,6 @@ export async function rank(
     });
     return completed("empty shortlist: 0 qualified, see per-prospect verdicts");
   }
-  const evs = await listEvidence(db, budgets.run_id);
-  const evCount = new Map<string, number>();
-  for (const e of evs) evCount.set(e.run_id, (evCount.get(e.run_id) ?? 0) + 1);
   // Deterministic order: qualified first, then steady; rating desc, then
   // evidence strength desc, then name asc within each tier.
   const strength = (pid: string): number => amap.get(pid)?.supporting.length ?? 0;

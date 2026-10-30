@@ -25,9 +25,11 @@ import {
   listAssessments,
   plan,
   rank,
+  runQuality,
   type BudgetState,
+  type Prospect,
 } from "../src/research/phases";
-import { dedupeKey } from "../src/db";
+import { dedupeKey, type Assessment, type Evidence, type ProspectStatus } from "../src/db";
 import { hydrateBriefFromRun, ResearchWorkflow } from "../src/orchestrator";
 
 type Row = Record<string, any>;
@@ -509,11 +511,63 @@ describe("empty search", () => {
 
 // --- fetch failure -----------------------------------------------------------
 
+describe("run quality (agentic QA loop)", () => {
+  const ev = (id: string, url: string | null): Evidence => ({
+    id, run_id: RUN_ID, claim: "c", quote: "q", source_url: url,
+    source_type: url ? "business_site" : "search_snippet", retrieved_at: "t",
+    reliability: "unknown", conflicts_with: null, supersedes: null, created_at: "t",
+  });
+  const p = (id: string, evIds: string[], status: ProspectStatus, loc: Record<string, string> = {}): Prospect => ({
+    id, run_id: RUN_ID, name: id, category: "c", location: loc, dedupe_key: id,
+    evidence_ids: evIds, status, rank: null, created_at: "t",
+  });
+  const entry = (pid: string, fit: number): Assessment & { supporting: string[] } => ({
+    id: "a_" + pid, prospect_id: pid, fit_rating: fit as 3,
+    supporting_evidence_ids: [], weakening_evidence_ids: [], uncertainties: [],
+    missing_info: [], rationale: "r", model_id: "m", created_at: "t", supporting: [],
+  });
+
+  it("counts good and junk per the QA rules", () => {
+    // Junk regression: directory-only evidence (enbizopedia/businesslist)
+    // reached a caterer's shortlist as barbers and IT firms.
+    const evidence = [
+      ev("e1", "https://www.enbizopedia.com/NG/Ikeja/123/junk-co"),
+      ev("e2", "https://grillhouse.ng/about"),
+      ev("e3", "https://www.businesslist.com.ng/company/other"),
+    ];
+    const prospects = [
+      p("p1", ["e2"], "qualified", { area: "Ikeja" }), // good: fit >= 3, own site
+      p("p2", ["e1"], "investigating"),                // junk: directory-only
+      p("p3", ["e3"], "investigating"),                // junk: directory-only
+      p("p4", ["e2"], "disqualified"),                 // disqualified: never good
+    ];
+    const amap = new Map([
+      ["p1", entry("p1", 4)],
+      ["p4", entry("p4", 1)],
+    ]);
+    const q = runQuality(prospects, amap, evidence);
+    expect(q).toEqual({ good: 1, junk: 2, candidates: 4, unlocated: 1 }); // junk rows skip the location check
+  });
+
+  it("mixed evidence never counts as junk", () => {
+    const evidence = [ev("e1", "https://www.businesslist.com.ng/x"), ev("e2", "https://venue.ng/contact")];
+    const prospects = [p("p1", ["e1", "e2"], "investigating")];
+    const q = runQuality(prospects, new Map(), evidence);
+    expect(q.junk).toBe(0);
+    expect(q.good).toBe(0); // no assessment yet, but not junk either
+  });
+});
+
+// --- fetch failure -----------------------------------------------------------
+
 describe("fetch failures", () => {
-  it("records explicit fetch-failure evidence instead of skipping", async () => {
+  it("does not record fetch failures as evidence; the prospect still moves on", async () => {
+    // A failure detail is not a claim: attaching it once shipped "http 404"
+    // as visible evidence and fed junk into assess/draft prompts.
     const { db, tables } = makeMockDb();
     seedRun(tables);
-    await seedCandidate(db, "Blocked Co");
+    const { prospectId } = await seedCandidate(db, "Blocked Co");
+    const before = await listEvidence(db, RUN_ID);
     const out = await investigate(
       BRIEF,
       db,
@@ -522,10 +576,10 @@ describe("fetch failures", () => {
     );
     expect(out.status).toBe("completed");
     const evs = await listEvidence(db, RUN_ID);
-    const failures = evs.filter(
-      (e) => e.source_type === "fetched_page" && e.claim.includes("fetch failed"),
-    );
-    expect(failures.length).toBeGreaterThan(0);
+    expect(evs.filter((e) => e.claim.includes("fetch failed"))).toHaveLength(0);
+    expect(evs.length).toBe(before.length);
+    const prospect = (await listProspects(db, RUN_ID)).find((p) => p.id === prospectId);
+    expect(prospect?.status).toBe("investigating");
   });
 });
 

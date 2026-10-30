@@ -416,20 +416,23 @@
 
   function renderObChat() {
     var step = $("ob-step");
+    // Honest progress: count what is actually captured, never a fake
+    // "Step 2 of 3 · 28 seconds" script — questions adapt to what's missing.
+    var filled = OB_CORE.filter(function (k) { return ob.fields[k] && ob.fields[k].value; }).length;
     if (ob.done) {
-      step.textContent = "Step 2 of 3 · done";
+      step.textContent = "All understood · review and start below";
+      updateObSegs(3);
       $("ob-question-wrap").hidden = true;
       $("ob-done-wrap").hidden = false;
     } else {
-      var left = Math.max(12, 40 - Math.max(0, ob.followupsUsed - 1) * 12);
-      step.textContent = "Step 2 of 3 · about " + left + " seconds left";
+      step.textContent = filled + " of " + OB_CORE.length + " details captured · we only ask what is missing";
+      updateObSegs(Math.max(1, Math.round((filled / OB_CORE.length) * 3)));
       $("ob-question-wrap").hidden = false;
       $("ob-done-wrap").hidden = true;
       $("ob-question").textContent = ob.question ? ob.question.prompt : "Thinking…";
       $("ob-answer").value = "";
       renderObChips();
       updateObSub();
-      updateObSegs(2);
     }
     renderObFields();
   }
@@ -1666,7 +1669,9 @@
       .then(function (cmp) { return api.approveCampaign(cmp.id, { scheduled_at_utc: scheduled }); })
       .then(function (ok) {
         wiz.innerHTML = "<p>Scheduled. " + recipients.length + " message(s), first send " +
-          esc(ok.scheduled_at_utc || scheduled) + ". Watch it land on the status board.</p>";
+          esc(ok.scheduled_at_utc || scheduled) + ". Watch it land on the status board.</p>" +
+          "<div class=\"row\"><button type=\"button\" data-act=\"go-status\">Go to the status board</button>" +
+          "<button type=\"button\" class=\"secondary\" data-act=\"go-landing\">Describe another business</button></div>";
       }, function (e) {
         wiz.innerHTML = "<p>Could not schedule: " + esc((e && e.message) || e) + "</p>";
       });
@@ -1677,6 +1682,8 @@
     var ds = t.dataset || {};
     if (ds.act === "create-campaign") submitCampaign();
     if (ds.act === "go-senders") renderSendersView("campaigns");
+    if (ds.act === "go-status") renderStatuses();
+    if (ds.act === "go-landing") restartToLanding();
   }
 
   function stopRunAndEdit() {
@@ -1698,6 +1705,16 @@
     ob = null;
     obFirstPhase();
     showView("onboard");
+  }
+
+  /** Landing navigation: clear the session and return to the front door
+   * (the owner's "describe another business" path from anywhere). */
+  function restartToLanding() {
+    progressSeq += 1;
+    state.profile = null; state.prospects = []; state.selectedId = null;
+    state.drafts = []; state.decisions = {}; state.runId = null;
+    ob = null;
+    showView("landing");
   }
 
   /* Demo mode (the /demo path only) marks example data inside the

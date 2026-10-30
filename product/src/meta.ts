@@ -416,10 +416,18 @@ const DIRECTORY_HOSTS = [
   "findglocal", "globuya", "projectshelve", "cryptofinancejob", "babymigo", "nearu",
   "konga.com", "jumia.", "kara.com.ng",
 ];
+/** Pattern layer: a denylist alone lost to enbizopedia (run_109a87e6
+ * shipped barbers for a caterer from it). Match aggregator-shaped hosts. */
+const DIRECTORY_HOST_PATTERNS = [
+  /pedia/i, /directory/i, /yellowpages/i, /phonebook/i, /listicle/i,
+  /nearme/i, /nicelocal/i, /findopen/i, /bizbook/i, /localpages/i,
+  /freebusinesslisting/i, /companywall/i, /opencorporates/i,
+];
 
 export function isDirectoryHost(url: string): boolean {
   const h = hostOf(url).toLowerCase();
-  return DIRECTORY_HOSTS.some((d) => h.includes(d));
+  if (DIRECTORY_HOSTS.some((d) => h.includes(d))) return true;
+  return DIRECTORY_HOST_PATTERNS.some((p) => p.test(h));
 }
 
 /** Social hosts: the profile url itself is a DM-able contact route. */
@@ -767,6 +775,33 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       .slice(0, MAX_PLAN_QUERIES_OUT);
   }
 
+  /**
+   * QA-loop replan: the previous sweep found too few good buyers. Ask for
+   * NEW queries — different buyer types and wording, same locale — given
+   * what was already searched and why the batch fell short.
+   */
+  async function planMore(input: { previousQueries: string[]; whyNot: string }): Promise<string[]> {
+    const goal = activeBrief
+      ? [
+          `The previous search sweep fell short: ${input.whyNot}`,
+          `Already searched (do NOT repeat or reword these): ${input.previousQueries.join(" | ")}.`,
+          `${renderBriefPrompt(activeBrief)}`,
+          "Write up to 8 NEW search queries: different buyer organizations and occasions that can afford and host the offer, same service area, different wording. Reply ONLY a JSON array of search query strings.",
+        ].join("\n")
+      : [
+          `The previous search sweep fell short: ${input.whyNot}`,
+          `Already searched (do NOT repeat): ${input.previousQueries.join(" | ")}.`,
+          "Write up to 8 NEW search queries for better-fitting buyers, same locale, different wording. Reply ONLY a JSON array of search query strings.",
+        ].join("\n");
+    const req = buildPhaseRequest({ phase: "plan", briefExcerpt: brief, phaseGoal: goal });
+    req.tools = [];
+    const parsed = await callResponses(req);
+    return extractJsonArray(parsed.outputText)
+      .filter((q): q is string => typeof q === "string" && q.trim() !== "")
+      .map((q) => q.trim())
+      .slice(0, MAX_PLAN_QUERIES_OUT);
+  }
+
 /**
  * Best-effort visible-text extraction: fetched pages arrived as raw HTML
  * (run_99840398 quotes were <head> soup), poisoning assessment and contact
@@ -812,7 +847,7 @@ function extractVisibleText(html: string): string {
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: brief || "New business onboarding.",
-      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Location rule: a service_area must be precise enough to place on a map — at least two parts, comma-separated (area, city or state, country — e.g. "Ikeja, Lagos, Nigeria"). Be a good strategist about reach: some businesses serve only locally, some nationwide, some purely online, and some are based in one place but serve clients worldwide. Capture what the owner actually says: the base precisely when known, plus the stated reach when they give one (e.g. "Ikeja, Lagos, Nigeria — nationwide delivery"); "Worldwide" or "Online" alone are valid values when there is no fixed base. Never invent a base, never invent a reach. When the owner names a bare one-word place and no known field already carries the wider area, spend the follow-up confirming it: ask for the fuller form and offer the most likely full location as a chip (world knowledge is allowed in chips — they are suggestions the owner confirms, never auto-applied). Never silently expand a bare place name into fields. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
+      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Never re-ask: if a field already appears in Known with a value, it is ANSWERED — never ask about it again, not even to confirm or refine; each field may be asked about at most once in the whole conversation. Only ask about a field that is still missing AND material. Think like a sales strategist: read the whole reply before asking anything — an owner who says "we grill chicken for events and supply around Ikeja, Lagos" has already answered what they sell, who buys, and where; do not ask again. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area — the country is never worth a follow-up on its own. Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base ("Ikeja, Lagos, Nigeria — nationwide delivery"). Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);
@@ -880,5 +915,5 @@ function extractVisibleText(html: string): string {
     activeBrief = b;
   }
 
-  return { planQueries, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, rewriteDraft, modelId: model };
+  return { planQueries, planMore, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, rewriteDraft, modelId: model };
 }

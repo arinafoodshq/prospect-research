@@ -847,6 +847,46 @@ describe("conversational onboarding", () => {
     );
   });
 
+  it("never re-asks a field that already carries a value", async () => {
+    // The owner already said "around ikeja, lagos"; the model asking
+    // "What is your full base location?" again was sick UX. The turn ends
+    // instead, and the hedge verb is stripped from the stored value.
+    await withMockTurn(
+      () => ({
+        fields: { service_area: { value: "around Ikeja, Lagos", label: "inferred" } },
+        question: { key: "service_area", prompt: "What is your full base location?", chips: [] },
+        done: false,
+      }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", {
+          text: "we grill chicken for events and supply around ikeja, lagos", fields: {}, followups_used: 0,
+        });
+        expect(res.body.question).toBeNull();
+        expect(res.body.done).toBe(true);
+        expect(res.body.fields.service_area.value).toBe("Ikeja, Lagos");
+      },
+    );
+  });
+
+  it("bare location ask survives the re-ask guard (one ask, never two)", async () => {
+    await withMockTurn(
+      () => ({
+        fields: { service_area: { value: "Ikeja", label: "inferred" } },
+        question: { key: "service_area", prompt: "What is your full base location?", chips: [] },
+        done: false,
+      }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", { text: "x", fields: {}, followups_used: 0 });
+        // Dropped model ask, replaced by the deterministic location ask —
+        // exactly one question about location, never a repeat later.
+        expect(res.body.question.key).toBe("service_area");
+        expect(res.body.question.prompt).toBe(LOCATION_ASK_PROMPT);
+      },
+    );
+  });
+
   it("accepts multi-part locations without asking", async () => {
     expect(needsLocationDisambiguation("Ikeja, Lagos, Nigeria")).toBe(false);
     expect(needsLocationDisambiguation("Lagos, Nigeria")).toBe(false);

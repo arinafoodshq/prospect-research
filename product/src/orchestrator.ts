@@ -6,7 +6,7 @@
  * with an inline runtime (no gates, no close — the run parks at
  * awaiting_approval for human decisions).
  */
-import { getRun, setRunStatus, type Db, type RunStatus } from "./db";
+import { getRun, listEvidence, listProspects, setRunStatus, type Db, type RunStatus } from "./db";
 import { DEFAULT_CAPS, emptyConsumed, type BudgetConsumed } from "./research/budgets";
 import { validateBrief } from "./research/commercial";
 import {
@@ -15,12 +15,15 @@ import {
   close,
   discover,
   draft,
+  fetchAssessmentMap,
   investigate,
   plan,
   rank,
+  runQuality,
   type Brief,
   type MetaClient,
   type PhaseOutcome,
+  type RunQuality,
 } from "./research/phases";
 import { completed, stopped } from "./research/phases";
 
@@ -180,9 +183,28 @@ export class ResearchWorkflow {
       await this.gate("brief_confirmed", "run cannot plan until the brief is confirmed");
     }
     await this.phase("plan", () => this.plan());
-    for (const phase of ["discover", "investigate", "assess", "rank", "draft"] as const) {
-      await this.phase(phase, () => this.dispatch(phase));
+    // Agentic QA loop (owner direction 2026-10-30): research one sweep, then
+    // JUDGE it — enough good buyers, or loop back with freshly planned
+    // queries. Budget and a 3-sweep cap bound the loop; Workflow steps keep
+    // every sweep replay-safe.
+    const TARGET_GOOD = 4;
+    const MAX_SWEEPS = 3;
+    let prevCandidates = -1;
+    for (let sweep = 1; sweep <= MAX_SWEEPS; sweep += 1) {
+      await this.phase("discover", () => this.dispatch("discover"));
+      await this.phase("investigate", () => this.dispatch("investigate"));
+      await this.phase("assess", () => this.dispatch("assess"));
+      const qa = await this.runtime.step(`qa:${sweep}`, () => this.qualitySnapshot()) as RunQuality & { budgetLeft: boolean };
+      this.runtime.log(`qa sweep ${sweep}: good ${qa.good}, junk ${qa.junk}, candidates ${qa.candidates}, unlocated ${qa.unlocated}`);
+      if (qa.good >= TARGET_GOOD) break; // quality bar met
+      if (qa.candidates === prevCandidates) break; // planner exhausted: no new candidates
+      prevCandidates = qa.candidates;
+      if (!qa.budgetLeft || sweep === MAX_SWEEPS) break; // rank what exists
+      const fresh = await this.replan(sweep, qa);
+      if (!fresh) break; // model produced nothing new: rank what exists
     }
+    await this.phase("rank", () => this.dispatch("rank"));
+    await this.phase("draft", () => this.dispatch("draft"));
     // Park visibly at awaiting_approval before the first wait so the UI can
     // poll progress while humans decide (drafting -> awaiting_approval).
     // Idempotent: draft() already parks best-effort, so skip when landed.
@@ -222,46 +244,74 @@ export class ResearchWorkflow {
   }
 
   /**
-   * runPhases: synchronous driver for the dev start-route — plan through
-   * draft with run-status markers, no gates, no close. A stopped phase parks
-   * the run stopped with the phase reason; an exception parks it failed.
+   * runPhases: synchronous driver for the dev start-route — plan, then the
+   * same QA sweeps as the Workflow path (no gates, no close). A stopped phase
+   * parks the run stopped with the phase reason; an exception parks it failed.
    */
   async runPhases(): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error("runPhases requires injected deps");
+    const first = await this.runPhasesPhase("plan");
+    if (first) return first;
+    // Agentic QA loop, dev flavor: same sweep/quality/replan logic as run().
+    const TARGET_GOOD = 4;
+    const MAX_SWEEPS = 3;
+    let prevCandidates = -1;
+    for (let sweep = 1; sweep <= MAX_SWEEPS; sweep += 1) {
+      for (const name of ["discover", "investigate", "assess"] as const) {
+        const out = await this.runPhasesPhase(name);
+        if (out) return out;
+      }
+      const qa = await this.qualitySnapshot();
+      this.runtime.log(`qa sweep ${sweep}: good ${qa.good}, junk ${qa.junk}, candidates ${qa.candidates}, unlocated ${qa.unlocated}`);
+      if (qa.good >= TARGET_GOOD) break;
+      if (qa.candidates === prevCandidates) break;
+      prevCandidates = qa.candidates;
+      if (!qa.budgetLeft || sweep === MAX_SWEEPS) break;
+      const fresh = await this.replan(sweep, qa);
+      if (!fresh) break;
+    }
+    const rankOutcome = await this.runPhasesPhase("rank");
+    if (rankOutcome) return rankOutcome;
+    const draftOutcome = await this.runPhasesPhase("draft");
+    return draftOutcome ?? completed("plan through draft complete");
+  }
+
+  /** One named phase through the runtime (dev driver); null when the run
+   * parked stopped/failed — the caller decides whether that ends the run. */
+  private async runPhasesPhase(name: WorkflowPhase): Promise<PhaseOutcome | null> {
+    if (!this.deps) throw new Error("runPhasesPhase requires injected deps");
     const { db, run_id } = this.deps;
-    for (const name of ["plan", "discover", "investigate", "assess", "rank", "draft"] as const) {
-      const marker = PHASE_RUN_STATUS[name];
-      if (marker) {
-        try {
-          await setRunStatus(db, run_id, marker);
-        } catch {
-          return stopped("run_not_startable", `cannot move run to ${marker}`);
-        }
-      }
-      let outcome: PhaseOutcome;
+    const marker = name === "close" ? null : PHASE_RUN_STATUS[name as Exclude<WorkflowPhase, "close">];
+    if (marker) {
       try {
-        this.runtime.log(`phase ${name} started`);
-        const stepResult = name === "plan"
-          ? await this.runtime.step(`phase:${name}`, () => this.execPlan())
-          : await this.runtime.step(`phase:${name}`, () => this.execPhase(name));
-        outcome = stepResult as PhaseOutcome;
-        this.runtime.log(`phase ${name} ${outcome.status}`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.runtime.log(`phase ${name} failed: ${msg}`);
-        try {
-          await setRunStatus(db, run_id, "failed", `phase_failed:${name}`);
-        } catch { /* failed marker best-effort */ }
-        return stopped("phase_failed", `${name}: ${msg}`);
-      }
-      if (outcome.status === "stopped") {
-        try {
-          await setRunStatus(db, run_id, "stopped", outcome.stop_reason);
-        } catch { /* stopped marker best-effort */ }
-        return outcome;
+        await setRunStatus(db, run_id, marker);
+      } catch {
+        return stopped("run_not_startable", `cannot move run to ${marker}`);
       }
     }
-    return completed("plan through draft complete");
+    let outcome: PhaseOutcome;
+    try {
+      this.runtime.log(`phase ${name} started`);
+      const stepResult = name === "plan"
+        ? await this.runtime.step(`phase:${name}`, () => this.execPlan())
+        : await this.runtime.step(`phase:${name}`, () => this.execPhase(name as Exclude<WorkflowPhase, "plan" | "close">));
+      outcome = stepResult as PhaseOutcome;
+      this.runtime.log(`phase ${name} ${outcome.status}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.runtime.log(`phase ${name} failed: ${msg}`);
+      try {
+        await setRunStatus(db, run_id, "failed", `phase_failed:${name}`);
+      } catch { /* failed marker best-effort */ }
+      return stopped("phase_failed", `${name}: ${msg}`);
+    }
+    if (outcome.status === "stopped") {
+      try {
+        await setRunStatus(db, run_id, "stopped", outcome.stop_reason);
+      } catch { /* stopped marker best-effort */ }
+      return outcome;
+    }
+    return null;
   }
 
   private async phase(name: WorkflowPhase, fn: () => Promise<unknown>): Promise<void> {
@@ -332,6 +382,52 @@ export class ResearchWorkflow {
     }
     await persistRunConsumed(db, this.deps.run_id, ctx.consumed);
     return outcome;
+  }
+
+  /**
+   * Deterministic quality snapshot for the QA loop: good (fit >= 3, live,
+   * non-directory evidence), junk (directory-only evidence), candidates,
+   * unlocated. Read-only — the loop in run() decides what to do with it.
+   */
+  private async qualitySnapshot(): Promise<RunQuality & { budgetLeft: boolean }> {
+    if (!this.deps) throw new Error("quality snapshot requires injected deps");
+    const { db, run_id } = this.deps;
+    const prospects = await listProspects(db, run_id);
+    const amap = await fetchAssessmentMap(db, prospects.map((p) => p.id));
+    const evidence = await listEvidence(db, run_id);
+    const q = runQuality(prospects, amap, evidence);
+    const consumed = await loadRunConsumed(db, run_id);
+    const budgetLeft = consumed.searches < DEFAULT_CAPS.searches
+      && consumed.fetches < DEFAULT_CAPS.fetches - 4
+      && consumed.candidates < DEFAULT_CAPS.candidates;
+    return { ...q, budgetLeft };
+  }
+
+  /**
+   * QA-loop replan: ask the model for fresh queries given the sweep's
+   * quality report; write them as the next sweep's plan. Returns null when
+   * the model is dry (nothing new) or no planMore client exists.
+   */
+  private async replan(sweep: number, qa: RunQuality): Promise<string[] | null> {
+    if (!this.deps) throw new Error("replan requires injected deps");
+    const { db, run_id } = this.deps;
+    const planMore = this.deps.meta.planMore;
+    if (!planMore) return null;
+    return this.runtime.step(`replan:${sweep}`, async (): Promise<string[] | null> => {
+      const row = await getRun(db, run_id);
+      const plan = (row?.plan ?? {}) as { queries?: string[]; all_queries?: string[] };
+      const previous = plan.all_queries ?? plan.queries ?? [];
+      const whyNot = `only ${qa.good} of ${qa.candidates} candidates look good; ${qa.junk} came from directory pages; ${qa.unlocated} lack a location. Need buyer organizations that match the brief.`;
+      const fresh = await planMore({ previousQueries: previous, whyNot });
+      const added = (Array.isArray(fresh) ? fresh : [])
+        .filter((q) => typeof q === "string" && q.trim() !== "" && !previous.includes(q))
+        .slice(0, 8);
+      if (added.length === 0) return null;
+      await db.prepare("UPDATE research_run SET plan = ? WHERE id = ?")
+        .bind(JSON.stringify({ queries: added, all_queries: [...previous, ...added] }), run_id).run();
+      this.runtime.log(`replan sweep ${sweep}: +${added.length} fresh queries`);
+      return added;
+    }) as Promise<string[] | null>;
   }
 
   /** plan: model drafts a search plan (business types × locale angles, <=8 queries). */
