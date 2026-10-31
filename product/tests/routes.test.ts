@@ -909,6 +909,33 @@ describe("conversational onboarding", () => {
     );
   });
 
+  it("drops model questions for facts the owner's words already named (sharp memory)", async () => {
+    // "504 yards Grills and Drinks sell grilled chicken to individuals,
+    // corporate events" — the model still asked the business name and "to
+    // whom". When it asks about a field it just extracted, the turn ends:
+    // the summary is the confirmation surface.
+    await withMockTurn(
+      () => ({
+        fields: {
+          offering: { value: "grilled chicken for individuals and corporate events", label: "inferred" },
+          ideal_customer: { value: "individuals, corporate event organisers", label: "inferred" },
+        },
+        question: { key: "ideal_customer", prompt: "To whom?", chips: [] },
+        done: false,
+      }),
+      async () => {
+        const db = makeMockDb();
+        const res = await call(db, "POST", "/api/onboard/turn", {
+          text: "504 yards Grills and Drinks sell grilled chicken to individuals, corporate events",
+          fields: {}, followups_used: 0,
+        });
+        expect(res.body.question).toBeNull();
+        expect(res.body.done).toBe(true);
+        expect(res.body.fields.offering.value).toContain("grilled chicken");
+      },
+    );
+  });
+
   it("lets a global/online answer through without the location ask", async () => {
     await withMockTurn(
       () => ({ fields: { service_area: { value: "Worldwide", label: "inferred" } }, question: null, done: true }),

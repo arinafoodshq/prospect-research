@@ -1008,6 +1008,27 @@ describe("plan builds the commercial brief", () => {
     expect(buildBrief).not.toHaveBeenCalled();
     expect(handed.version).toBe(1);
   });
+
+  it("passes the owner's service-area note to the brief (root cause of the Nigeria-wide junk run)", async () => {
+    // run with 'kodeosh street, ikeja' stated but the brief said "no service
+    // area stated": areaOf only read {city,region,country}, dropping the
+    // onboarding note — geos became a placeholder and queries went wide.
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["q1"]);
+    tables["business_profile"].push({
+      id: "brief_1", name: "504 Yard", website_url: "", description: "grill chicken",
+      target_market: "events",
+      service_area: JSON.stringify({ note: "kodeosh street, ikeja" }),
+      constraints: "{}",
+    });
+    let receivedNote = "";
+    const out = await plan(BRIEF, db, {
+      buildBrief: async (profile: any) => { receivedNote = profile.service_area_note; return RETAIL_BRIEF as any; },
+      planQueries: async () => ["q"],
+    }, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect(receivedNote).toBe("kodeosh street, ikeja");
+  });
 });
 
 describe("assess hard gate + dimensions", () => {

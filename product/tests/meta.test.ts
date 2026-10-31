@@ -266,6 +266,7 @@ describe("business-name gate", () => {
     "Air Peace",
     "Dervac Technologies",
     "Best Buy",
+    "HR Solutions Ltd",
   ])("accepts %s", (name) => {
     expect(isPlausibleName(name)).toBe(true);
   });
@@ -332,6 +333,13 @@ describe("business-name gate", () => {
     "HOSPITAL CITY STATE",
     "Introducing the DUCHESS International Hospital,",
     "Commercial Office Building",
+    // Run 2026-10-30 junk: news headlines, job ads, dated listings.
+    "Ibukun Awosika launches THE HUB executive venue",
+    "HR Business Partner (Fintech)",
+    "Head of Human Resources, Nigeria at Hugo •",
+    "People Operations Manager (Hybrid) at Erecruiter",
+    "People Operations Lead at Flutterwave May, 2022",
+    "Hypercity (Nigeria) hiring Admin Manager Job",
   ])("rejects %s", (name) => {
     expect(isPlausibleName(name)).toBe(false);
   });

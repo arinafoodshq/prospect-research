@@ -406,6 +406,7 @@ export function buildBriefGoal(profile: {
     '"buyer_roles":[{"role":string,"concerns":[1-3]}],"statements":[{"text":string,"provenance":"user_fact|source_verified|inference|hypothesis|unknown"}],',
     '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty]}.',
     "Rules: exactly one primary segment; exclusions must name concrete categories INCLUDING adjacent-but-out-of-scope verticals (e.g. schools for a retail brief — industry fit is model-judged, so the exclusion list is the only deterministic drift guard); every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
+    "Geography rule: geos are searchable PLACES, never placeholders. Expand a street-level base to its area, city, state and country ('Kodesoh Street, Ikeja' -> 'Ikeja, Lagos, Nigeria'); never write 'to be confirmed' — derive the metro from the stated base, or honor a stated reach (nationwide/worldwide/online) as the geography.",
     "Strategist rules: identify WHO PAYS for this offer — the buying organizations that host, organize, or budget for it, never lookalike sellers of the same thing (a caterer's buyers are event hosts: corporate admins, event planning companies, event centres, hotels; not other caterers). Expand the stated base to its well-known neighbouring districts within the same metro so geos cover the realistic service radius (a base of Ikeja, Lagos also reaches Ogba, Allen, Opebi, Maryland, Airport Road). Honor stated reach: nationwide/worldwide/online means geography says so and buyer_roles name who buys at that reach. buyer_roles must be concrete job titles or organization types with the budget to say yes.",
   ].join("\n");
 }
@@ -418,6 +419,8 @@ export function buildPlanGoal(b: CommercialBrief): string {
     "Draft a buyer search plan: business types x locale angles.",
     `Queries must find BUYING businesses in: ${seg.industries.join(", ")} (${seg.label}), near ${seg.geos.join(", ")}.`,
     `Buyers are the organizations that host, organize, or budget for the offer (${buyers}) — query buyer types and occasions, not lookalike sellers.`,
+    `Source like an ecosystem researcher: named venues, centres, clubs, associations, event calendars and recurring programmes ('<venue> Ikeja capacity contacts', '<association> Lagos events calendar', '<street or neighbourhood> companies', '<venue> outside vendors policy') — never role listings or job ads.`,
+    `Cover at least 4 distinct buyer categories across the queries (venues/centres, planners, corporate offices, faith and community organisations, hospitality, clubs).`,
     `Never list: ${seg.exclusions.join(", ")}.`,
     `In scope when: ${seg.inclusions.join("; ")}.`,
     "Seek business profiles and official sites, never marketplace product listings (Jiji, Konga, Jumia return products, not buyers).",
@@ -432,6 +435,8 @@ export function buildSearchGoal(b: CommercialBrief, query: string): string {
   return [
     `Find businesses that match: ${query}.`,
     `Wanted: buying businesses in ${seg.industries.join(", ")} (${seg.label}) near ${seg.geos.join(", ")} — remember buyers are the hosts/organizers/budget-owners (${buyers}), not lookalike sellers.`,
+    `Never return job ads or role listings (a 'Head of HR at X' posting is not a buyer); every result must be an organisation with a plausible use case for the offer, located in the brief's area.`,
+    `Two-step rule: report the organisation with a real url; if the organisation's own social profile (Instagram/Facebook) is visible in the results, attach it — never guess a handle that is not in the results.`,
     `Never list: ${seg.exclusions.join(", ")}.`,
     `Prefer the business's own website, Google Business page, or official social profile as the url; directories and listicles are a last resort.`,
     `Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}].`,

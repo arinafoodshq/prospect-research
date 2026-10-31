@@ -1155,3 +1155,35 @@ button label "Working...", arrow parked, aria-busy=true; 0 console
 errors, 0 failed requests. Onboarding turn UX is now fully animated:
 shimmer+dots status line, working button morph, honest captured-count
 progress line, typed-answer-survives-failure kept.
+2026-10-30 (504Yard benchmark mined + root cause + quality gates v3):
+User: "the results so far are dumb" — pointed at C:\dev\504Yard as the good
+example. Mined OpenCode session history (opencode.db, session_v2 +
+session_message): ses_ea237a001 "504 Yard Grills prospect research &
+outreach" (Oct 21-23, C:/dev/game) spawned SEVEN parallel category
+subagents (venues/planners/churches/corporates/hotels/clubs/lounges,
+"Research Lagos X w/ Instagram", 25-30 each). The method: (1) category
+split, (2) verification anchor — an Instagram handle must be SEEN in
+search results, never guessed, (3) two-step per prospect: org via
+directory CATEGORY page then its social handle, (4) strict evidence
+discipline (phone only when seen). ROOT CAUSE of the Nigeria-wide junk
+run found in D1: areaOf() parsed service_area {city,region,country} but
+onboarding stores {note:"kodeosh street, ikeja"} -> brief said "no
+service area stated" -> geos placeholder -> wide queries -> job boards.
+Fixed: areaOf passes the note (tested); geography rule in buildBriefGoal
+(expand street to area/city/state/country, no placeholders); ecosystem
+researcher query style + >=4 buyer categories in plan goal; search goal
+forbids job ads, two-step handle rule (never guess); investigate gains
+a 504Yard verification pass (one bounded search per prospect for the
+official social profile; route+evidence saved; skipped on social
+discovery url or budget exhaustion); isDirectoryHost + job boards
+(betajob/grabjobs/myjobmag/jobgivers/glassdoor/zippia) + cvent/vymaps/
+mapcarta/billionaires.africa/amimagazine/nairaland; isPlausibleName
+rejects launch/unveil/debut names, role-led job-ad names (HR Business
+Partner..., Head of..., People Operations...), month+year listings,
+"hiring" ads; evidence URL dedupe in discover (billionaires.africa x3
+regression); containment merge in rank ("De Renaissance" vs "De
+Renaissance Hotel" absorbed into the higher-fit name, evidence unioned,
+loser disqualified with note); onboarding prompt sharp-memory few-shot
+(name/offer/buyers extracted from one statement; asking for a stated
+name forbidden) + tested anti-re-ask drop. Verified: tsc clean, 402/402
+vitest, smoke PASS. NOT yet deployed.

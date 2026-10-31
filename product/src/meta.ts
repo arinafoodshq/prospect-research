@@ -415,6 +415,11 @@ const DIRECTORY_HOSTS = [
   "towncriernews", "etimesafrica", "healthlifescienceplus", "edusko", "ischooladvisor",
   "findglocal", "globuya", "projectshelve", "cryptofinancejob", "babymigo", "nearu",
   "konga.com", "jumia.", "kara.com.ng",
+  // Job boards shipped "HR Business Partner (Fintech)" as a prospect for a
+  // caterer; news/map/venue aggregators shipped headlines and list pages.
+  "betajob", "grabjobs", "myjobmag", "jobgivers", "glassdoor", "zippia",
+  "cvent", "vymaps", "mapcarta", "placedigger", "billionaires.africa",
+  "amimagazine", "nairaland",
 ];
 /** Pattern layer: a denylist alone lost to enbizopedia (run_109a87e6
  * shipped barbers for a caterer from it). Match aggregator-shaped hosts. */
@@ -463,6 +468,20 @@ export function isPlausibleName(raw: string): boolean {
   if (/\b(is|are|was|were|has|have|offers?|provides?|providing|located)\b/i.test(trimmed)) return false; // sentence, not a name
   if (HEADLINE_VERBS.test(trimmed) && !COMPANY_DESIGNATOR.test(trimmed)) return false; // news headline, not a name
   if (NEVER_NAME_VERBS.test(trimmed)) return false; // shutdown/death/announcement headline, never a business name
+  // Person-launches-news pattern: "Ibukun Awosika launches THE HUB executive
+  // venue" passed the headline check via the venue word 'hub' — a launch
+  // verb is never part of a business name.
+  if (/\b(launches|unveils|debuts|inaugurates|launched|unveiled)\b/i.test(trimmed)) return false;
+  // Role-led names are job ads, not organisations ("HR Business Partner
+  // (Fintech)", "Head of Human Resources, Nigeria at Hugo", "People
+  // Operations Manager (Hybrid) at Erecruiter").
+  if (/^(head of\b|manager\b|lead\b|officer\b|director\b|hr\s+(business partner|manager|lead|officer|generalist|partner)\b|people ops|people operations|talent |recruiter|recruitment|business partner|co-?ordinator|supervisor|intern\b|graduate trainee|sales executive|account officer|hiring\b)/i.test(trimmed)) return false;
+  // A month + year inside a name is a dated listing ("People Operations Lead
+  // at Flutterwave May, 2022").
+  if (/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s*,?\s*20\d\d\b/i.test(trimmed)) return false;
+  // "X hiring Y" is a job ad, never a business ("Hypercity (Nigeria) hiring
+  // Admin Manager Job").
+  if (/\bhiring\b/i.test(trimmed)) return false;
   if (/@/.test(trimmed)) return false; // contains an email address: contact page, never a business name
   if (/\//.test(trimmed)) return false; // url path, not a name
   if (/area guide|neighbourhood guide|neighborhood guide|city guide/i.test(trimmed)) return false; // guide page, not a business
@@ -847,7 +866,7 @@ function extractVisibleText(html: string): string {
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: brief || "New business onboarding.",
-      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Never re-ask: if a field already appears in Known with a value, it is ANSWERED — never ask about it again, not even to confirm or refine; each field may be asked about at most once in the whole conversation. Only ask about a field that is still missing AND material. Think like a sales strategist: read the whole reply before asking anything — an owner who says "we grill chicken for events and supply around Ikeja, Lagos" has already answered what they sell, who buys, and where; do not ask again. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area — the country is never worth a follow-up on its own. Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base ("Ikeja, Lagos, Nigeria — nationwide delivery"). Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
+      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Sharp memory — Known plus the owner's words are ONE memory, and the owner volunteers facts no question asked for: "504 yards Grills and Drinks sell grilled chicken to individuals, corporate events" already names the business (504 yards Grills and Drinks), the offer (grilled chicken), AND the buyers (individuals, corporate event organisers) — extract ALL of them in that single turn and ask nothing. NEVER ask for the business name when the words contain any name-like phrase ('X Grills', 'Y Services', 'my company Z'); extract it as inferred and let the owner edit on the summary — asking for a stated name is forbidden. Never spend a question confirming something you can already extract: the owner confirms and edits every field on the summary screen. Each field may be asked about at most once in the whole conversation; a field in Known with a value is ANSWERED, never re-asked, not even to confirm or refine. Only ask about a fact that is still missing AND material, at most one per turn. Think like a sales strategist: read the whole reply before asking anything. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area — the country is never worth a follow-up on its own; a street address is fine too ("Kodesoh Street, Ikeja"). Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base. Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);

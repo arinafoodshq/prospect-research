@@ -22,7 +22,7 @@ import {
   type Evidence,
   type Prospect,
 } from "../db";
-import { budgetReason, firstBreach, type BudgetCaps, type BudgetConsumed } from "./budgets";
+import { budgetReason, checkIncrement, firstBreach, type BudgetCaps, type BudgetConsumed } from "./budgets";
 import {
   checkHardConstraints, decideVerdict, extractContacts, icpFromBrief, isGroundedContact,
   validateBrief,
@@ -220,10 +220,21 @@ export async function plan(
       const profile = await db.prepare("SELECT * FROM business_profile WHERE id = ?").bind(brief.id)
         .first<{ name: string; website_url: string; description: string; target_market: string; service_area: string; constraints: string }>();
       if (!profile) return stopped("plan_failed", `profile ${brief.id} not found`);
+      /**
+       * Service-area note: onboarding stores {note: "..."} (the owner's own
+       * words, e.g. "kodeosh street, ikeja"); structured runs store
+       * {city, region, country}. The note MUST reach the brief — dropping it
+       * made the brief claim "no service area stated", geos became a
+       * placeholder and every query went Nigeria-wide (run with job-board
+       * junk, 2026-10-30).
+       */
       const areaOf = (raw: string): string => {
         try {
-          const parsed = JSON.parse(raw) as { country?: unknown; region?: unknown; city?: unknown };
-          return [parsed?.city, parsed?.region, parsed?.country].filter((v): v is string => typeof v === "string" && v !== "").join(", ");
+          const parsed = JSON.parse(raw) as { note?: unknown; country?: unknown; region?: unknown; city?: unknown };
+          const note = typeof parsed?.note === "string" ? parsed.note.trim() : "";
+          const structured = [parsed?.city, parsed?.region, parsed?.country]
+            .filter((v): v is string => typeof v === "string" && v !== "").join(", ");
+          return note || structured;
         } catch { return ""; }
       };
       const constraintsOf = (raw: string): string => {
@@ -325,7 +336,14 @@ export async function discover(
     for (const h of hits) {
       if (budgets.consumed.candidates >= budgets.caps.candidates) break;
       try {
-        const evId = await saveEvidence(db, {
+        // Evidence URL dedupe: the same source url reached the shortlist as
+        // three separate evidence rows across sweeps (billionaires.africa
+        // x3). One url = one evidence row per run; later hits reuse it.
+        const existingEv = h.source_url
+          ? await db.prepare("SELECT id FROM evidence WHERE run_id = ? AND source_url = ?")
+            .bind(budgets.run_id, h.source_url).first<string>("id")
+          : null;
+        const evId = existingEv ?? await saveEvidence(db, {
           run_id: budgets.run_id, claim: h.claim, quote: h.quote,
           source_url: h.source_url, source_type: "search_snippet",
           retrieved_at: new Date().toISOString(), reliability: "unknown",
@@ -439,6 +457,44 @@ export async function investigate(
       // Fetch failure: recorded in the phase outcome, NEVER as an evidence
       // row — a failure detail is not a claim, and attaching it made the
       // UI show "http 404" as evidence and fed junk into assess/draft.
+    }
+    // Verification anchor (the 504Yard method): find the organisation's
+    // official social profile with a SEARCH, never guessed — the handle must
+    // come from results. Best-effort, bounded by the search budget, skipped
+    // when the discovery url is already a social profile.
+    const verificationQuery = `\"${p.name}\" ${p.location?.area ?? ""} official Instagram Facebook`;
+    if (
+      meta.search && !isSocialHost(target.source_url)
+      && !checkIncrement("searches", budgets.consumed, budgets.caps)
+    ) {
+      try {
+        const hits = await meta.search(verificationQuery);
+        budgets.consumed.searches += 1;
+        budgets.consumed.tool_rounds += 1;
+        const social = (hits ?? []).find(
+          (h) => h.source_url && isSocialHost(h.source_url)
+            && (h.name.toLowerCase().includes(p.name.toLowerCase().split(" ")[0] ?? "")
+              || h.claim.toLowerCase().includes(p.name.toLowerCase().split(" ")[0] ?? "")),
+        );
+        if (social?.source_url) {
+          const evId2 = await saveEvidence(db, {
+            run_id: budgets.run_id, claim: `official social profile for ${p.name}`,
+            quote: social.claim || social.quote || social.source_url,
+            source_url: social.source_url, source_type: "business_site",
+            retrieved_at: new Date().toISOString(), reliability: "unknown",
+            conflicts_with: null, supersedes: null,
+          });
+          await attach(evId2);
+          try {
+            await saveRoute(db, {
+              prospect_id: p.id, channel: "social_profile",
+              value: social.source_url, evidence_id: evId2,
+            });
+          } catch { /* dupe route: already anchored */ }
+        }
+      } catch {
+        /* verification pass is best-effort: the run continues without it */
+      }
     }
     try {
       await setProspectStatus(db, budgets.run_id, p.id, "investigating");
@@ -752,17 +808,55 @@ export async function rank(
   }
   const prospects = await listProspects(db, budgets.run_id);
   const evidence = await listEvidence(db, budgets.run_id);
+  const amap = await fetchAssessmentMap(db, prospects.map((p) => p.id));
+  // Containment merge: "De Renaissance" and "De Renaissance Hotel" are one
+  // venue with two names — both reached the shortlist before. The higher-fit
+  // name absorbs the loser's evidence; the loser leaves the shortlist path.
+  const cands = prospects.filter((p) => p.status === "qualified" || p.status === "investigating");
+  const absorbed = new Set<string>();
+  for (let i = 0; i < cands.length; i += 1) {
+    const ci = cands[i];
+    if (!ci || absorbed.has(ci.id)) continue;
+    for (let j = i + 1; j < cands.length; j += 1) {
+      const cj = cands[j];
+      if (!cj || absorbed.has(cj.id)) continue;
+      const a = ci.name.toLowerCase().trim();
+      const b = cj.name.toLowerCase().trim();
+      if (a === b || (!a.includes(b) && !b.includes(a))) continue;
+      const fitA = amap.get(ci.id)?.fit_rating ?? 0;
+      const fitB = amap.get(cj.id)?.fit_rating ?? 0;
+      const winner = fitB > fitA ? cj : ci;
+      const loser = winner === ci ? cj : ci;
+      absorbed.add(loser.id);
+      try {
+        const winRow = await db.prepare("SELECT evidence_ids FROM prospect WHERE id = ?")
+          .bind(winner.id).first<{ evidence_ids: string }>();
+        const winIds: string[] = (() => {
+          try { const parsed: unknown = JSON.parse(winRow?.evidence_ids ?? "[]"); return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : []; } catch { return []; }
+        })();
+        const union = [...new Set([...winIds, ...loser.evidence_ids])];
+        await db.prepare("UPDATE prospect SET evidence_ids = ? WHERE id = ?").bind(JSON.stringify(union), winner.id).run();
+        await logActivity(db, {
+          run_id: budgets.run_id, prospect_id: winner.id, event: "created",
+          note: `contained-name merge: ${loser.name} -> ${winner.name}`,
+        });
+        await setProspectStatus(db, budgets.run_id, loser.id, "disqualified").catch(() => { /* best-effort */ });
+      } catch (e) {
+        if (!(e instanceof DbValidationError)) throw e;
+      }
+    }
+  }
   // Junk gate: directory-aggregator profiles reached the shortlist before
   // (enbizopedia/beautynailhairsalons shipped barbers for a caterer). A
   // prospect whose only evidence lives on directories never joins the list.
-  const sellable = (p: (typeof prospects)[number]): boolean => !isJunkProspect(p, evidence);
+  const sellable = (p: (typeof prospects)[number]): boolean => !isJunkProspect(p, evidence)
+    && !absorbed.has(p.id);
   const qualified = prospects.filter((p) => p.status === "qualified" && sellable(p));
   // Steady seconds: suitable-but-no-signal prospects (fit + evidence +
   // route, no dated trigger) join the shortlist after the qualified.
   // Nigerian SME triggers are rarely published; withholding drafts from
   // perfect-fit accounts over an unobservable "why now" wastes the run
   // (run_c5d01d96: 6 boutiques at icp_fit 5, zero shortlisted).
-  const amap = await fetchAssessmentMap(db, prospects.map((p) => p.id));
   const steady = prospects.filter((p) => p.status === "investigating" && amap.get(p.id)?.verdict === "no_signal" && sellable(p));
   // Honest empty: the dimensional bar may qualify nobody (0/25 on
   // run_5538b2b3). Stopping here throws on the Workflow path and freezes
