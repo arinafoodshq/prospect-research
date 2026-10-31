@@ -1292,3 +1292,79 @@ landing markup. Pushed to main (b0f523f + 17440ae). Remaining per spec: P0
 search-grounding probe (5 known businesses), hide internals in status
 board/senders, verification re-run with before/after numbers at 390px +
 1440px.
+
+## 2026-10-31 — P0: sign-in required for the live product (user requirement)
+
+Why: the product sends email and WhatsApp on the user's behalf; user required
+sign-in ("there must be sign in"). Anonymous use of the live API is now blocked.
+
+Implementation:
+- Google OAuth sign-in reusing GOOGLE_CLIENT_ID/SECRET already on the Worker:
+  GET /api/auth/start -> consent -> GET /api/auth/callback -> session cookie
+  pr_sess (HttpOnly, Secure, SameSite=Lax, 30 days). D1 stores only the
+  SHA-256 token hash (migration 0005 user_session, applied LOCALLY and verified;
+  remote apply pending approval).
+- Gate in the Worker fetch handler: every /api/* path requires a session except
+  /api/auth/*, /api/me, /api/unsubscribe (message recipients have no session).
+  Unauthenticated calls get 401 {"error":"signin_required"}.
+- UI: new #view-signin card ("Continue with Google", back link, note slot);
+  "Describe your business" gates to sign-in in live mode when signed out; demo
+  (/demo) unchanged, its Sign in link explains the demo needs no account;
+  header shows account chip + Sign out on chrome'd views; a mid-session 401
+  (RealApi._req) fires ApiLayer.onAuthRequired -> sign-in view with expiry note.
+- Tests: new tests/auth.test.ts (id_token decode, OAuth state signature/expiry
+  rejection, session lookup incl. expired-row deletion) and
+  tests/auth-gate.test.ts (real fetch handler: 401 on gated path, /api/me
+  public, /api/unsubscribe public, live cookie passes). Direct-route suites set
+  the documented hook __PR_SKIP_SIGNIN__ (pattern of __onboardMockTurn); the
+  gate is always on in production.
+
+Verification (evidence):
+- node --check on app.js/api.js clean; npx tsc --noEmit clean.
+- npx vitest run: 427/427 passing (was 413; +14 auth tests).
+- npm run smoke: SMOKE PASS (demo journey unaffected).
+- Browser QA (static server, fonts blocked): #view-signin renders at 1440 and
+  390, no horizontal overflow; console errors limited to expected 404 /api/me
+  (static server has no API) and the deliberate font-block abort. Screenshots
+  reviewed in one 2-image batch (image-limit discipline after hitting the
+  8-image cap: max 2 screenshots/turn, cumulative history counts; nuance added
+  to C:\dev\agent-rules-templates\AGENTS.md section 6).
+
+Files: migrations/0005_user_session.sql (new), src/auth.ts (new), src/index.ts,
+public/index.html, public/app.js, public/api.js, public/styles.css,
+tests/auth.test.ts (new), tests/auth-gate.test.ts (new), tests/smoke.mjs,
+tests/routes.test.ts, tests/asr.test.ts. Commit 6b7dd8a (not yet pushed).
+
+Limitations / unresolved:
+- Remote D1 migration 0005 + Worker deploy + push: PENDING APPROVAL.
+- Operator manual step (user): add authorized redirect URI
+  https://prospect-research.sam-5b1.workers.dev/api/auth/callback to the Google
+  OAuth client (same client as Gmail sending). Not possible from here.
+- Sign out lives in the header (status/campaigns/senders views); landing shows
+  no account chip when signed in. Sessions last 30 days.
+- Workspace data is not per-user scoped yet (any signed-in user sees the
+  workspace); ownership column deferred - single-operator MVP.
+Next: on approval, apply 0005 remote + deploy + push; user adds the Google
+redirect URI, then signs in live.
+
+## 2026-10-31 — Investigation (user request): how the 504Yard tracker reached 200+ leads
+
+Investigated C:\dev\504Yard (OpenCode session ses_ea237a001ffeFzlpdFZ6YRTFjk,
+title "504 Yard Grills prospect research & outreach", 772 messages, 658 tool
+calls, $5.64 model spend). The 2-row Perplexity starter (still intact at
+C:\Users\User\Videos\...tracker.csv, 2 rows) never grew by itself. Growth came
+from the session: user instruction "find more prospects. lets keep going on a
+loop till you hit 200. ensure they have instagram so we can verify" -> parallel
+per-category research subagents (planners / venues / churches / orgs; round 2
+lounges / hotels / clubs) returning pipe rows NAME|AREA|IG|PHONE|WEBSITE|
+EVIDENCE|SOURCE|FLAG -> scripts/merge_prospects.py mechanically enforced
+IG-handle-or-reject, dedupe (name+handle+near-match), conservative rubric
+scoring, per-category messages, rolling .bak backups. Result (audited): 204
+rows, 0 duplicate orgs, 204/204 with source URL (57 unique domains; 112
+instagram.com), bands A/B/C = 3/94/107 (avg score 55.6), 149 rows honestly
+marked "IG-sourced - verify by opening profile", their validate_tracker.py
+passes clean. Deployed as live app 504.sam-5b1.workers.dev (D1: wol504), 56
+contacted, 21 replies. Recorded here because the pattern (quality brief first,
+then category-batched verified research with a mechanical merge gate) is the
+candidate model for System B research quality; proposal to follow (change
+control required).
