@@ -1242,3 +1242,14 @@ drawer, groups toggles, board stages, removed-list rendering), hide
 internals (ids/timestamps/stated-assumed in status board + senders),
 verification re-run of the same brief with before/after numbers. NOT
 yet deployed.
+2026-10-31 (DEPLOYED 18ee55d6, user-approved + pushed): commit caedc6a
+(P0 correctness + contact verification). Migration 0004 applied REMOTE
+first (816 contact_route rows preserved, new CHECK verified by
+sqlite_master, no leftover table) then LOCAL. Deployed
+--containers-rollout=none; live: GET / 200, app.js serves the new tab
+rule (ready = qualified AND readiness>=4 AND own source), api.js serves
+the broken/wrong_type route filter. Pushed to main (caedc6a + progress
+record). Next per spec: P0 search-grounding probe (5 known businesses),
+P1 UI rebuild from landing.html + workspace.html references (reference
+preserved at Temp\opencode\reference-landing.html), hide internals,
+verification re-run with before/after numbers at 390px + 1440px.
