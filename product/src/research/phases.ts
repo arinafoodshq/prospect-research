@@ -24,7 +24,7 @@ import {
 } from "../db";
 import { budgetReason, checkIncrement, firstBreach, type BudgetCaps, type BudgetConsumed } from "./budgets";
 import {
-  checkHardConstraints, decideVerdict, extractContacts, icpFromBrief, isGroundedContact,
+  checkHardConstraints, decideVerdict, ensureDirective, extractContacts, icpFromBrief, isGroundedContact,
   validateBrief,
   type QualificationDims,
 } from "./commercial";
@@ -258,7 +258,7 @@ export async function plan(
         } catch { return ""; }
       };
       try {
-        const built = validateBrief(await meta.buildBrief({
+        const built = ensureDirective(await meta.buildBrief({
           name: profile.name, website_url: profile.website_url ?? "", description: profile.description,
           target_market: profile.target_market, service_area_note: areaOf(profile.service_area),
           constraints_note: constraintsOf(profile.constraints),

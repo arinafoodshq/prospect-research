@@ -47,6 +47,25 @@ export interface BriefGroup {
   source: "owner" | "derived";
 }
 
+/** One buying-organisation category in the research directive (spec v0.3
+ * §12.11): what to sweep, who says yes inside it, and the owner-checkable
+ * artifact a prospect must have before it can qualify. */
+export interface DirectiveCategory {
+  name: string;
+  angle: string;
+  buyer_roles: string[];
+  artifact: string;
+  max_queries: number;
+}
+
+/** The category sweep plan composed alongside the brief (the "504Yard
+ * method"): quality brief first, then category-batched sweeps where every
+ * row must carry one owner-checkable artifact. */
+export interface ResearchDirective {
+  version: 1;
+  categories: DirectiveCategory[];
+}
+
 export interface CommercialBrief {
   version: 1;
   offer: { description: string; geography: string; outcomes: string[] };
@@ -60,6 +79,9 @@ export interface CommercialBrief {
   assumptions: string[];
   /** Buyer groups the searches will target (absent = legacy brief). */
   groups?: BriefGroup[];
+  /** Category sweep plan (absent = legacy brief; ensureDirective synthesizes
+   * a deterministic fallback so every run sweeps with an artifact rule). */
+  directive?: ResearchDirective;
 }
 
 export interface ICPContract {
@@ -172,6 +194,10 @@ export function validateBrief(raw: unknown): CommercialBrief {
     }
     if (groups.length > 6) throw new Error("brief.groups allows at most 6 groups");
   }
+  // Research directive (v0.3 §12.11): parse leniently — a malformed model
+  // directive is DROPPED (ensureDirective synthesizes the deterministic
+  // fallback) so a bad sweep plan never blocks the brief phase.
+  const directive = parseDirective(raw["directive"]);
   return {
     version: 1,
     offer: { description, geography, outcomes },
@@ -181,7 +207,51 @@ export function validateBrief(raw: unknown): CommercialBrief {
     secondary_segments: secondary,
     pains, buyer_roles: buyerRoles, statements, questions, assumptions,
     ...(groups && groups.length > 0 ? { groups } : {}),
+    ...(directive ? { directive } : {}),
   };
+}
+
+/** Lenient directive parse: 2-6 categories, each with name, angle, buyer
+ * roles, and the owner-checkable artifact. Anything off-spec → undefined. */
+function parseDirective(v: unknown): ResearchDirective | undefined {
+  if (!isRecord(v) || v["version"] !== 1 || !Array.isArray(v["categories"])) return undefined;
+  const cats: DirectiveCategory[] = [];
+  for (const c of v["categories"]) {
+    const name = isRecord(c) ? nonEmpty(c["name"]) : null;
+    const angle = isRecord(c) ? nonEmpty(c["angle"]) : null;
+    const roles = isRecord(c) ? strList(c["buyer_roles"]) : null;
+    const artifact = isRecord(c) ? nonEmpty(c["artifact"]) : null;
+    const q = isRecord(c) ? c["max_queries"] : null;
+    if (!name || !angle || !roles || roles.length === 0 || !artifact) return undefined;
+    const maxQueries = typeof q === "number" && Number.isInteger(q) && q >= 1 && q <= 3 ? q : 2;
+    cats.push({ name, angle, buyer_roles: roles.slice(0, 4), artifact, max_queries: maxQueries });
+  }
+  if (cats.length < 2 || cats.length > 6) return undefined;
+  return { version: 1, categories: cats };
+}
+
+/** Deterministic directive synthesized from a validated brief when the model
+ * omits a usable one: one category per primary industry (≤4), the brief's
+ * buyer roles, and the standard owner-checkable artifact line. */
+export function defaultDirective(b: CommercialBrief): ResearchDirective {
+  const geo = b.primary_segment.geos[0] ?? b.offer.geography;
+  const roles = (b.buyer_roles ?? []).map((r) => r.role).slice(0, 3);
+  const buyerRoles = roles.length > 0 ? roles : ["owner / admin buyer"];
+  const categories = b.primary_segment.industries.slice(0, 4).map((name) => ({
+    name,
+    angle: `${name} organisations near ${geo} that host, organize, or budget for the offer`,
+    buyer_roles: buyerRoles,
+    artifact: "own website, Google Business Profile, or business social page the owner can open",
+    max_queries: 2,
+  }));
+  return { version: 1, categories };
+}
+
+/** Every run sweeps with an artifact rule: attach the deterministic fallback
+ * when the brief has no (usable) directive. Used at brief build and at
+ * hydration of legacy stored briefs. */
+export function ensureDirective(b: CommercialBrief): CommercialBrief {
+  return b.directive ? b : { ...b, directive: defaultDirective(b) };
 }
 
 /** Derive the machine-enforceable contract: hard inclusions/exclusions only. */
@@ -207,6 +277,14 @@ export function renderBriefPrompt(b: CommercialBrief): string {
     `Customer pains: ${b.pains.map((p) => `${p.job} / blocked by ${p.obstacle}${p.workaround ? ` / today: ${p.workaround}` : ""}`).join(" | ")}.`,
     `Buyers: ${b.buyer_roles.map((r) => r.role).join(", ")}.`,
   ];
+  if (b.directive) {
+    lines.push(
+      "Research directive: sweep buying categories in order — " +
+        b.directive.categories.map((c) =>
+          `${c.name} (buyers: ${c.buyer_roles.join(" / ")}; verify via ${c.artifact}; ≤${c.max_queries} queries)`,
+        ).join("; ") + ".",
+    );
+  }
   if (b.secondary_segments.length > 0) {
     lines.push(`Exploratory only (label separately, never mix): ${b.secondary_segments.map((s) => s.label).join(", ")}.`);
   }
@@ -432,11 +510,13 @@ export function buildBriefGoal(profile: {
     '"secondary_segments":[],"pains":[{"job":string,"obstacle":string,"workaround":string,"trigger_hints":[2-4],"falsifiable_by":string}],',
     '"buyer_roles":[{"role":string,"concerns":[1-3]}],"statements":[{"text":string,"provenance":"user_fact|source_verified|inference|hypothesis|unknown"}],',
     '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty],',
-    '"groups":[{"name":string,"reason":string,"source":"owner|derived"}] (2-6 buyer groups the searches will target; "owner" = the owner words name it, "derived" = your guess from their words, keep derived to a minimum)}.',
+    '"groups":[{"name":string,"reason":string,"source":"owner|derived"}] (2-6 buyer groups the searches will target; "owner" = the owner words name it, "derived" = your guess from their words, keep derived to a minimum),',
+    '"directive":{"categories":[{"name":string,"angle":string,"buyer_roles":[1-4],"artifact":string,"max_queries":1-3}]} (2-6 buying-organisation categories to sweep, ecosystem-style, drawn from the groups/industries; artifact = what the owner can open to verify a prospect: own website, Google Business Profile, or business social page)},',
     "Rules: exactly one primary segment; exclusions must name concrete categories INCLUDING adjacent-but-out-of-scope verticals (e.g. schools for a retail brief — industry fit is model-judged, so the exclusion list is the only deterministic drift guard); every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
     "Segments rule (hard): industries must name ONLY buyer categories the owner stated or that follow directly from their stated buyers ('individuals, corporate events' -> event planning companies, event venues and centres, corporate offices with admin/HR buyers, trade associations, community organisations). NEVER invent industries the owner did not name or imply — banks, financial services, professional services, real estate and similar are FORBIDDEN unless the owner said them; put them in exclusions instead.",
     "Geography rule: geos are searchable PLACES, never placeholders. Expand a street-level base to its area, city, state and country ('Kodesoh Street, Ikeja' -> 'Ikeja, Lagos, Nigeria'); never write 'to be confirmed' — derive the metro from the stated base, or honor a stated reach (nationwide/worldwide/online) as the geography.",
     "Strategist rules: identify WHO PAYS for this offer — the buying organizations that host, organize, or budget for it, never lookalike sellers of the same thing (a caterer's buyers are event hosts: corporate admins, event planning companies, event centres, hotels; not other caterers). Expand the stated base to its well-known neighbouring districts within the same metro so geos cover the realistic service radius (a base of Ikeja, Lagos also reaches Ogba, Allen, Opebi, Maryland, Airport Road). Honor stated reach: nationwide/worldwide/online means geography says so and buyer_roles name who buys at that reach. buyer_roles must be concrete job titles or organization types with the budget to say yes.",
+    "Directive rule: directive.categories are BUYER organisations drawn from the brief's groups/industries (never lookalike sellers, never excluded verticals); each names who says yes inside it and the artifact an owner can open to verify a prospect.",
   ].join("\n");
 }
 
@@ -449,7 +529,9 @@ export function buildPlanGoal(b: CommercialBrief): string {
     `Queries must find BUYING businesses in: ${seg.industries.join(", ")} (${seg.label}), near ${seg.geos.join(", ")}.`,
     `Buyers are the organizations that host, organize, or budget for the offer (${buyers}) — query buyer types and occasions, not lookalike sellers.`,
     `Source like an ecosystem researcher: named venues, centres, clubs, associations, event calendars and recurring programmes ('<venue> Ikeja capacity contacts', '<association> Lagos events calendar', '<street or neighbourhood> companies', '<venue> outside vendors policy') — never role listings or job ads.`,
-    `Cover at least 4 distinct buyer categories across the queries (venues/centres, planners, corporate offices, faith and community organisations, hospitality, clubs).`,
+    b.directive
+      ? `Sweep every directive category with at least one problem-led query, capped per category: ${b.directive.categories.map((c) => `${c.name} ≤${c.max_queries}`).join(", ")}.`
+      : `Cover at least 4 distinct buyer categories across the queries (venues/centres, planners, corporate offices, faith and community organisations, hospitality, clubs).`,
     `Never list: ${seg.exclusions.join(", ")}.`,
     `In scope when: ${seg.inclusions.join("; ")}.`,
     "Seek business profiles and official sites, never marketplace product listings (Jiji, Konga, Jumia return products, not buyers).",

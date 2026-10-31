@@ -8,7 +8,7 @@
  */
 import { getRun, listEvidence, listProspects, setRunStatus, type Db, type RunStatus } from "./db";
 import { DEFAULT_CAPS, emptyConsumed, type BudgetConsumed } from "./research/budgets";
-import { validateBrief } from "./research/commercial";
+import { validateBrief, ensureDirective } from "./research/commercial";
 import {
   assess,
   briefGateDecision,
@@ -153,7 +153,7 @@ export async function hydrateBriefFromRun(db: Db, meta: MetaClient, run_id: stri
   try {
     const run = await getRun(db, run_id);
     if (!run?.commercial_brief) return;
-    meta.setBrief(validateBrief(JSON.parse(run.commercial_brief)));
+    meta.setBrief(ensureDirective(validateBrief(JSON.parse(run.commercial_brief))));
   } catch {
     /* corrupt brief JSON: stay on legacy prompts rather than fail the run */
   }
