@@ -1447,3 +1447,21 @@ should be compared against the pre-registered thresholds (>=80% qualified
 in-segment, 0 hard violations, 100% qualified with prospect-owned source).
 Next: on approval, deploy (same command as before), then run a live research
 run to see directive-driven sweeps in action.
+
+## 2026-10-31 — Deploy: research directive live (approved: "go ahead")
+
+Worker version 8964f737-4c76-4449-864a-844feebe090b (100% traffic, created
+2026-10-31T19:27:44Z). Live verification: GET / -> 200; GET /api/me ->
+{"user":null}; GET /api/runs -> 401 signin_required (gate intact); GET
+/api/auth/start -> 302 (OAuth start intact). Sign-in + directive code now
+both live. Nothing else changed server-side; the directive engages on the
+next research run's brief composition (and on hydration of stored briefs).
+
+Pending for the first directive-driven live run (user steps, cannot be done
+from here): 1) add authorized redirect URI
+https://prospect-research.sam-5b1.workers.dev/api/auth/callback in the Google
+console (if not already done); 2) sign in on the live site; 3) describe a
+business and confirm the brief - the run then sweeps per directive category.
+Afterwards: pull the run record from D1 and audit against pre-registered
+thresholds (>=80% qualified in-segment, 0 hard violations, 100% qualified
+with prospect-owned source) and report the model-spend running total.
