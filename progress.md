@@ -1187,3 +1187,13 @@ loser disqualified with note); onboarding prompt sharp-memory few-shot
 (name/offer/buyers extracted from one statement; asking for a stated
 name forbidden) + tested anti-re-ask drop. Verified: tsc clean, 402/402
 vitest, smoke PASS. NOT yet deployed.
+2026-10-31 (DEPLOYED 0262f254, user-approved + pushed): commit 342d5e7
+(7 files, +213/-7) live: 504Yard method transfer — areaOf note fix (root
+cause), ecosystem query style, investigate verification pass, junk gates
+v3 (job boards/news/maps/venue aggregators, headline/role-ad/month-year/
+hiring name rejections), evidence URL dedupe, containment merge,
+onboarding sharp-memory few-shot. Verified: tsc clean, 402/402 vitest,
+smoke PASS. User next step: re-run the 504 Yard brief live — expect
+Ikeja-scoped ecosystem queries, social-anchored prospects with routes,
+no job boards/news/duplicate names; compare against the manual 204-row
+tracker quality bar.
