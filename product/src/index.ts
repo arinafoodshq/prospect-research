@@ -20,6 +20,7 @@ import {
   type RunStatus,
 } from "./db";
 import { ASR_ENDPOINT, buildTranscribeForm, parseTranscribeResponse } from "./asr";
+import * as auth from "./auth";
 import { createMetaClient } from "./meta";
 import { ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
@@ -925,6 +926,12 @@ route("POST", "/api/prospects/:id/contacts", (c) => delivery.postContact(c.req, 
 route("GET", "/api/prospects/:id/contacts", (c) => delivery.getContacts(c.req, c.env, c.params));
 route("GET", "/api/prospects/:id/timeline", (c) => delivery.getTimeline(c.req, c.env, c.params));
 
+// --- Sign-in (the product sends email/WhatsApp, so live API use requires it) --
+route("GET", "/api/auth/start", (c) => auth.startGoogleLogin(c.req, c.env));
+route("GET", "/api/auth/callback", (c) => auth.googleCallback(c.req, c.env));
+route("POST", "/api/auth/signout", (c) => auth.signOut(c.env, c.req));
+route("GET", "/api/me", (c) => auth.getSession(c.env, c.req).then((s) => json({ user: s })));
+
 export default {
   async fetch(req: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
@@ -935,6 +942,23 @@ export default {
       return env.ASSETS.fetch(new Request(new URL("/index.html", url.origin), req));
     }
     if (url.pathname.startsWith("/api/")) {
+      // Sign-in gate: the product sends email and WhatsApp messages, so every
+      // live API call needs a signed-in session — except the auth flow itself,
+      // the who-am-i check, and the unsubscribe link message recipients click.
+      const p = url.pathname;
+      const publicApi = p.startsWith("/api/auth/") || p === "/api/me"
+        || p.startsWith("/api/unsubscribe");
+      if (!publicApi) {
+        // Test hook (same pattern as __onboardMockTurn): direct-route unit
+        // tests set __PR_SKIP_SIGNIN__ and exercise handlers without a
+        // session. Never set in the Workers runtime — the gate is always on
+        // in production.
+        const skip = (globalThis as { __PR_SKIP_SIGNIN__?: boolean }).__PR_SKIP_SIGNIN__ === true;
+        if (!skip) {
+          const sess = await auth.getSession(env, req);
+          if (!sess) return err("signin_required", 401);
+        }
+      }
       for (const r of table) {
         if (r.method !== req.method) continue;
         const m = r.pattern.exec(url.pathname);

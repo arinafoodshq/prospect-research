@@ -133,6 +133,8 @@ const IDS = [
   "shortlist-count",
   "drafts-kicker", "status-kicker", "campaigns-kicker", "senders-kicker",
   "link-signin", "signin-note",
+  "auth-area", "hdr-signin", "hdr-user", "btn-signout",
+  "view-signin", "btn-google-signin", "signin-view-note", "signin-back",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
   "campaign-wizard",
@@ -211,7 +213,8 @@ const evt = (extra) => Object.assign({ preventDefault() {}, target: {} }, extra 
 /* ---- Walk the flow. */
 ok(visible("view-landing"), "boots on the landing view");
 await fire(els["link-signin"], "click", evt());
-ok(els["signin-note"].hidden === false && /coming soon/.test(els["signin-note"].textContent), "sign in says accounts are coming soon");
+ok(els["signin-note"].hidden === false && /demo needs no account/.test(els["signin-note"].textContent),
+  "sign in link explains the demo needs no account");
 await fire(startBtn, "click", evt());
 ok(visible("view-onboard"), "landing CTA -> onboard view");
 els["f-description"].value = "Saved draft text.";
@@ -545,6 +548,22 @@ ok(visible("view-profile"), "stop returns to the brief");
   vm.runInContext(apiSrc, demoSandbox, { filename: "api.js/demo" });
   const demoApi = demoSandbox.ApiLayer.selectApi();
   ok(demoApi.mode === "mock", "selectApi picks MockApi on /demo");
+
+  // --- sign-in adapter: whoAmI maps {user}, 401 signin_required fires the hook
+  canned["GET /api/me"] = { user: { email: "adaeze@example.com", name: "Adaeze" } };
+  const meUser = await api.whoAmI();
+  ok(meUser && meUser.email === "adaeze@example.com", "whoAmI returns the session user");
+  canned["GET /api/me"] = { user: null };
+  ok((await api.whoAmI()) === null, "whoAmI returns null when signed out");
+  let authFired = 0;
+  liveSandbox.ApiLayer.onAuthRequired = function () { authFired += 1; };
+  const prevFetch = liveSandbox.fetch;
+  liveSandbox.fetch = async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: "signin_required" }) });
+  await api.getCampaigns().then(() => { throw new Error("expected 401 to throw"); },
+    (e) => { ok(e.status === 401, "401 surfaces as an error"); });
+  ok(authFired === 1, "401 signin_required fires the onAuthRequired hook once");
+  liveSandbox.fetch = prevFetch;
+  liveSandbox.ApiLayer.onAuthRequired = undefined;
 
   const turn = await api.onboardTurn({ text: "We deliver lunches", fields: {}, followups_used: 0 });
   const turnPost = calls.find((c) => c.key === "POST /api/onboard/turn");

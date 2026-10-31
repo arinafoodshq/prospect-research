@@ -18,17 +18,50 @@
   };
 
   var api = null;
+  var me = null; // signed-in user {email, name}; live mode only — the demo has no accounts
+
+  /** Reflect the auth state in the header and the landing nav. */
+  function renderAuthUi() {
+    var live = api && api.mode === "live";
+    var hdrSignin = $("hdr-signin");
+    var hdrUser = $("hdr-user");
+    var hdrOut = $("btn-signout");
+    var landing = $("link-signin");
+    if (!live) {
+      if (hdrSignin) hdrSignin.hidden = true;
+      if (hdrUser) hdrUser.hidden = true;
+      if (hdrOut) hdrOut.hidden = true;
+      if (landing) { landing.hidden = false; landing.setAttribute("href", "#signin"); }
+      return;
+    }
+    var signed = !!me;
+    if (hdrSignin) hdrSignin.hidden = signed;
+    if (hdrUser) { hdrUser.hidden = !signed; if (signed) hdrUser.textContent = me.name || me.email; }
+    if (hdrOut) hdrOut.hidden = !signed;
+    if (landing) landing.hidden = signed;
+  }
+
+  function goSignin(expiryMessage) {
+    showView("signin");
+    var note = $("signin-view-note");
+    if (note) note.textContent = expiryMessage || "";
+  }
 
   function $(id) { return document.getElementById(id); }
 
   var CHROMELESS = ["landing", "onboard", "profile", "progress", "shortlist", "drafts"];
+  var EXTRA_VIEWS = ["signin"];
 
   function showView(name) {
     VIEWS.forEach(function (v) {
       var el = $("view-" + v);
       if (el) el.hidden = (v !== name);
     });
-    var plain = CHROMELESS.indexOf(name) >= 0;
+    EXTRA_VIEWS.forEach(function (v) {
+      var el = $("view-" + v);
+      if (el) el.hidden = (v !== name);
+    });
+    var plain = CHROMELESS.indexOf(name) >= 0 || EXTRA_VIEWS.indexOf(name) >= 0;
     var header = document.querySelector(".site-header");
     if (header) header.hidden = plain;
     var footer = $("site-footer");
@@ -1874,16 +1907,43 @@
     if (!api) throw new Error("ApiLayer failed to load");
     showView("landing");
     Array.prototype.forEach.call(document.querySelectorAll("[data-start]"), function (btn) {
-      btn.addEventListener("click", function () { showView("onboard"); obFirstPhase(); obRestoreDraft(); });
+      btn.addEventListener("click", function () {
+        // The live product sends email and WhatsApp on the user's behalf, so
+        // it starts only from a signed-in session. The demo needs no account.
+        if (api.mode === "live" && !me) { goSignin(); return; }
+        showView("onboard"); obFirstPhase(); obRestoreDraft();
+      });
     });
-    // No accounts exist yet: the Sign in link says so honestly instead of
-    // pretending to authenticate.
+    // Sign-in state: whoAmI on boot (live), then the header reflects it.
+    if (api.whoAmI) {
+      api.whoAmI().then(function (user) { me = user; renderAuthUi(); });
+    }
+    renderAuthUi();
+    if (api.mode === "live" && typeof window.ApiLayer !== "undefined") {
+      window.ApiLayer.onAuthRequired = function () {
+        me = null;
+        renderAuthUi();
+        goSignin("Your session expired. Sign in again to continue.");
+      };
+    }
+    // No accounts in demo: the Sign in link says so honestly. In live mode it
+    // navigates to Google (/api/auth/start) without JS.
     var signin = $("link-signin");
     if (signin) signin.addEventListener("click", function (e) {
+      if (api.mode === "live") return;
       if (e && e.preventDefault) e.preventDefault();
       var note = $("signin-note");
-      note.textContent = "Accounts are coming soon. For now, everyone starts the same way: describe your business.";
+      note.textContent = "This demo needs no account. The live product signs in with Google before anything can be sent.";
       note.hidden = false;
+    });
+    var back = $("signin-back");
+    if (back) back.addEventListener("click", function () { showView("landing"); });
+    var out = $("btn-signout");
+    if (out) out.addEventListener("click", function () {
+      if (api.signOut) api.signOut().catch(function () { /* best effort */ });
+      me = null;
+      renderAuthUi();
+      showView("landing");
     });
 
     $("btn-ob-back").addEventListener("click", function () { showView("landing"); });

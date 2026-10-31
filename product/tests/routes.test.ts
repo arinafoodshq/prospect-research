@@ -10,6 +10,10 @@ import { dedupeKey } from "../src/db";
 import { sealSecret } from "../src/delivery/crypto";
 import { mockOutbox, resetMockOutbox } from "../src/delivery/providers";
 
+// Direct-route tests exercise handlers in-process; the sign-in gate is
+// covered separately in auth-gate.test.ts.
+(globalThis as { __PR_SKIP_SIGNIN__?: boolean }).__PR_SKIP_SIGNIN__ = true;
+
 vi.mock("../src/meta", () => ({
   MODEL_ID: "muse-spark-1.3",
   isDirectoryHost: () => false,

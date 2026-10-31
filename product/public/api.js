@@ -355,10 +355,20 @@
           try {
             var parsed = JSON.parse(text);
             if (parsed && (parsed.message || parsed.error)) err.detail = parsed.message || parsed.error;
+            if (parsed && parsed.error === "signin_required") err.signinRequired = true;
           } catch (e) { /* keep status-only error */ }
+          if (err.signinRequired && ApiLayer.onAuthRequired) ApiLayer.onAuthRequired();
           throw err;
         });
       });
+  };
+  RealApi.prototype.whoAmI = function () {
+    return fetch(this.base + "/api/me").then(function (r) { return r.json(); }).then(function (data) {
+      return data && data.user ? data.user : null;
+    }).catch(function () { return null; });
+  };
+  RealApi.prototype.signOut = function () {
+    return fetch(this.base + "/api/auth/signout", { method: "POST" }).then(function (r) { return r.json(); });
   };
 
   function profileFields(row) {

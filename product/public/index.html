@@ -24,6 +24,11 @@
     <img class="site-logo" src="./favicon.svg" alt="" aria-hidden="true" />
     <h1>Prospect Research</h1>
     <p class="tagline">Describe what you sell. We find businesses likely to buy. Every pick backed by evidence, every message approved by you.</p>
+    <div class="auth-area" id="auth-area">
+      <a class="auth-link" id="hdr-signin" href="/api/auth/start" hidden>Sign in</a>
+      <span class="auth-chip" id="hdr-user" hidden></span>
+      <button type="button" class="auth-out" id="btn-signout" hidden>Sign out</button>
+    </div>
     <nav class="steps" aria-label="Progress">
       <ol id="step-nav">
         <li data-view="onboard" class="active">1. Onboard</li>
@@ -43,7 +48,7 @@
     <section id="view-landing" class="view-landing" aria-label="Welcome">
       <nav class="l-nav" aria-label="Landing">
         <span class="l-brand"><img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" />Prospect Research</span>
-        <a class="l-signin" id="link-signin" href="#signin">Sign in</a>
+        <a class="l-signin" id="link-signin" href="/api/auth/start" hidden>Sign in</a>
       </nav>
       <p class="l-signin-note" id="signin-note" hidden></p>
 
@@ -125,6 +130,22 @@
         <button type="button" class="btn-dark" data-start>Describe your business <span aria-hidden="true">&rarr;</span></button>
       </section>
       <p class="l-foot">Prospect Research</p>
+    </section>
+
+    <!-- View: sign in (required before the live product does anything, because
+         it sends email and WhatsApp messages on the user's behalf) -->
+    <section id="view-signin" class="view view-plain" hidden aria-label="Sign in">
+      <div class="signin-card">
+        <p class="kicker">Sign in</p>
+        <h2 class="signin-title">One click, then your buyers.</h2>
+        <p class="signin-sub">Signing in keeps your workspace yours — and nothing is ever sent without your approval.</p>
+        <a class="btn-gold btn-google" id="btn-google-signin" href="/api/auth/start">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.1h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.1 3.7-8.6z"/><path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.2 0-5.9-2.1-6.8-5l-3.9 3C3.3 21.3 7.3 24 12 24z"/><path fill="#FBBC05" d="M5.2 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-3.9-3C.5 8.2 0 10 0 12s.5 3.8 1.3 5.4l3.9-3z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3 .8 3.7 1.4l2.7-2.6C16.7 1.3 14.2 0 12 0 7.3 0 3.3 2.7 1.3 6.6l3.9 3c.9-2.9 3.6-4.8 6.8-4.8z"/></svg>
+          Continue with Google
+        </a>
+        <p class="signin-note2" id="signin-view-note"></p>
+        <button type="button" class="link-gold signin-back" id="signin-back">&larr; Back</button>
+      </div>
     </section>
 
     <!-- View 1: onboard (PDF screen 2: conversational, one question at a time) -->

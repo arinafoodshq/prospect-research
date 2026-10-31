@@ -13,6 +13,10 @@ import {
 } from "../src/asr";
 import app from "../src/index";
 
+// Direct-route tests exercise the transcribe handler in-process; the sign-in
+// gate is covered separately in auth-gate.test.ts.
+(globalThis as { __PR_SKIP_SIGNIN__?: boolean }).__PR_SKIP_SIGNIN__ = true;
+
 function makeWav(frames: number): ArrayBuffer {
   const bytes = new ArrayBuffer(44 + frames * 2);
   const view = new DataView(bytes);
