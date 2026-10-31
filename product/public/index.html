@@ -6,13 +6,20 @@
   <title>Prospect Research. Find your next customers</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Manrope:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="./tokens.css" />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-  <meta name="theme-color" content="#0b0f1a" />
+  <meta name="theme-color" content="#F8F7F4" />
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-wa" viewBox="0 0 24 24"><path d="M3 21l1.6-4.7A8.5 8.5 0 1 1 8 19.4L3 21z"/><path d="M9 8.5c0 3.4 3.1 6.5 6.5 6.5l1-1.5-2-1-1 .8c-1-.4-2-1.4-2.4-2.4l.8-1-1-2L9 8.5z"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3.5 7l8.5 6 8.5-6"/></symbol>
+      <symbol id="i-ig" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/></symbol>
+    </defs>
+  </svg>
   <header class="site-header">
     <img class="site-logo" src="./favicon.svg" alt="" aria-hidden="true" />
     <h1>Prospect Research</h1>
@@ -47,46 +54,47 @@
           <button type="button" class="btn-gold" data-start>Describe your business <span aria-hidden="true">&rarr;</span></button>
           <p class="l-micro">Takes two minutes. Nothing is sent without you.</p>
         </div>
-        <div class="l-art" role="img" aria-label="Illustration of a buyer shortlist card with a strong fit badge and an approved message draft.">
-          <svg viewBox="0 0 360 312" aria-hidden="true" focusable="false">
-            <rect x="30" y="8" width="300" height="140" rx="20" fill="#121829" stroke="#232C45" stroke-width="1.5" />
-            <circle cx="66" cy="52" r="17" fill="#232C45" />
-            <circle cx="66" cy="47" r="6" fill="#3A4668" />
-            <path d="M55 62 a11 8 0 0 1 22 0" fill="#3A4668" />
-            <text x="94" y="48" fill="#F4F1EA" font-size="16" font-weight="700" font-family="Manrope, system-ui, sans-serif">Yaba Fresh Mart</text>
-            <text x="94" y="68" fill="#8A93A8" font-size="12" font-family="Manrope, system-ui, sans-serif">Retail, two branches</text>
-            <rect x="228" y="38" width="86" height="26" rx="13" fill="#16352E" />
-            <text x="271" y="55" text-anchor="middle" fill="#5EDDB0" font-size="11.5" font-weight="700" font-family="Manrope, system-ui, sans-serif">Strong fit</text>
-            <rect x="50" y="88" width="260" height="44" rx="10" fill="#0E1424" />
-            <rect x="62" y="100" width="5" height="20" rx="2.5" fill="#E3B45C" />
-            <text x="76" y="109" fill="#B3BAC9" font-size="12" font-family="Manrope, system-ui, sans-serif">New branch opening soon</text>
-            <text x="76" y="125" fill="#8A93A8" font-size="10.5" font-family="Manrope, system-ui, sans-serif">Source: the shop's own page</text>
-            <polygon points="70,278 54,304 94,278" fill="#123B2E" />
-            <rect x="50" y="166" width="230" height="114" rx="20" fill="#123B2E" />
-            <text x="74" y="194" fill="#F4F1EA" font-size="12" font-family="Manrope, system-ui, sans-serif">Hello, congratulations.</text>
-            <rect x="74" y="208" width="182" height="9" rx="4.5" fill="#5EDDB0" opacity="0.55" />
-            <rect x="74" y="225" width="120" height="9" rx="4.5" fill="#5EDDB0" opacity="0.35" />
-            <rect x="74" y="242" width="150" height="9" rx="4.5" fill="#5EDDB0" opacity="0.2" />
-            <circle cx="286" cy="164" r="17" fill="#E3B45C" />
-            <path d="M278 164 l6 6 12 -13" stroke="#0B0F1A" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
+        <!-- A picture of the result, never interactive (reference: landing.html). -->
+        <div class="l-stage">
+          <div class="l-example" role="img" aria-label="Example: a lead called Northgate Freight with a strong fit badge, checked contact links and a WhatsApp message waiting for approval.">
+            <span class="tag" aria-hidden="true">Example</span>
+            <div class="lead" aria-hidden="true">
+              <div class="lead-head">
+                <div class="avatar">NF</div>
+                <div><h3>Northgate Freight</h3><p>Logistics, Ikeja</p></div>
+                <span class="chip">Strong fit</span>
+              </div>
+              <div class="why"><b>Why now</b><span>Hiring 12 dispatch riders</span><small>Source: their careers page</small></div>
+              <div class="reach">
+                <span class="cc" style="color:#25D366"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg><i class="dot"></i></span>
+                <span class="cc" style="color:#475467"><svg class="ic" aria-hidden="true"><use href="#i-mail"/></svg><i class="dot"></i></span>
+                <span class="cc" style="color:#E1306C"><svg class="ic" aria-hidden="true"><use href="#i-ig"/></svg><i class="dot"></i></span>
+                <small>Contacts checked</small>
+              </div>
+            </div>
+            <div class="l-bubble" aria-hidden="true">
+              <div class="lab"><svg class="ic" style="width:16px;height:16px" aria-hidden="true"><use href="#i-wa"/></svg>WhatsApp draft</div>
+              <p class="l-typed" id="l-typed" data-text="Hello, I saw you are hiring 12 riders. Busy teams skip lunch. We deliver packed lunches before noon. Want a trial on Friday?"></p>
+            </div>
+            <div class="l-status" id="l-status" aria-hidden="true"><span id="l-status-text">Waiting for your approval</span><span class="pill" id="l-status-pill">Approve</span></div>
+          </div>
         </div>
       </div>
 
-      <section class="l-problem" aria-labelledby="landing-problem-h">
+      <section class="l-problem reveal" aria-labelledby="landing-problem-h">
         <div class="l-band-in">
           <p class="kicker">Sound familiar?</p>
           <h2 id="landing-problem-h">You are guessing who to call. Every wrong call costs a day.</h2>
         </div>
       </section>
 
-      <section class="l-guide" aria-labelledby="landing-guide-h">
+      <section class="l-guide reveal" aria-labelledby="landing-guide-h">
         <p class="kicker">Your research partner</p>
         <h2 id="landing-guide-h">We do the homework a good salesperson would, and show you the proof.</h2>
         <p class="muted">Every buyer comes with a reason to call now and the page where we found it.</p>
       </section>
 
-      <section class="l-steps" aria-label="Three steps">
+      <section class="l-steps reveal" aria-label="Three steps">
         <p class="kicker l-steps-kicker">Three steps</p>
         <ol>
           <li><span class="l-num" aria-hidden="true">1</span><div><h3>Describe it</h3><p>Say what you sell in your own words.</p></div></li>
@@ -95,7 +103,7 @@
         </ol>
       </section>
 
-      <section class="l-compare" aria-label="With and without Prospect Research">
+      <section class="l-compare reveal" aria-label="With and without Prospect Research">
         <article class="l-with">
           <p class="kicker kicker-green">With Prospect Research</p>
           <p class="l-compare-line">A short list of buyers worth a call, and a message for each.</p>
@@ -106,13 +114,13 @@
         </article>
       </section>
 
-      <ul class="l-trust">
+      <ul class="l-trust reveal">
         <li><svg viewBox="0 0 12 10" aria-hidden="true"><path d="M1 5.5 4.5 9 11 1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>A source behind every pick</li>
+        <li><svg viewBox="0 0 12 10" aria-hidden="true"><path d="M1 5.5 4.5 9 11 1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Every link checked before you see it</li>
         <li><svg viewBox="0 0 12 10" aria-hidden="true"><path d="M1 5.5 4.5 9 11 1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Nothing sends without you</li>
-        <li><svg viewBox="0 0 12 10" aria-hidden="true"><path d="M1 5.5 4.5 9 11 1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Opt-out on every message</li>
       </ul>
 
-      <section class="l-final" aria-label="Get started">
+      <section class="l-final reveal" aria-label="Get started">
         <h2>Meet your first buyers today.</h2>
         <button type="button" class="btn-dark" data-start>Describe your business <span aria-hidden="true">&rarr;</span></button>
       </section>

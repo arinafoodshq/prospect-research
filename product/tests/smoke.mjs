@@ -119,6 +119,7 @@ const IDS = [
   "ob-answer", "ob-chips", "ob-done-wrap", "ob-fields", "ob-error",
   "ob-thinking", "ob-thinking-text", "ob-answer-ui", "ob-actions", "ob-continue-label",
   "ob-continue-spinner", "ob-continue-arrow",
+  "l-typed", "l-status", "l-status-text", "l-status-pill",
   "btn-ob-continue", "btn-ob-skip", "btn-ob-finish", "btn-ob-exit", "btn-ob-edit-first", "btn-ob-retry",
   "profile-error", "btn-retry-progress",
   "profile-fields", "progress-steps", "progress-budget",

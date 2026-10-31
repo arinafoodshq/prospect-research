@@ -1,42 +1,49 @@
-/* Design tokens: Prospect Research revamp (PDF screens 1-5).
- * Single source of truth for colour, type, radius, motion. The accent
- * lives in exactly one variable so it can change in one place. */
-
+/* Design tokens: Prospect Research — workspace.html + landing.html
+ * references (paper theme, 2026-10-31). Single source of truth for colour,
+ * type, radius, motion. The accent lives in exactly one variable so it can
+ * change in one place. */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   /* Surfaces */
-  --ground: #0b0f1a;
-  --surface: #121829;
-  --surface-deep: #0e1424;
-  --surface-success: #16352e;
+  --ground: #F8F7F4;          /* paper */
+  --surface: #FFFFFF;         /* card */
+  --surface-deep: #EFEDE6;    /* board columns, aside strips */
+  --surface-success: #DDF5EA; /* good-soft */
 
   /* Borders */
-  --border: #232c45;
-  --border-strong: #3a4668;
+  --border: #E6E3DA;
+  --border-strong: #CFCBBF;
 
   /* Text */
-  --text: #f4f1ea;
-  --muted: #b3bac9;
-  --dim: #8a93a8;
+  --text: #0B1220;            /* ink */
+  --muted: #4B5565;
+  --dim: #5F6877;
 
-  /* Accent: change here, changes everywhere */
-  --accent: #e3b45c;
-  --accent-rgb: 227, 180, 92;  /* same color as --accent, for rgba() shadows */
-  --accent-ink: #0b0f1a;
+  /* Primary accent (ultramarine): change here, changes everywhere */
+  --accent: #3D5AFE;
+  --accent-rgb: 61, 90, 254;  /* same color as --accent, for rgba() shadows */
+  --accent-ink: #FFFFFF;      /* text on accent */
+  --accent-soft: #E8ECFF;
+  --accent-deep: #2A43D1;
+
+  /* Marigold (highlights, the final panel) */
+  --marigold: #FFB020;
+  --marigold-soft: #FFF3D6;
+  --marigold-ink: #8A4B00;
 
   /* Status */
-  --success: #5eddb0;
-  --warn: #ee9350;
-  --danger: #f27e7e;
+  --success: #076B47;
+  --warn: #B45309;
+  --danger: #B42318;
 
-  /* PDF accents */
+  /* Compatibility names (older components) */
   --white: #ffffff;
-  --info: #8ea2ff;
-  --gold-deep: #3a2f17;
-  --green-deep: #123b2e;
-  --navy-deep: #1d2a52;
-  --ink-strong: #141414;
+  --info: #3D5AFE;
+  --gold-deep: #8A4B00;
+  --green-deep: #3D5AFE;      /* "with us" card = ultramarine per reference */
+  --navy-deep: #E8ECFF;       /* soft primary fill */
+  --ink-strong: #0B1220;
 
   /* Type */
   --font-display: "Fraunces", Georgia, "Times New Roman", serif;
@@ -44,8 +51,8 @@
   --tracking-display: -0.025em;
 
   /* Radius */
-  --radius-card: 24px;
-  --radius-sm: 12px;
+  --radius-card: 20px;
+  --radius-sm: 14px;
   --radius-pill: 999px;
 
   /* Touch */

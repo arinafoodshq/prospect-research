@@ -1814,6 +1814,61 @@
     }
   }
 
+  /* Landing animations from landing.html: type the WhatsApp draft, flip to
+   * approved, loop; reveal sections on scroll. Disabled for reduced motion. */
+  function initLandingAnim() {
+    var reduce = false;
+    try { reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* keep defaults */ }
+    var typed = $("l-typed");
+    if (typed) {
+      var full = typed.getAttribute("data-text") || "";
+      var status = $("l-status");
+      var statusText = $("l-status-text");
+      var pill = $("l-status-pill");
+      var setApproved = function () {
+        if (status) status.classList.add("ok");
+        if (statusText) statusText.textContent = "Approved. Ready to send";
+        if (pill) pill.textContent = "Done";
+      };
+      var setWaiting = function () {
+        if (status) status.classList.remove("ok");
+        if (statusText) statusText.textContent = "Waiting for your approval";
+        if (pill) pill.textContent = "Approve";
+      };
+      if (reduce) { typed.textContent = full; setApproved(); }
+      else {
+        var run = function () {
+          var i = 0;
+          setWaiting();
+          typed.textContent = "";
+          typed.classList.add("typing");
+          var t = setInterval(function () {
+            i += 1;
+            typed.textContent = full.slice(0, i);
+            if (i >= full.length) {
+              clearInterval(t);
+              typed.classList.remove("typing");
+              setTimeout(setApproved, 900);
+              setTimeout(run, 6200);
+            }
+          }, 30);
+        };
+        setTimeout(run, 900);
+      }
+    }
+    var items = document.querySelectorAll(".reveal");
+    if (!reduce && "IntersectionObserver" in window && items.length) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) { entry.target.classList.add("in"); io.unobserve(entry.target); }
+        });
+      }, { threshold: 0.15 });
+      Array.prototype.forEach.call(items, function (el) { io.observe(el); });
+    } else {
+      Array.prototype.forEach.call(items, function (el) { el.classList.add("in"); });
+    }
+  }
+
   function init() {
     api = (typeof window.ApiLayer !== "undefined") ? window.ApiLayer.selectApi() : null;
     if (!api) throw new Error("ApiLayer failed to load");
@@ -1838,6 +1893,7 @@
       if (box.focus) box.focus();
     });
     setupVoice();
+    initLandingAnim();
     var stepNav = $("step-nav");
     if (stepNav) {
       stepNav.addEventListener("click", function (e) {

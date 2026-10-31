@@ -797,3 +797,153 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   .studio-title { font-size: 2rem; }
   .sender-card { flex-wrap: wrap; }
 }
+
+
+/* ===== Reference theme layer (workspace.html + landing.html, 2026-10-31).
+ * Sits on top of the token flip: component shapes, focus, pills, dots and
+ * the light landing. 48px targets, mobile-first, reduced-motion aware. ===== */
+
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+body { background: var(--ground); }
+
+/* Header as a light bar; step pills */
+.site-header { background: var(--surface); border-bottom: 1px solid var(--border); }
+.site-header h1 { font-family: var(--font-display); }
+.steps li { border-radius: var(--radius-pill); font-weight: 700; }
+.steps li.active { background: var(--accent-soft); }
+.steps li.done { color: var(--success); }
+
+/* Buttons: pills with the reference shadow */
+.btn-gold, .btn-dark, #btn-ob-continue, #btn-ob-finish, #btn-confirm-profile,
+.studio-actions button, .pick-actions button {
+  border-radius: var(--radius-pill); font-weight: 800;
+  box-shadow: 0 8px 20px rgba(11, 18, 32, 0.10);
+}
+.btn-gold { background: var(--accent); color: #fff; }
+.btn-gold:hover { box-shadow: 0 12px 26px rgba(61, 90, 254, 0.30); }
+.btn-dark { background: var(--ink-strong); color: #fff; }
+.link-gold { color: var(--accent-deep); font-weight: 700; }
+.link-gold:hover { text-decoration: underline; }
+
+/* Views and cards: white cards on paper, gentle hover */
+.view { border-radius: var(--radius-card); box-shadow: 0 1px 2px rgba(11, 18, 32, 0.04); }
+.card, .ob-box, .pick, .studio-card, .why, .sender-card, .ob-said {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.pick { transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; }
+.pick:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(11, 18, 32, 0.08); }
+
+/* Tags: soft status pills */
+.tag-green { background: var(--surface-success); color: var(--success); }
+.tag-gold { background: var(--marigold-soft); color: var(--marigold-ink); }
+.tag-line { background: var(--ground); border: 1px solid var(--border); color: var(--muted); }
+
+/* Forms: 14px radius, white */
+input, textarea, select {
+  border-radius: var(--radius-sm); background: #fff; color: var(--text);
+}
+#f-description, .input-answer { background: transparent; }
+
+/* Landing: rebuild per landing.html */
+.view-landing { background: var(--ground); }
+.l-nav { padding: 22px 0; }
+.l-brand { font-family: var(--font-display); font-size: 22px; }
+.l-title { font-size: clamp(40px, 7vw, 76px); line-height: 1.04; max-width: 15ch; }
+.l-title em { font-style: normal; color: var(--accent); }
+.l-sub { font-size: clamp(18px, 2.2vw, 20px); color: var(--muted); max-width: 520px; }
+.l-hero { padding: clamp(28px, 6vw, 72px) 0 clamp(48px, 8vw, 96px); gap: clamp(28px, 5vw, 56px); }
+
+/* Example card: a picture, never interactive */
+.l-stage { flex: 1 1 340px; display: flex; justify-content: center; }
+.l-example { position: relative; width: 100%; max-width: 470px; display: flex; flex-direction: column; gap: 16px; }
+.l-example .tag { position: absolute; top: -14px; right: 18px; z-index: 2; padding: 6px 14px; border-radius: var(--radius-pill); background: var(--ink-strong); color: #fff; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.l-example .lead { background: var(--surface); border: 1px solid var(--border); border-radius: 28px; padding: 24px; box-shadow: 0 24px 60px rgba(11, 18, 32, 0.10); animation: floaty 7s ease-in-out infinite; pointer-events: none; }
+.l-example .lead-head { display: flex; gap: 14px; align-items: center; }
+.l-example .avatar { width: 52px; height: 52px; border-radius: 16px; background: var(--accent-soft); color: var(--accent-deep); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 20px; flex: none; }
+.l-example .lead-head h3 { font-family: var(--font-display); font-size: 22px; margin: 0; }
+.l-example .lead-head p { margin: 2px 0 0; font-size: 14px; color: var(--dim); }
+.l-example .chip { margin-left: auto; padding: 6px 12px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; background: var(--surface-success); color: var(--success); white-space: nowrap; }
+.l-example .why { margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: var(--marigold-soft); border: 0; }
+.l-example .why b { display: block; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--marigold-ink); }
+.l-example .why span { display: block; margin-top: 2px; font-size: 16px; font-weight: 600; color: var(--text); }
+.l-example .why small { display: block; margin-top: 4px; color: var(--dim); font-size: 13px; }
+.l-example .reach { margin-top: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cc { position: relative; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--border-strong); display: grid; place-items: center; background: #fff; }
+.cc .ic { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cc .dot { position: absolute; right: -1px; top: -1px; width: 12px; height: 12px; border-radius: 50%; background: #12B76A; border: 2px solid #fff; }
+.l-example .reach small { color: var(--dim); font-size: 13px; font-weight: 600; }
+.l-bubble { position: relative; margin-left: 36px; background: #E6F7EE; border: 1px solid #C5EBD6; border-radius: 24px 24px 24px 6px; padding: 20px 22px; animation: floaty 7s ease-in-out 1.4s infinite; }
+.l-bubble .lab { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--success); display: flex; align-items: center; gap: 8px; }
+.l-typed { margin: 10px 0 0; font-size: 17px; line-height: 1.5; min-height: 6.1em; color: var(--text); }
+.l-typed.typing::after { content: ""; display: inline-block; width: 2px; height: 1.1em; margin-left: 2px; background: var(--text); vertical-align: -3px; animation: caret-blink 1s steps(1) infinite; }
+.l-status { margin-left: 36px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 14px 18px; font-weight: 700; font-size: 15px; color: var(--muted); transition: background 0.4s, color 0.4s, border-color 0.4s; }
+.l-status.ok { background: var(--surface-success); border-color: #B7E4CC; color: var(--success); }
+.l-status .pill { padding: 8px 18px; border-radius: var(--radius-pill); background: var(--border); color: var(--muted); font-size: 14px; transition: all 0.4s; }
+.l-status.ok .pill { background: var(--success); color: #fff; }
+@keyframes caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* Landing sections: plain blocks, steps with top rules, duo, trust, gold final */
+.l-problem { width: auto; margin: 0; background: transparent; border: 0; padding: clamp(48px, 8vw, 96px) 0 0; }
+.l-band-in { max-width: none; padding: 0; }
+.l-problem .kicker, .l-guide .kicker { color: var(--accent-deep); }
+.l-problem h2, .l-guide h2 { font-size: clamp(30px, 5vw, 54px); line-height: 1.08; max-width: 22ch; }
+.l-guide { padding-top: clamp(40px, 7vw, 80px); }
+.l-steps { padding-top: clamp(36px, 6vw, 64px); }
+.l-steps-kicker { color: var(--accent-deep); }
+.l-steps ol { gap: clamp(20px, 3vw, 28px); }
+.l-steps li { border-top: 2px solid var(--ink-strong); padding-top: 22px; }
+.l-num { color: var(--accent); font-size: 48px; }
+.l-steps h3 { font-size: 24px; }
+.l-compare { padding-top: clamp(40px, 6vw, 72px); }
+.l-with { background: var(--accent); color: #fff; border-radius: 28px; }
+.l-with .kicker { color: rgba(255, 255, 255, 0.85); }
+.l-with .l-compare-line { color: #fff; }
+.l-without { background: var(--surface); border: 1px solid var(--border); border-radius: 28px; }
+.l-without .l-compare-line { color: var(--muted); }
+.l-compare-line { font-size: clamp(22px, 2.6vw, 30px); }
+.l-trust { padding-top: clamp(36px, 5vw, 56px); color: var(--muted); font-size: 16px; }
+.l-trust svg { color: #12B76A; }
+.l-final { background: var(--marigold); border-radius: clamp(28px, 4vw, 40px); padding: clamp(40px, 7vw, 72px) clamp(24px, 5vw, 56px); margin-top: clamp(48px, 7vw, 88px); }
+.l-final h2 { color: var(--ink-strong); font-size: clamp(32px, 5.6vw, 60px); }
+.l-final .btn-dark { background: var(--ink-strong); color: #fff; border-radius: var(--radius-pill); font-weight: 800; }
+.l-foot { padding-bottom: 40px; }
+
+/* Reveal on scroll */
+.reveal { opacity: 0; transform: translateY(22px); transition: opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.reveal.in { opacity: 1; transform: none; }
+
+/* Thinking state on light: ink shimmer, marigold dots */
+.thinking-line {
+  background: linear-gradient(90deg, var(--dim) 25%, var(--ink-strong) 50%, var(--dim) 75%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.thinking-dots i { background: var(--marigold); }
+
+/* Progress: ultramarine bars on light track */
+.bar { background: var(--border); }
+.bar span { background: var(--accent); }
+.segs span { background: var(--border-strong); }
+.segs span.done { background: var(--marigold); }
+
+/* Skeletons on paper */
+.skel { background: linear-gradient(90deg, var(--surface) 25%, var(--border) 50%, var(--surface) 75%); }
+
+/* Studio + status board chips read on light */
+.decision { color: var(--muted); }
+.decision.approved { color: var(--success); }
+.decision.rejected { color: var(--danger); }
+.tabs button[aria-selected="true"] { background: var(--ink-strong); border-color: var(--ink-strong); color: #fff; }
+
+/* Contact verification dots on route lines */
+.route-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #12B76A; margin-right: 6px; vertical-align: 1px; }
+.route-dot.unchecked { background: var(--marigold); }
+.route-dot.bad { background: #F04438; }
+
+@media (prefers-reduced-motion: reduce) {
+  .l-example .lead, .l-bubble { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .l-typed.typing::after { animation: none; }
+}
