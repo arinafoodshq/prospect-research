@@ -122,6 +122,8 @@ export interface OnboardTurnResult {
   fields: Record<string, OnboardFieldValue>;
   question: OnboardQuestion | null;
   done: boolean;
+  /** Business name stated in the owner's words (absent when not stated). */
+  name?: string;
 }
 
 /** Input the server hands to the model for one onboarding turn. */
@@ -192,10 +194,13 @@ export function briefGateDecision(brief: Brief): { wait: boolean; event: "brief_
 }
 
 export interface DraftRow { id: string; status: string }
-/** Draft gate: waits until every draft is approved/rejected/deferred. */
+/** Draft gate: waits while any draft is undecided. An EMPTY draft list means
+ * nothing needs approval — close completes the run honestly (zero shortlisted
+ * is a valid outcome; the empty-wait here once crashed the workflow with
+ * "close stopped: awaiting_approval" on run_27e246ba). */
 export function draftGateDecision(drafts: DraftRow[]): { wait: boolean; event?: "drafts_decided"; pending: number } {
   const pending = drafts.filter((d) => d.status === "draft").length;
-  if (drafts.length === 0 || pending > 0) return { wait: true, event: "drafts_decided", pending };
+  if (pending > 0) return { wait: true, event: "drafts_decided", pending };
   return { wait: false, pending: 0 };
 }
 

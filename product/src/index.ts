@@ -839,6 +839,18 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
     if (key === "service_area") value = value.replace(/^(around|near|in|at)\s+/i, "").trim() || value;
     fields[key] = { value, label: fv.label, locked: false };
   }
+  // Prose capture backstop: "offices in Ikeja" already answers Where. When
+  // the model still asks for the area while the owner's own words name one,
+  // seed the field from their text instead of re-asking (the location
+  // precision backstop below may still refine it — showing the noted value).
+  const saBefore = fields["service_area"];
+  if (out.question?.key === "service_area" && saBefore && !saBefore.locked && saBefore.value === "") {
+    const m = text.match(/\b(?:in|around|near|based in|serving|covering)\s+([A-Za-z][\w'&-]*(?:[ ,]+[A-Za-z][\w'&-]*){0,3})/i);
+    if (m && m[1]) {
+      const place = m[1].replace(/^(around|near|in|at)\s+/i, "").replace(/[, ]+(and|etc|…)$/i, "").trim();
+      if (place) fields["service_area"] = { value: place, label: "inferred", locked: false };
+    }
+  }
   // Anti-re-ask backstop: the model must never ask about a field that
   // already carries a value (or that the owner skipped). If it does, the
   // turn ends instead — the owner edits on the summary rather than being
@@ -865,7 +877,7 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
     out.done = false;
   }
   const used = out.question ? followupsUsed + 1 : followupsUsed;
-  return json({ fields, question: out.question, done: out.done, followups_used: used });
+  return json({ fields, question: out.question, done: out.done, followups_used: used, name: out.name ?? null });
 };
 
 // --- Router ------------------------------------------------------------------

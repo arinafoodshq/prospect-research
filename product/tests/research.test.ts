@@ -917,7 +917,10 @@ describe("gate decisions", () => {
   });
 
   it("draft gate waits while drafts are undecided and resumes when decided", () => {
-    expect(draftGateDecision([]).wait).toBe(true);
+    // Zero drafts = nothing to approve: close completes the run honestly.
+    // (The old empty-wait crashed the workflow when a run shortlisted nobody:
+    // "close stopped: awaiting_approval" on run_27e246ba.)
+    expect(draftGateDecision([]).wait).toBe(false);
     const waiting = draftGateDecision([
       { id: "d1", status: "approved" },
       { id: "d2", status: "draft" },

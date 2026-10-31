@@ -398,6 +398,9 @@
       ob.followupsUsed = res.followups_used || 0;
       ob.question = res.question || null;
       ob.done = !!res.done || !ob.question;
+      // The chat may state the business name — capture it so the summary
+      // never has to ask for what the owner already said.
+      if (res.name && !ob.businessName) { ob.businessName = res.name; ob.nameAssumed = false; }
       setObButtons(false);
       renderObChat();
       return true;
@@ -740,6 +743,13 @@
     }
     refreshProgressSnapshot();
     return api.runProgress(myRun, function () {
+      // A live tick after an error clears the stopped latch: the banner and
+      // buttons go back to the working state (retry healed the stream).
+      $("progress-eyebrow").innerHTML = '<span class="dot" aria-hidden="true"></span>Working now';
+      $("progress-title").textContent = "Finding the buyers that truly fit.";
+      $("progress-error").hidden = true;
+      var retry = $("btn-retry-progress");
+      if (retry) retry.hidden = true;
       refreshProgressSnapshot();
     }).then(function () {
       if (myRun !== state.runId) return null;

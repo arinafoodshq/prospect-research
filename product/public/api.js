@@ -466,8 +466,10 @@
     var self = this;
     return new Promise(function (resolve, reject) {
       var timer = null;
-      var poll = function () {
+      var misses = 0; // transient poll failures: one dropped request must not
+      var poll = function () { // kill the progress view (600+ polls per run).
         self._req("/api/runs/" + encodeURIComponent(runId)).then(function (run) {
+          misses = 0;
           var done = PROGRESS_DONE[run.status] == null ? 0 : PROGRESS_DONE[run.status];
           onTick({ done: done, total: PROGRESS_STEPS.length, steps: PROGRESS_STEPS, live: true });
           if (PROGRESS_TERMINAL[run.status]) {
@@ -476,6 +478,8 @@
             else resolve({ runId: run.id, status: run.status });
           }
         }, function (err) {
+          misses += 1;
+          if (misses < 4) return; // keep polling; a later tick usually lands
           if (timer) clearInterval(timer);
           reject(err);
         });

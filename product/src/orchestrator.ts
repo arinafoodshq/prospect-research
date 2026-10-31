@@ -191,9 +191,21 @@ export class ResearchWorkflow {
     const MAX_SWEEPS = 3;
     let prevCandidates = -1;
     for (let sweep = 1; sweep <= MAX_SWEEPS; sweep += 1) {
-      await this.phase("discover", () => this.dispatch("discover"));
-      await this.phase("investigate", () => this.dispatch("investigate"));
+      // Sweep share: never let sweep 1 spend the whole run budget — each
+      // sweep may use an equal slice of what remains, so the replan loop has
+      // real budget to work with (run_27e246ba spent 30/30 searches in
+      // sweep 1 and the replans had nothing left).
+      const ctxNow = await this.phaseCtx();
+      const left = Math.max(1, MAX_SWEEPS - sweep + 1);
+      const share = {
+        searches: ctxNow.consumed.searches + Math.max(1, Math.ceil((ctxNow.caps.searches - ctxNow.consumed.searches) / left)),
+        fetches: ctxNow.consumed.fetches + Math.max(1, Math.ceil((ctxNow.caps.fetches - ctxNow.consumed.fetches) / left)),
+        candidates: ctxNow.caps.candidates,
+      };
+      await this.phase("discover", () => this.dispatch("discover", share));
+      await this.phase("investigate", () => this.dispatch("investigate", share));
       await this.phase("assess", () => this.dispatch("assess"));
+      // eslint-disable-next-line no-await-in-loop
       const qa = await this.runtime.step(`qa:${sweep}`, () => this.qualitySnapshot()) as RunQuality & { budgetLeft: boolean };
       this.runtime.log(`qa sweep ${sweep}: good ${qa.good}, junk ${qa.junk}, candidates ${qa.candidates}, unlocated ${qa.unlocated}`);
       if (qa.good >= TARGET_GOOD) break; // quality bar met
@@ -348,10 +360,11 @@ export class ResearchWorkflow {
     this.runtime.log(`gate ${type} satisfied`);
   }
 
-  private async phaseCtx(): Promise<{ caps: typeof DEFAULT_CAPS; consumed: BudgetConsumed; run_id: string }> {
+  private async phaseCtx(capsOverride?: { searches?: number; fetches?: number; candidates?: number }): Promise<{ caps: typeof DEFAULT_CAPS; consumed: BudgetConsumed; run_id: string }> {
     const runId = (this.deps as OrchestratorDeps).run_id;
     const consumed = await loadRunConsumed((this.deps as OrchestratorDeps).db, runId);
-    return { caps: { ...DEFAULT_CAPS }, consumed, run_id: runId };
+    const caps = { ...DEFAULT_CAPS, ...(capsOverride ?? {}) };
+    return { caps, consumed, run_id: runId };
   }
 
   /** Outcome-returning plan body shared by run() (via plan()) and runPhases(). */
@@ -365,10 +378,10 @@ export class ResearchWorkflow {
   }
 
   /** Outcome-returning dispatch shared by run() (via dispatch()) and runPhases(). */
-  private async execPhase(phase: Exclude<WorkflowPhase, "plan" | "close">): Promise<PhaseOutcome> {
+  private async execPhase(phase: Exclude<WorkflowPhase, "plan" | "close">, capsOverride?: { searches?: number; fetches?: number; candidates?: number }): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error(`not implemented: ${phase} phase (no deps injected)`);
     await hydrateBriefFromRun(this.deps.db, this.deps.meta, this.deps.run_id);
-    const ctx = await this.phaseCtx();
+    const ctx = await this.phaseCtx(capsOverride);
     const brief = this.deps.brief;
     const db = this.deps.db;
     const meta = this.deps.meta;
@@ -437,8 +450,8 @@ export class ResearchWorkflow {
     return { queries: [] };
   }
 
-  private async dispatch(phase: Exclude<WorkflowPhase, "plan" | "close">): Promise<void> {
-    const outcome = await this.execPhase(phase);
+  private async dispatch(phase: Exclude<WorkflowPhase, "plan" | "close">, capsOverride?: { searches?: number; fetches?: number; candidates?: number }): Promise<void> {
+    const outcome = await this.execPhase(phase, capsOverride);
     if (outcome.status === "stopped") throw new Error(`${phase} stopped: ${outcome.stop_reason}`);
   }
 
