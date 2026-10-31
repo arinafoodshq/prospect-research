@@ -12,6 +12,7 @@
  *   https://<host>/api/auth/callback
  */
 import { hmacHex } from "./delivery/crypto";
+import { auditEvent } from "./audit";
 
 export interface SessionUser {
   email: string;
@@ -94,6 +95,7 @@ export async function getSession(env: Env, req: Request): Promise<SessionUser | 
 /** Start the Google OAuth flow: HMAC-signed state (same pattern as the Gmail
  * connection flow), 302 to the consent screen. */
 export async function startGoogleLogin(req: Request, env: Env): Promise<Response> {
+  await auditEvent(env.DB, { kind: "auth_event", subject: "signin_start", summary: { at: new Date().toISOString() } });
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.CRED_KEY) {
     return html("Sign-in unavailable", "<p>The server is missing Google sign-in credentials. Ask the operator to set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and CRED_KEY.</p>", 501);
   }
@@ -120,19 +122,30 @@ export async function googleCallback(req: Request, env: Env): Promise<Response> 
   const q = new URL(req.url).searchParams;
   const code = q.get("code");
   const state = q.get("state") || "";
-  if (!code) return html("Sign-in failed", `<p>${q.get("error") || "No authorisation code came back."}</p>`);
+  if (!code) {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: q.get("error") || "no_code" } });
+    return html("Sign-in failed", `<p>${q.get("error") || "No authorisation code came back."}</p>`);
+  }
   const dot = state.lastIndexOf(".");
-  if (dot <= 0) return html("Sign-in failed", "<p>Bad state from Google.</p>");
+  if (dot <= 0) {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: "bad_state" } });
+    return html("Sign-in failed", "<p>Bad state from Google.</p>");
+  }
   const payload = state.slice(0, dot);
   const want = await hmacHex(env.CRED_KEY, "login-oauth:" + payload);
-  if (state.slice(dot + 1) !== want) return html("Sign-in failed", "<p>State signature mismatch — start again.</p>");
+  if (state.slice(dot + 1) !== want) {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: "state_signature_mismatch" } });
+    return html("Sign-in failed", "<p>State signature mismatch — start again.</p>");
+  }
   let decodedTs: number | undefined;
   try {
     decodedTs = (JSON.parse(atob(payload)) as { ts?: number }).ts;
   } catch {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: "bad_state_payload" } });
     return html("Sign-in failed", "<p>Bad state payload.</p>");
   }
   if (!decodedTs || Date.now() - decodedTs > 15 * 60_000) {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: "state_expired" } });
     return html("Sign-in failed", "<p>The sign-in attempt expired. Start again.</p>");
   }
   const origin = new URL(req.url).origin;
@@ -148,11 +161,13 @@ export async function googleCallback(req: Request, env: Env): Promise<Response> 
     }).toString(),
   });
   if (!tokenRes.ok) {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: "token_exchange_failed", status: tokenRes.status } });
     return html("Sign-in failed", `<p>Token exchange failed (HTTP ${tokenRes.status}).</p>`);
   }
   const tokens = (await tokenRes.json()) as { id_token?: string };
   const claims = tokens.id_token ? decodeIdToken(tokens.id_token) : null;
   if (!claims || !claims.email || claims.email_verified !== true) {
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signin_failed", summary: { reason: "no_verified_email" } });
     return html("Sign-in failed", "<p>Google did not return a verified email address.</p>");
   }
   const name = (claims.name || "").slice(0, 80) || claims.email;
@@ -165,6 +180,10 @@ export async function googleCallback(req: Request, env: Env): Promise<Response> 
     "INSERT INTO user_session (token_hash, email, name, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
   ).bind(hash, claims.email, name, new Date(now).toISOString(), now + SESSION_MS).run();
   const cookie = `${COOKIE}=${token}; HttpOnly; Secure; Path=/; Max-Age=${Math.floor(SESSION_MS / 1000)}; SameSite=Lax`;
+  await auditEvent(env.DB, {
+    kind: "auth_event", subject: "signin",
+    summary: { email: claims.email, name, created_at: new Date(now).toISOString() },
+  });
   const headers = new Headers({ location: `${origin}/` });
   headers.append("set-cookie", cookie);
   return new Response(null, { status: 302, headers });
@@ -181,7 +200,11 @@ export async function signOut(env: Env, req: Request): Promise<Response> {
   const token = cookieSessionToken(req);
   if (token) {
     const hash = await sha256Hex(token);
+    const row = await env.DB.prepare(
+      "SELECT email FROM user_session WHERE token_hash = ?",
+    ).bind(hash).first<{ email: string }>().catch(() => null);
     await env.DB.prepare("DELETE FROM user_session WHERE token_hash = ?").bind(hash).run();
+    await auditEvent(env.DB, { kind: "auth_event", subject: "signout", summary: { email: row?.email ?? null } });
   }
   const cleared = `${COOKIE}=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Lax`;
   return new Response(JSON.stringify({ ok: true }), {

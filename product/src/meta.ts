@@ -76,6 +76,8 @@ export interface PhaseRequestOptions {
 
 export interface ResponsesRequest {
   model: string;
+  /** Phase label for the audit trail only — stripped before the wire. */
+  phase?: "plan" | "discover" | "investigate" | "assess" | "rank" | "draft";
   input: Array<{ role: string; content: string }>;
   tools: Array<Record<string, unknown>>;
   tool_choice: "auto";
@@ -114,6 +116,7 @@ export function buildPhaseRequest(opts: PhaseRequestOptions): ResponsesRequest {
   }
   const req: ResponsesRequest = {
     model: MODEL_ID,
+    phase: opts.phase,
     input: [
       { role: "system", content: `You are the prospect-research agent (phase: ${opts.phase}). ${opts.phaseGoal}` },
       {
@@ -255,6 +258,9 @@ export interface MetaClientDeps {
   briefExcerpt?: string;
   endpoint?: string;
   fetchImpl?: typeof fetch;
+  /** Audit trail hook (user requirement 2026-10-31): every model burst logs
+   * phase, goal head, usage, duration, and output head. Best-effort. */
+  audit?: (ev: import("./audit").AuditEvent) => Promise<void>;
 }
 
 function hostOf(url: string): string {
@@ -630,14 +636,44 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
   const brief = deps.briefExcerpt ?? "";
 
   async function callResponses(req: ResponsesRequest): Promise<ParsedResponse> {
-    const res = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json", "Authorization": "Bearer " + deps.apiKey },
-      body: JSON.stringify({ ...req, model }),
-      signal: AbortSignal.timeout(META_CALL_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`meta_http_${res.status}`);
-    return parseResponsesResponse(await res.json());
+    const started = Date.now();
+    try {
+      const wire: Record<string, unknown> = { ...req, model };
+      delete wire["phase"]; // audit-only label, never sent to the API
+      const res = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": "Bearer " + deps.apiKey },
+        body: JSON.stringify(wire),
+        signal: AbortSignal.timeout(META_CALL_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`meta_http_${res.status}`);
+      const parsed = parseResponsesResponse(await res.json());
+      if (deps.audit) {
+        const lastInput = req.input[req.input.length - 1];
+        const goal = lastInput ? lastInput.content : "";
+        await deps.audit({
+          kind: "model_call",
+          subject: `${req.phase} ${model}`,
+          summary: {
+            phase: req.phase, model, duration_ms: Date.now() - started,
+            input_tokens: parsed.usage?.input_tokens, output_tokens: parsed.usage?.output_tokens,
+            tools: req.tools.map((t) => t["name"] ?? t["type"]).slice(0, 5),
+            goal_head: goal.slice(0, 800),
+            output_head: (parsed.outputText || "").slice(0, 1200),
+          },
+        }).catch(() => { /* audit never breaks a model call */ });
+      }
+      return parsed;
+    } catch (e) {
+      if (deps.audit) {
+        await deps.audit({
+          kind: "model_error",
+          subject: `${req.phase} ${model}`,
+          summary: { phase: req.phase, model, duration_ms: Date.now() - started, error: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300) },
+        }).catch(() => { /* ignore */ });
+      }
+      throw e;
+    }
   }
 
   async function search(query: string): Promise<SearchHit[]> {

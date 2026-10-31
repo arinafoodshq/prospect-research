@@ -6,6 +6,7 @@
  */
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { getRun, setRunStatus, type Db, type ResearchRun } from "./db";
+import { auditEvent } from "./audit";
 import { createMetaClient } from "./meta";
 import {
   ResearchWorkflow,
@@ -47,6 +48,7 @@ export class ResearchWorkflowEntrypoint extends WorkflowEntrypoint<WorkflowEnv, 
       apiKey: this.env.MODEL_API_KEY,
       ...(this.env.MODEL_ID !== undefined ? { modelId: this.env.MODEL_ID } : {}),
       briefExcerpt: typeof profile?.["description"] === "string" ? (profile["description"] as string) : "",
+      audit: (ev) => auditEvent(db, { ...ev, run_id: runId }),
     });
     const wf = new ResearchWorkflow(runtime, {
       db,

@@ -21,6 +21,7 @@ import {
 } from "./db";
 import { ASR_ENDPOINT, buildTranscribeForm, parseTranscribeResponse } from "./asr";
 import * as auth from "./auth";
+import { auditEvent } from "./audit";
 import { createMetaClient } from "./meta";
 import { ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
@@ -480,6 +481,7 @@ const postRewriteDraft: Handler = async ({ req, env, params }) => {
   const meta = createMetaClient({
     apiKey: env.MODEL_API_KEY,
     ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
+    audit: (ev) => auditEvent(env.DB, ev),
   });
   if (!meta.rewriteDraft) return err("model_not_configured", 500);
   let out;
@@ -578,6 +580,7 @@ const postStart: Handler = async ({ env, params }) => {
     apiKey: env.MODEL_API_KEY,
     ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
     briefExcerpt: excerpt,
+    audit: (ev) => auditEvent(env.DB, ev),
   });
   const wf = new ResearchWorkflow(
     {
@@ -815,6 +818,7 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   const meta = createMetaClient({
     apiKey: env.MODEL_API_KEY,
     ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
+    audit: (ev) => auditEvent(env.DB, ev),
   });
   if (!meta.onboardTurn) return err("model_not_configured", 500);
   let out;
@@ -932,8 +936,30 @@ route("GET", "/api/auth/callback", (c) => auth.googleCallback(c.req, c.env));
 route("POST", "/api/auth/signout", (c) => auth.signOut(c.env, c.req));
 route("GET", "/api/me", (c) => auth.getSession(c.env, c.req).then((s) => json({ user: s })));
 
+/** Match + run a route from the table; 404 when nothing matches.
+ * Split out of fetch so the audit wrapper can time and observe every call. */
+async function dispatchApi(req: Request, env: Env, url: URL): Promise<Response> {
+  for (const r of table) {
+    if (r.method !== req.method) continue;
+    const m = r.pattern.exec(url.pathname);
+    if (!m) continue;
+    const params: Record<string, string> = {};
+    r.keys.forEach((k, i) => {
+      params[k] = decodeURIComponent(m[i + 1] as string);
+    });
+    try {
+      return await r.handler({ req, env, params });
+    } catch (e) {
+      if (e instanceof DbValidationError) return err("validation", 400, e.message);
+      throw e;
+    }
+  }
+  return err("not_found", 404);
+}
+
 export default {
   async fetch(req: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+    const started = Date.now();
     const url = new URL(req.url);
     if (url.pathname === "/demo" || url.pathname.startsWith("/demo/")) {
       // Judges path: serve the app shell for requests the SPA fallback
@@ -948,6 +974,7 @@ export default {
       const p = url.pathname;
       const publicApi = p.startsWith("/api/auth/") || p === "/api/me"
         || p.startsWith("/api/unsubscribe");
+      let sess: { email: string; name: string } | null = null;
       if (!publicApi) {
         // Test hook (same pattern as __onboardMockTurn): direct-route unit
         // tests set __PR_SKIP_SIGNIN__ and exercise handlers without a
@@ -955,26 +982,47 @@ export default {
         // in production.
         const skip = (globalThis as { __PR_SKIP_SIGNIN__?: boolean }).__PR_SKIP_SIGNIN__ === true;
         if (!skip) {
-          const sess = await auth.getSession(env, req);
-          if (!sess) return err("signin_required", 401);
+          sess = await auth.getSession(env, req);
+          if (!sess) {
+            await auditEvent(env.DB, {
+              kind: "api_request", subject: `${req.method} ${p}`,
+              summary: { status: 401, duration_ms: Date.now() - started, user: null, query: Object.fromEntries(url.searchParams) },
+            });
+            return err("signin_required", 401);
+          }
         }
       }
-      for (const r of table) {
-        if (r.method !== req.method) continue;
-        const m = r.pattern.exec(url.pathname);
-        if (!m) continue;
-        const params: Record<string, string> = {};
-        r.keys.forEach((k, i) => {
-          params[k] = decodeURIComponent(m[i + 1] as string);
+      // Audit trail: one row per API request — who, what, input, output.
+      // Body snapshot is taken from a clone so handlers read the stream once.
+      const bodyHead = req.method !== "GET" && req.method !== "HEAD"
+        ? await req.clone().text().then((t) => t.slice(0, 3000)).catch(() => "")
+        : "";
+      let res: Response;
+      try {
+        res = await dispatchApi(req, env, url);
+      } catch (e) {
+        await auditEvent(env.DB, {
+          kind: "api_request", subject: `${req.method} ${p}`,
+          summary: {
+            status: 500, duration_ms: Date.now() - started, user: sess?.email ?? null,
+            query: Object.fromEntries(url.searchParams),
+            body: bodyHead, error: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+          },
         });
-        try {
-          return await r.handler({ req, env, params });
-        } catch (e) {
-          if (e instanceof DbValidationError) return err("validation", 400, e.message);
-          throw e;
-        }
+        throw e;
       }
-      return err("not_found", 404);
+      await auditEvent(env.DB, {
+        kind: "api_request", subject: `${req.method} ${p}`,
+        summary: {
+          status: res.status, duration_ms: Date.now() - started, user: sess?.email ?? null,
+          query: Object.fromEntries(url.searchParams),
+          body: bodyHead,
+          res: res.headers.get("content-type")?.includes("json")
+            ? await res.clone().text().then((t) => t.slice(0, 1200)).catch(() => "")
+            : "",
+        },
+      });
+      return res;
     }
     return err("not_implemented", 501);
   },

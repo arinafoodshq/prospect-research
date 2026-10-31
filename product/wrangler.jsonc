@@ -26,9 +26,15 @@
   ],
   // Static assets (O-1 resolved): Workers Static Assets serves ./public;
   // /api/* falls through to the Worker. No separate binding needed.
-  // SPA fallback serves index.html for navigation to /demo (judges path);
-  // fetch() API calls are non-navigation and still reach the Worker.
-  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application" },
+  // SPA fallback serves index.html for navigation to /demo (judges path).
+  // run_worker_first: browser NAVIGATIONS to /api/* (auth links, unsubscribe
+  // links) must reach the Worker, not the SPA fallback — without this the
+  // assets layer served index.html for /api/auth/start and the app rendered
+  // unstyled (bug found 2026-10-31 on the live auth page).
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  // Workers Logs: console output (workflow logs, errors) visible in the
+  // dashboard + `wrangler tail`; complements the D1 audit_log trail.
+  "observability": { "enabled": true },
   // Campaign delivery tick: every 5 minutes (UTC). Changes take ~15 min to propagate.
   "triggers": { "crons": ["*/5 * * * *"] },
   // Delivery pipeline: cron/process enqueue due recipients; the consumer sends.
