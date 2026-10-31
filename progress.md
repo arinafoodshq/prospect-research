@@ -1253,3 +1253,35 @@ record). Next per spec: P0 search-grounding probe (5 known businesses),
 P1 UI rebuild from landing.html + workspace.html references (reference
 preserved at Temp\opencode\reference-landing.html), hide internals,
 verification re-run with before/after numbers at 390px + 1440px.
+2026-10-31 (commit b0f523f, NOT yet deployed): P1 UI rebuild from the two
+reference files. tokens.css rewritten to the paper palette (ground #F8F7F4,
+cards #FFFFFF, ink #0B1220, ultramarine #3D5AFE accent, marigold #FFB020 final
+panel; compatibility var names kept so every existing view re-skins without
+DOM changes). styles.css: appended reference-theme layer (pill buttons with
+shadow, white cards + hover lift, soft status tags, focus-visible, light
+thinking shimmer/marigold dots, ultramarine progress bars, route-dot classes,
+reduced-motion overrides). index.html: landing markup rebuilt to the
+reference - hero with non-interactive example card (Example tag, avatar,
+strong-fit chip, why-now panel, checked contact circles with dots), typed
+WhatsApp draft bubble (#l-typed data-text, blinking caret), approve-status
+pill (#l-status), sound-familiar block, three steps with top rules,
+with/without duo (ultramarine vs white), trust row, marigold final panel;
+SVG symbol defs (i-wa/i-mail/i-ig), Fraunces+Manrope weights 600-800,
+theme-color #F8F7F4; kept #view-landing, link-signin, signin-note, both
+data-start buttons. app.js: initLandingAnim - typed loop then "Approved.
+Ready to send" then reset, reveal-on-scroll via IntersectionObserver,
+prefers-reduced-motion falls back to full text + shown sections. smoke.mjs:
+registered l-typed/l-status ids in the DOM-surface array; also
+first-committed product/tests/verify.test.ts (missed by the caedc6a commit;
+vitest depends on it). Verified: node --check clean, smoke PASS
+(landing->chat->confirm->progress->shortlist->drafts->decide->status),
+413/413 vitest, browser QA at 390px + 1440px (screenshots reviewed):
+landing hero/example/bubble/status/steps/duo/trust/final, shortlist selected
+card + tabs + honest "Published, not yet checked" copy + sticky action bar,
+progress view live counters + checked-step list + set-aside reasons +
+budget line; console clean except a deliberate font-CDN abort in one run;
+no horizontal overflow at 390px. Known: Google Fonts CDN intermittently
+hangs (Playwright screenshot font-wait) - production unaffected, page
+renders with fallback fonts if it ever stalls. Next: deploy + push on
+approval, then P0 search-grounding probe, hide internals in status
+board/senders, verification re-run with before/after numbers.
