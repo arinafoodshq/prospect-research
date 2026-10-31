@@ -1465,3 +1465,48 @@ business and confirm the brief - the run then sweeps per directive category.
 Afterwards: pull the run record from D1 and audit against pre-registered
 thresholds (>=80% qualified in-segment, 0 hard violations, 100% qualified
 with prospect-owned source) and report the model-spend running total.
+
+## 2026-10-31 — Deploy: audit trail + /api navigation fix (user request before first run)
+
+User added the Google redirect URI; before running, asked for a full audit
+trail (all user input, functions called, data passed, output received) and
+reported the auth page rendering as an unstyled app shell.
+
+Root cause (auth page): browser NAVIGATIONS to non-asset paths were served
+index.html by the assets SPA fallback WITHOUT running the Worker - so
+/api/auth/start never reached its 302. Affected every /api navigation incl.
+unsubscribe links in emails. Fixed in wrangler.jsonc with
+assets.run_worker_first: ["/api/*"] (also enabled Workers Logs observability).
+
+Audit trail (commit 20d0acb, migration 0006_audit_log, version 07f81545):
+- D1 table audit_log (ts, kind, run_id, subject, summary, created_at; run+kind
+  indexes).
+- src/audit.ts: never-throws writer; redaction (authorization/api_key/token/
+  secret/password/cookie/code/credential keys -> [redacted]) applied
+  STRUCTURALLY - stringified JSON bodies (request payloads) are parsed and
+  redacted before storage; bounded (2000-char strings, 20-item arrays,
+  depth 6, 6KB summary).
+- Instrumented: every /api/* request (method, path, status, duration, user
+  email, query, request body, response head) incl. 401 gate rows and 500s
+  with error; every model burst from meta.callResponses (phase, model, goal
+  head, tool names, usage tokens, duration, output head, failures as
+  model_error); auth events (signin_start, signin, signin_failed reasons,
+  signout). run_id attached inside the Workflow. Secrets never stored: OAuth
+  codes, session tokens, unsub tokens all redacted.
+
+Verification (evidence): tsc clean; vitest 449/449 (+9 audit tests); SMOKE
+PASS; migration 0006 applied remote (audit_log verified); deployed version
+07f81545-c775-4b58-83f5-e6c2e5d25170; live checks: browser-like navigation
+(Sec-Fetch-Mode: navigate) to /api/auth/start -> 302 to Google consent (bug
+fixed), unsubscribe navigation -> 400 handler response (reached the Worker),
+gate 401, /api/me 200; first live audit rows inspected in D1 showing
+redaction working (query.token [redacted]).
+
+Files: migrations/0006_audit_log.sql (new), src/audit.ts (new), src/index.ts,
+src/meta.ts, src/workflow.ts, src/auth.ts, wrangler.jsonc,
+tests/audit.test.ts (new). Pushed after this entry.
+Limitation: audit rows count toward D1 storage; the api_request row caps
+bodies at 3000 chars and response heads at 1200. Model-call rows do not
+capture web_search result payloads (those persist as evidence rows already).
+Next: user runs the first directive-driven research run; audit queryable via
+D1 (SELECT * FROM audit_log ORDER BY id DESC).
