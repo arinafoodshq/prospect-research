@@ -1285,3 +1285,10 @@ hangs (Playwright screenshot font-wait) - production unaffected, page
 renders with fallback fonts if it ever stalls. Next: deploy + push on
 approval, then P0 search-grounding probe, hide internals in status
 board/senders, verification re-run with before/after numbers.
+2026-10-31 (DEPLOYED 0b5796b4, user-approved + pushed): P1 UI rebuild live.
+commit b0f523f deployed with --containers-rollout=none; verified live: GET /
+200, tokens.css serves #F8F7F4 paper palette, / serves the new example-card
+landing markup. Pushed to main (b0f523f + 17440ae). Remaining per spec: P0
+search-grounding probe (5 known businesses), hide internals in status
+board/senders, verification re-run with before/after numbers at 390px +
+1440px.
