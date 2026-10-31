@@ -1411,3 +1411,39 @@ prospects, zero duplicates, honest bands, 21 replies) proves brief-first
 category sweeps with per-row verification artifacts beat generic ICP sweeps.
 Prior spec text retained in git history (v0.2 text unchanged apart from the
 status line; change noted in version history). Implementation: next batch.
+
+## 2026-10-31 — Implemented: research directive v0.3 (the 504Yard method, commit 3aa8aff)
+
+Spec SS12.11 implementation (approved change control same day):
+- Brief composition now emits the research directive in the same model call:
+  buildBriefGoal JSON shape gained directive.categories (2-6 buying-organisation
+  categories, each with angle, buyer_roles, owner-checkable artifact,
+  max_queries 1-3) + a directive rule line (buyer orgs only, never lookalike
+  sellers or excluded verticals).
+- Parsing degrades honestly: a malformed model directive is DROPPED, never
+  throws (validateBrief -> parseDirective); ensureDirective() synthesizes a
+  deterministic fallback from the validated brief (one category per primary
+  industry <=4, the brief's buyer roles, standard artifact line, 2 queries
+  each) so every run sweeps with an artifact rule. Applied at brief build
+  (phases) and at hydration of legacy stored briefs (orchestrator) - existing
+  runs get the directive without re-running the brief.
+- discover sweeps per category: buildPlanGoal now instructs "sweep every
+  directive category with at least one problem-led query, capped per category
+  (name <=N)" when a directive exists; the legacy generic cover line remains
+  for briefs without one. renderBriefPrompt carries the directive block (with
+  artifacts) into every later burst (assess, draft, rationales).
+- Artifact cap verified triple-enforced and pinned by tests: decideVerdict
+  never returns qualified without a prospect-owned source (needs_research);
+  rank's junk gate excludes directory-only evidence; needs_research/manual_review
+  stay draftless per SS12.10. New tests pin all of it.
+
+Verification (evidence): npx tsc --noEmit clean; npx vitest run 440/440 (was
+427; +13 directive tests in tests/directive.test.ts); npm run smoke: SMOKE
+PASS; pushed main 93ae351..3aa8aff.
+Files: src/research/commercial.ts, src/research/phases.ts, src/orchestrator.ts,
+tests/directive.test.ts (new).
+Not yet deployed - deploy needs approval. First live directive-bearing run
+should be compared against the pre-registered thresholds (>=80% qualified
+in-segment, 0 hard violations, 100% qualified with prospect-owned source).
+Next: on approval, deploy (same command as before), then run a live research
+run to see directive-driven sweeps in action.
