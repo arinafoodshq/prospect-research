@@ -539,7 +539,7 @@
             readiness: typeof dims.readiness === "number" ? dims.readiness : 0,
             rationale: asmt && asmt.rationale ? String(asmt.rationale) : "",
             uncertainties: open.filter(function (u) { return typeof u === "string" && u; }).slice(0, 3),
-            routes: (details[i].routes || []).map(function (r) { return { channel: r.channel, value: r.value }; }),
+            routes: (details[i].routes || []).map(function (r) { return { channel: r.channel, value: r.value, verification: r.verification }; }),
             sourceUrl: firstEv.source || ""
           };
         });
@@ -559,7 +559,11 @@
         evidence: (res.evidence || []).map(function (e) {
           return { quote: e.quote, source: e.source_url || "model inference", type: e.source_type };
         }),
-        routes: res.contact_routes || []
+        // Spec P0 (2026-10-31): broken and wrong-type links are NEVER shown
+        // as links; they live server-side for the Removed list in the rebuild.
+        routes: (res.contact_routes || [])
+          .filter(function (r) { return r.verification !== "broken" && r.verification !== "wrong_type"; })
+          .map(function (r) { return { channel: r.channel, value: r.value, verification: r.verification }; })
       };
       self._evCache[prospectId] = mapped;
       return mapped;

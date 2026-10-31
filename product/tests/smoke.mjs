@@ -330,7 +330,8 @@ ok(els["prospect-list"].children.length === 2, "ready tab lists 2 qualified, saw
   ok(/Published, not yet checked/.test(card), "card labels the route honestly");
 }
 ok(els["evidence-body"].innerHTML.length > 20, "selecting a prospect shows evidence");
-ok(els["shortlist-count"].textContent === "6 selected · nothing is sent yet", "sticky bar counts all selected");
+// Spec D: default selection is Ready-now only (was: everything pre-ticked).
+ok(els["shortlist-count"].textContent === "2 selected · nothing is sent yet", "default selection is Ready now only");
 
 const tabTarget = (t) => evt({ target: { getAttribute: (k) => (k === "data-tab" ? t : null) } });
 await fire(els["shortlist-tabs"], "click", tabTarget("warm"));
@@ -356,7 +357,25 @@ await tick();
   for (const fn of fns) await fn.call(li, untick);
 }
 await tick();
-ok(els["shortlist-count"].textContent === "5 selected · nothing is sent yet", "unticking updates the sticky count");
+ok(els["shortlist-count"].textContent === "1 selected · nothing is sent yet", "unticking updates the sticky count");
+
+// Spec D: selection is deliberate. Tick the remaining picks for the studio
+// walkthrough (a user action), then read the drafts.
+const tickPick = async (tab, idx, id) => {
+  await fire(els["shortlist-tabs"], "click", tabTarget(tab));
+  await tick();
+  const li = els["prospect-list"].children[idx];
+  const fns = li._listeners.click || [];
+  for (const fn of fns) await fn.call(li, { target: { getAttribute: (k) => (k === "data-sel" ? id : null), checked: true } });
+  await tick();
+};
+await tickPick("warm", 0, "p03");
+await tickPick("warm", 1, "p04");
+await tickPick("look", 0, "p05");
+await tickPick("look", 1, "p06");
+await fire(els["shortlist-tabs"], "click", tabTarget("ready"));
+await tick();
+ok(els["shortlist-count"].textContent === "5 selected · nothing is sent yet", "ticking picks updates the sticky count");
 
 await fire(els["btn-to-drafts"], "click", evt());
 await tick(); await tick(); await tick();
@@ -365,7 +384,7 @@ ok(els["drafts-kicker"].textContent === "EXAMPLE DATA", "drafts kicker marks the
 ok(els["draft-list"].children.length === 1, "studio shows one message at a time");
 {
   const html = els["draft-list"].children[0].innerHTML;
-  ok(/MESSAGE 1 OF 3/.test(html), "studio pager counts the filtered drafts");
+  ok(/MESSAGE 1 OF 3/.test(html), "studio pager counts the selected drafts");
   ok(/Your note to Kingsway Tech Hub/.test(html), "studio names the first selected pick");
   ok(/Why this message/.test(html) && /A fact we found/.test(html), "studio explains the message");
   ok(/Approve and schedule/.test(html) && /Skip this one/.test(html), "studio has approve + skip actions");

@@ -38,6 +38,15 @@ export interface BriefStatement {
   provenance: Provenance;
 }
 
+/** A buyer group we search for, with its reason and provenance. "derived"
+ * groups are guesses from the owner's words — shown off by default in the UI
+ * and confirmed before they steer any search. */
+export interface BriefGroup {
+  name: string;
+  reason: string;
+  source: "owner" | "derived";
+}
+
 export interface CommercialBrief {
   version: 1;
   offer: { description: string; geography: string; outcomes: string[] };
@@ -49,6 +58,8 @@ export interface CommercialBrief {
   /** At most 3 blocking questions; empty means proceed on stated assumptions. */
   questions: string[];
   assumptions: string[];
+  /** Buyer groups the searches will target (absent = legacy brief). */
+  groups?: BriefGroup[];
 }
 
 export interface ICPContract {
@@ -146,6 +157,21 @@ export function validateBrief(raw: unknown): CommercialBrief {
   if (questions.length > 3) throw new Error("brief.questions allows at most 3 blocking questions");
   const assumptions = strList(raw["assumptions"] ?? []);
   if (assumptions === null) throw new Error("brief.assumptions must be a string array");
+  let groups: BriefGroup[] | undefined;
+  if (raw["groups"] !== undefined) {
+    if (!Array.isArray(raw["groups"])) throw new Error("brief.groups must be an array");
+    groups = [];
+    for (const g of raw["groups"]) {
+      const name = isRecord(g) ? nonEmpty(g["name"]) : null;
+      const reason = isRecord(g) ? nonEmpty(g["reason"]) : null;
+      const source = isRecord(g) ? g["source"] : null;
+      if (!name || !reason || (source !== "owner" && source !== "derived")) {
+        throw new Error("each group needs name, reason, source (owner|derived)");
+      }
+      groups.push({ name, reason, source });
+    }
+    if (groups.length > 6) throw new Error("brief.groups allows at most 6 groups");
+  }
   return {
     version: 1,
     offer: { description, geography, outcomes },
@@ -154,6 +180,7 @@ export function validateBrief(raw: unknown): CommercialBrief {
     },
     secondary_segments: secondary,
     pains, buyer_roles: buyerRoles, statements, questions, assumptions,
+    ...(groups && groups.length > 0 ? { groups } : {}),
   };
 }
 
@@ -404,8 +431,10 @@ export function buildBriefGoal(profile: {
     '"primary_segment":{"label":string,"industries":[1-3],"geos":[1-3],"sizes":[1-2],"use_cases":[1-3],"inclusions":[2-5 observable traits],"exclusions":[2-6 categories to never target]},',
     '"secondary_segments":[],"pains":[{"job":string,"obstacle":string,"workaround":string,"trigger_hints":[2-4],"falsifiable_by":string}],',
     '"buyer_roles":[{"role":string,"concerns":[1-3]}],"statements":[{"text":string,"provenance":"user_fact|source_verified|inference|hypothesis|unknown"}],',
-    '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty]}.',
+    '"questions":[at most 3 blocking questions, or empty],"assumptions":[provisional assumptions or empty],',
+    '"groups":[{"name":string,"reason":string,"source":"owner|derived"}] (2-6 buyer groups the searches will target; "owner" = the owner words name it, "derived" = your guess from their words, keep derived to a minimum)}.',
     "Rules: exactly one primary segment; exclusions must name concrete categories INCLUDING adjacent-but-out-of-scope verticals (e.g. schools for a retail brief — industry fit is model-judged, so the exclusion list is the only deterministic drift guard); every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
+    "Segments rule (hard): industries must name ONLY buyer categories the owner stated or that follow directly from their stated buyers ('individuals, corporate events' -> event planning companies, event venues and centres, corporate offices with admin/HR buyers, trade associations, community organisations). NEVER invent industries the owner did not name or imply — banks, financial services, professional services, real estate and similar are FORBIDDEN unless the owner said them; put them in exclusions instead.",
     "Geography rule: geos are searchable PLACES, never placeholders. Expand a street-level base to its area, city, state and country ('Kodesoh Street, Ikeja' -> 'Ikeja, Lagos, Nigeria'); never write 'to be confirmed' — derive the metro from the stated base, or honor a stated reach (nationwide/worldwide/online) as the geography.",
     "Strategist rules: identify WHO PAYS for this offer — the buying organizations that host, organize, or budget for it, never lookalike sellers of the same thing (a caterer's buyers are event hosts: corporate admins, event planning companies, event centres, hotels; not other caterers). Expand the stated base to its well-known neighbouring districts within the same metro so geos cover the realistic service radius (a base of Ikeja, Lagos also reaches Ogba, Allen, Opebi, Maryland, Airport Road). Honor stated reach: nationwide/worldwide/online means geography says so and buyer_roles name who buys at that reach. buyer_roles must be concrete job titles or organization types with the budget to say yes.",
   ].join("\n");
@@ -465,19 +494,35 @@ export function extractContacts(text: string): Array<{ channel: "email" | "phone
 }
 
 /**
- * Date fragments ("20261028", "01232025") arrived as phone routes on
- * run_99840398. Rules: 7-15 digits; 0-prefix needs 9-11 (NG landline 9,
- * mobile 11); 8-digit 19xx/20xx with a valid month/day is YYYYMMDD.
+ * Nigerian phone validation (spec P0: a script, not a model guess). Valid:
+ * +234 followed by 10 digits whose first is 7/8/9 (mobile), or 0-prefixed
+ * 11-digit local form of the same. Everything else is rejected: timestamps
+ * ("20261004104841"), landline abbreviations baked into +234 ("+234 0126..."),
+ * dates, ids. Exported for the verification module and tests.
  */
-function isPlausiblePhone(digits: string): boolean {
-  if (digits.length < 7 || digits.length > 15) return false;
-  if (digits.length === 8 && /^(19|20)/.test(digits)) {
-    const month = Number(digits.slice(4, 6));
-    const day = Number(digits.slice(6, 8));
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return false;
+export function isValidNgPhone(digits: string): boolean {
+  const d = digits.replace(/\D/g, "");
+  if (d.startsWith("234")) {
+    return d.length === 13 && /^[789]/.test(d.slice(3)); // +234 mobile; a 0 baked in is malformed
   }
-  if (digits.startsWith("0") && (digits.length < 9 || digits.length > 11)) return false;
-  return true;
+  if (d.startsWith("0")) {
+    if (d.length === 11) return /^[789]/.test(d.slice(1, 2)); // mobile 0803...
+    if (d.length === 9) return d.startsWith("01");            // Lagos-style landline 01...
+    return false;
+  }
+  return false;
+}
+
+/** E.164 (+234...) or local (0...) form, or null when invalid. */
+export function normaliseNgPhone(raw: string): string | null {
+  const d = raw.replace(/\D/g, "");
+  if (!isValidNgPhone(d)) return null;
+  if (d.startsWith("234")) return "+" + d;
+  return d;
+}
+
+function isPlausiblePhone(digits: string): boolean {
+  return isValidNgPhone(digits);
 }
 
 function normPhone(s: string): string {

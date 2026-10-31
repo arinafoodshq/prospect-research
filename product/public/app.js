@@ -799,9 +799,15 @@
   }
 
   function tabOf(p) {
-    if (p.verdict === "qualified") return "ready";
-    if (p.verdict === "no_signal") return "warm";
-    return "look";
+    // Spec C (2026-10-31): Ready now = strong fit AND a dated, sourced
+    // signal (readiness >= 4). Warm up = strong or good fit, no signal.
+    // Needs a look = unclear identity, weak fit, or no own source.
+    var ownSource = prospectSource(p);
+    if (!p.verdict || !ownSource) return "look";
+    if (p.verdict !== "qualified" && p.verdict !== "no_signal") return "look";
+    var datedSignal = (p.readiness || 0) >= 4;
+    if (p.verdict === "qualified") return datedSignal ? "ready" : "warm";
+    return "warm"; // no_signal: good fit, no signal yet
   }
 
   function shownProspects() {
@@ -837,14 +843,16 @@
   }
 
   function fitBadge(p) {
-    if (p.verdict === "qualified") return "STRONG FIT";
-    if (p.verdict === "no_signal") return "GOOD FIT, NO SIGNAL YET";
+    var tab = tabOf(p);
+    if (tab === "ready") return "STRONG FIT";
+    if (tab === "warm") return p.verdict === "qualified" ? "GOOD FIT" : "GOOD FIT, NO SIGNAL YET";
     return "NEEDS A LOOK";
   }
 
   function fitClass(p) {
-    if (p.verdict === "qualified") return "tag-green";
-    if (p.verdict === "no_signal") return "tag-gold";
+    var tab = tabOf(p);
+    if (tab === "ready") return "tag-green";
+    if (tab === "warm") return "tag-gold";
     return "tag-line";
   }
 
@@ -868,7 +876,10 @@
 
   function renderShortlist() {
     var shown = shownProspects();
-    if (!state.selectedIds) state.selectedIds = shown.map(function (p) { return p.id; });
+    // Spec D: default selection is Ready-now ONLY — never everything.
+    if (!state.selectedIds) {
+      state.selectedIds = shown.filter(function (p) { return tabOf(p) === "ready"; }).map(function (p) { return p.id; });
+    }
     var counts = { ready: 0, warm: 0, look: 0 };
     shown.forEach(function (p) { counts[tabOf(p)] += 1; });
     // Land on the first group with picks; an explicit tab choice always sticks.
@@ -877,9 +888,11 @@
     }
 
     $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer worth your time." : " buyers worth your time.");
+    // Honest copy, generated from the real counts (never "passed your
+    // must-haves" unless every shown pick truly did).
     $("shortlist-sub").textContent = state.tab === "look"
       ? "These need a human look before they join your list."
-      : "Each one passed your must-haves. Tick the ones you want, and we write the messages.";
+      : counts.ready + " ready to contact, " + counts.warm + " to warm up, " + counts.look + " to check first.";
     ["ready", "warm", "look"].forEach(function (t) {
       $("tab-" + t + "-n").textContent = String(counts[t]);
       $("tab-" + t).setAttribute("aria-selected", state.tab === t ? "true" : "false");
@@ -897,10 +910,12 @@
       li.dataset.id = p.id;
       var routes = p.routes || [];
       var first = routes[0];
+      var routeState = first && first.verification === "verified"
+        ? "<br/><span class=\"muted small\">Checked: the link opens and matches</span>"
+        : "<br/><span class=\"muted small\">Published, not yet checked</span>";
       var routeLine = first
         ? esc(ROUTE_LABELS[first.channel] || "Contact") + ": " + esc(String(first.value).slice(0, 48)) +
-          (routes.length > 1 ? " (+" + (routes.length - 1) + " more)" : "") +
-          "<br/><span class=\"muted small\">Published, not yet checked</span>"
+          (routes.length > 1 ? " (+" + (routes.length - 1) + " more)" : "") + routeState
         : "<span class=\"muted\">No published route found yet.</span>";
       var open = (p.uncertainties || []).slice(0, 2);
       var src = sourceLabel(prospectSource(p));

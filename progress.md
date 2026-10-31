@@ -1197,3 +1197,48 @@ smoke PASS. User next step: re-run the 504 Yard brief live — expect
 Ikeja-scoped ecosystem queries, social-anchored prospects with routes,
 no job boards/news/duplicate names; compare against the manual 204-row
 tracker quality bar.
+2026-10-31 (P0 correctness + contact verification, spec from user with the
+two HTML references): the user attached landing.html + workspace.html as
+the design references and a P0/P1 plan built from the live-run failures
+(banks for a caterer, "Firm brochure 2026" as a business, timestamp
+phone 20261004104841, LinkedIn post as a company contact, Mayonex
+duplicates, "Ready now" with no signal, dishonest "passed your
+must-haves" headline, all pre-selected, dead-end Write-my-messages,
+unclassified categories, repeated service area).
+P0 correctness shipped: (A) segments from the owner's words only —
+buildBriefGoal hard rule (banks/financial/professional services FORBIDDEN
+unless named; into exclusions instead) + brief.groups contract {name,
+reason, source: owner|derived} validated (owner-named groups steer
+searches; derived shown for confirmation — P1 renders them). (B) entity
+quality: isPlausibleName rejects em-dash titles, brochure/flyer/price
+list/proposal artefacts, "Result page" listings; cleanBusinessName
+strips mid-name locations; dedupeKey normalises "&" to "and" so
+"Mayonex Events & Party Rentals" = "Mayonex Events and Party Rentals"
+(merge tested). (C) tabs follow the definitions: app.js tabOf = ready
+(qualified AND readiness>=4 AND own source) / warm (good fit no signal)
+/ look (unclear identity, weak fit, no own source); fit badges follow
+the tab. (D) honest copy: headline/sub generated from real counts
+("2 ready to contact, 0 to warm up, 11 to check first" — never claims
+passed-must-haves); default selection = Ready now ONLY (smoke updated:
+untick then deliberate ticking). (E) contact states: schema migration
+0004 (contact_route CHECK: public_listing/verified/unchecked/broken/
+wrong_type), saveRoute accepts states, investigate verifies every
+contact by script (phones via isValidNgPhone + WhatsApp-only-when-page-
+confirms, email syntax+domain, page url verified from the already-
+fetched text — zero extra network calls); new src/verify.ts:
+classifySocialUrl (business shapes only; LinkedIn in/posts and IG
+posts/reels wrong_type), verifyUrl (2xx+name/area match = verified,
+404/410/parked = broken, social 403/429/login = unchecked), WhatsApp
+confirmation rule, email "address not tested". api.js filters broken/
+wrong_type routes from the UI (never shown as links) and passes states.
+Phone rules: mobile +234/0 (11 digits, 7-9), Lagos landline 01+7;
+timestamps and double prefixes rejected (tested). Verified: tsc clean,
+413/413 vitest (10 files; verify.test.ts new: shapes, phones, verifyUrl
+states, wrong-type-before-fetch, WhatsApp rule, email, & merge), smoke
+PASS. Remaining from the spec: P0 search-grounding probe (5 known
+businesses), P1 UI rebuild from landing.html/workspace.html (tokens
+paper/ink/ultramarine/marigold, Fraunces+Manrope, sidebar+bottom tabs,
+drawer, groups toggles, board stages, removed-list rendering), hide
+internals (ids/timestamps/stated-assumed in status board + senders),
+verification re-run of the same brief with before/after numbers. NOT
+yet deployed.

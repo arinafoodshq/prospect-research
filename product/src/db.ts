@@ -147,7 +147,16 @@ export function assertProspectTransition(from: ProspectStatus, to: ProspectStatu
  */
 export function dedupeKey(name: string, domainOrHandle?: string): string {
   const suffixes = /\b(ltd|limited|inc|incorporated|llc|plc|gmbh|corp|corporation|co|company|ventures|group|ng|nig|ltd\.)\b/g;
-  const normName = name.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(suffixes, " ").replace(/\s+/g, "").trim();
+  // "&" and "and" must collide ("Mayonex Events & Party Rentals" = "Mayonex
+  // Events and Party Rentals"): normalise before punctuation stripping.
+  const normName = name
+    .replace(/&/g, " and ")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\band\b/g, " ")
+    .replace(suffixes, " ")
+    .replace(/\s+/g, "")
+    .trim();
   const normDomain = ((domainOrHandle ?? "").toLowerCase().replace(/^(@|https?:\/\/|www\.)/, "").split("/")[0] ?? "").trim();
   return normDomain ? `${normName}::${normDomain}` : normName;
 }
@@ -336,19 +345,28 @@ JSON.stringify(input.missing_info), sanitizeText(input.rationale), input.model_i
   return id;
 }
 
-/** Route writer: evidence_id mandatory; verification server-set to public_listing. */
+/** Route verification states (spec P0 2026-10-31). */
+export type RouteVerification = "public_listing" | "verified" | "unchecked" | "broken" | "wrong_type";
+const ROUTE_VERIFICATIONS: RouteVerification[] = ["public_listing", "verified", "unchecked", "broken", "wrong_type"];
+
+/** Route writer: evidence_id mandatory; verification state server-set
+ * (default public_listing for legacy callers). */
 export async function saveRoute(
   db: Db,
-  input: { prospect_id: string; channel: RouteChannel; value: string; evidence_id: string },
+  input: { prospect_id: string; channel: RouteChannel; value: string; evidence_id: string; verification?: RouteVerification },
 ): Promise<string> {
   if (!ROUTE_CHANNELS.includes(input.channel)) throw new DbValidationError(`unknown channel ${input.channel}`);
+  if (input.verification !== undefined && !ROUTE_VERIFICATIONS.includes(input.verification)) {
+    throw new DbValidationError(`unknown verification state ${input.verification}`);
+  }
   const ev = await db.prepare("SELECT id FROM evidence WHERE id = ?").bind(input.evidence_id).first<string>("id");
   if (!ev) throw new DbValidationError(`evidence ${input.evidence_id} does not exist`);
   const id = makeId("rt");
+  const state = input.verification ?? "public_listing";
   await db.prepare(
     `INSERT INTO contact_route (id, prospect_id, channel, value, verification, evidence_id, created_at)
-     VALUES (?, ?, ?, ?, 'public_listing', ?, ?)`,
-).bind(id, input.prospect_id, input.channel, sanitizeText(input.value), input.evidence_id, nowIso()).run();
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+).bind(id, input.prospect_id, input.channel, sanitizeText(input.value), state, input.evidence_id, nowIso()).run();
   return id;
 }
 

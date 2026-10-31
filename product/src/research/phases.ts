@@ -30,6 +30,13 @@ import {
 } from "./commercial";
 import { execFetchPage, type FetchPageDeps } from "./tools";
 import { isDirectoryHost, isSocialHost, MODEL_ID } from "../meta";
+import { matchTokens, verifyContact } from "../verify";
+import type { RouteVerification } from "../db";
+
+/** Host of a url (www stripped); "" when unparsable. */
+function hostOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
 
 // --- Injected deps ----------------------------------------------------------
 
@@ -435,19 +442,53 @@ export async function investigate(
       // page, each bound to this evidence row. Directory pages contribute
       // NOTHING (their numbers belong to other businesses); an owned page
       // also records its own url as a DM-able route. Never fatal.
+      // Spec P0 (2026-10-31): every contact is CHECKED by script before it
+      // becomes a route — phones validated (WhatsApp only when the page
+      // confirms it), email syntax+domain, the page url itself verified.
       if (!isDirectoryHost(target.source_url)) {
+        const areaHint = p.location?.area ?? "";
+        const routeVerification = async (
+          channel: "phone" | "email", value: string,
+        ): Promise<RouteVerification> => {
+          const check = await verifyContact(
+            channel === "email"
+              ? { channel: "email", value, ownDomain: hostOf(target.source_url ?? ""), businessName: p.name, area: areaHint }
+              : { channel: "phone", value, sourceText: res.value.text, businessName: p.name, area: areaHint },
+            async () => { throw new Error("no network in this pass"); },
+          );
+          return check.state;
+        };
         for (const c of extractContacts(res.value.text).slice(0, 5)) {
+          if (c.channel === "phone") {
+            const phoneState = await routeVerification("phone", c.value);
+            try {
+              // A phone confirmed as WhatsApp keeps channel "phone" with a
+              // verified state; the UI renders the WhatsApp icon for it.
+              await saveRoute(db, { prospect_id: p.id, channel: "phone", value: c.value, evidence_id: evId, verification: phoneState });
+            } catch {
+              /* dupes or bad rows: contacts are best-effort, the run continues */
+            }
+            continue;
+          }
+          const emailState = await routeVerification("email", c.value);
           try {
-            await saveRoute(db, { prospect_id: p.id, channel: c.channel, value: c.value, evidence_id: evId });
+            await saveRoute(db, { prospect_id: p.id, channel: "email", value: c.value, evidence_id: evId, verification: emailState });
           } catch {
             /* dupes or bad rows: contacts are best-effort, the run continues */
           }
         }
+        // The page itself is already fetched: no extra network call — the
+        // route is verified when the page mentions the business or area.
+        const pageText = res.value.text.toLowerCase();
+        const hit = matchTokens(p.name).some((t) => pageText.includes(t))
+          || matchTokens(areaHint).some((t) => pageText.includes(t));
+        const urlState: RouteVerification = hit ? "verified" : "unchecked";
         try {
           await saveRoute(db, {
             prospect_id: p.id,
             channel: isSocialHost(target.source_url) ? "social_profile" : "website_form",
             value: target.source_url, evidence_id: evId,
+            verification: urlState,
           });
         } catch {
           /* url route is best-effort too */

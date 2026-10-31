@@ -397,6 +397,7 @@ export function cleanBusinessName(name: string): string {
     const next = out.replace(CITY_CRUFT, "").replace(DANGLING_PREP, "")
       .replace(YEAR_PAREN, "").replace(ADDRESS_STRIP, "").replace(FLAG_STRIP, "")
       .replace(LOCATION_TAIL, "").replace(LOCATION_CHAIN, "")
+      .replace(/,\s*(Ikeja|Ogba|Maryland|Yaba|Lekki|Surulere|Opebi|Allen|Alausa|Agege|Onipanu|Gbagada|Magodo|Ilupeju|Lagos|Nigeria)(?=[,\s]|$)/gi, "")
       .replace(/[,;:]+$/, "").replace(/\s+/g, " ").trim();
     if (next === out) break;
     out = next;
@@ -482,6 +483,11 @@ export function isPlausibleName(raw: string): boolean {
   // "X hiring Y" is a job ad, never a business ("Hypercity (Nigeria) hiring
   // Admin Manager Job").
   if (/\bhiring\b/i.test(trimmed)) return false;
+  // Document and listing artefacts read as names ("AIS Professional
+  // Services — Firm brochure 2026", "Result page 13 for ...").
+  if (/—/u.test(trimmed)) return false; // em-dash = title separator
+  if (/\b(brochure|flyer|fact sheet|price list|rate card|catalogue|catalog|portfolio|proposal|quotation)\b/i.test(trimmed)) return false;
+  if (/^result page\b/i.test(trimmed)) return false;
   if (/@/.test(trimmed)) return false; // contains an email address: contact page, never a business name
   if (/\//.test(trimmed)) return false; // url path, not a name
   if (/area guide|neighbourhood guide|neighborhood guide|city guide/i.test(trimmed)) return false; // guide page, not a business

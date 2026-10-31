@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS contact_route (
     'website_form','email','phone','social_profile','other')),
   value TEXT NOT NULL,
   verification TEXT NOT NULL DEFAULT 'public_listing'
-    CHECK (verification = 'public_listing'),
+    CHECK (verification IN ('public_listing','verified','unchecked','broken','wrong_type')),
   evidence_id TEXT NOT NULL REFERENCES evidence(id),
   created_at TEXT NOT NULL
 );
