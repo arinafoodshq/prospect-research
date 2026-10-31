@@ -1510,3 +1510,57 @@ bodies at 3000 chars and response heads at 1200. Model-call rows do not
 capture web_search result payloads (those persist as evidence rows already).
 Next: user runs the first directive-driven research run; audit queryable via
 D1 (SELECT * FROM audit_log ORDER BY id DESC).
+
+## 2026-10-31 — First live run post-mortem + fixes (user request)
+
+The user ran the first directive-driven research run and reported: "Stopped"
+screen, retry doing nothing, budget showing zeros, and onboarding re-asking
+name/area they had stated. The new audit trail made the post-mortem direct.
+
+What actually happened (from audit_log + research_run):
+- The run was NOT stopped early - it worked: plan produced directive-driven
+  queries ("Allen Ikeja companies end of year party...", "Maryland Lagos
+  corporate offices Christmas party outside vendors policy..."), 25
+  candidates found, 20 pages opened, 21 DISQUALIFIED with correct rationales
+  (directory pages, generic category labels, property listings, excluded
+  caterers), searches budget fully spent 30/30 in sweep 1.
+- Crash: the run shortlisted nobody -> ZERO drafts -> close() saw an empty
+  draft list and returned stopped("awaiting_approval") -> orchestrator threw
+  "close stopped: awaiting_approval" -> run marked FAILED. Root cause:
+  draftGateDecision treated drafts.length===0 as "wait", while the pre-close
+  gate loop treated zero undecided as "proceed".
+- UI: runProgress rejected on the FIRST failed poll (one dropped request in
+  ~600 latched the view to "Stopped"); Retry polled again but the onTick
+  never cleared the latch, and the run later WAS failed - so retry always
+  re-latched. The zero budget display was the early snapshot frozen by the
+  latch.
+- Onboarding re-ask: the model did not extract service_area from the owner's
+  prose ("offices in Ikeja") and the product had NO channel for a stated
+  business name (name was not an onboard field -> empty-name 400 -> the
+  summary asked for the name).
+
+Fixes (commit f424d33, deployed c3637dea-4bb4-4ea3-b7b3-833aa45cf44a):
+- draftGateDecision([]) no longer waits; an empty draft list completes the
+  run honestly. Test updated (it had pinned the bug).
+- runProgress tolerates up to 3 consecutive failed polls; a live tick clears
+  the Stopped latch (banner/error/retry reset). Progress stays alive through
+  transient network blips.
+- Onboarding: the model can return the stated business name (new "name" in
+  the turn schema; app captures it so the summary never asks for a stated
+  name); prose location capture seeds service_area from "offices in Ikeja"
+  style phrasing when the model still asks for it (the precision backstop
+  may still refine, showing the noted value).
+- Sweep budget share: each QA sweep may spend at most an equal slice of the
+  remaining search/fetch budget, so replans have real budget instead of
+  sweep 1 draining 30/30.
+- Repaired both crashed runs (run_27e246ba, run_5523632b) to status
+  "complete" with honest stop_reason "empty shortlist: every candidate was
+  set aside by the quality gates; adjust the brief and run again" (2 rows
+  changed).
+
+Verification: node --check ok; tsc clean; vitest 449/449; SMOKE PASS; live
+checks root 200, gate 401; repaired run rows verified in D1.
+Remaining observation (not fixed here): candidate quality upstream - queries
+returned directory-heavy pages; the gates held the line (0 junk kept) but
+the sweep-share fix gives replans room to find better veins. Watch the next
+run's audit rows.
