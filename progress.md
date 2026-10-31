@@ -1368,3 +1368,46 @@ contacted, 21 replies. Recorded here because the pattern (quality brief first,
 then category-batched verified research with a mechanical merge gate) is the
 candidate model for System B research quality; proposal to follow (change
 control required).
+
+## 2026-10-31 — Deploy: sign-in batch live (approved: "GO AHEAD. DO WHAT'S BEST")
+
+Sequence executed with verification at each step:
+1. Migration 0005 applied REMOTE (prospect_research, WEUR): user_session table
+   created (15 tables total, 5 rows written); verified via sqlite_master query;
+   SELECT COUNT(*) = 0 rows, ready.
+2. Worker deployed: version c90194b1-b704-49a4-8e8b-9e772ecca5f5 (100% traffic,
+   created 2026-10-31T16:50:34Z).
+3. Live verification (curl against https://prospect-research.sam-5b1.workers.dev):
+   - GET / -> 200; GET /api/me -> {"user":null} (public, new code live).
+   - GET /api/runs -> 401 {"error":"signin_required"} - THE GATE IS LIVE.
+   - GET /api/auth/start -> 302 to accounts.google.com consent with client_id
+     1055787127064-...apps.googleusercontent.com, redirect_uri=
+     https://prospect-research.sam-5b1.workers.dev/api/auth/callback,
+     scope=openid email, HMAC-signed state, prompt=select_account. (Note: HEAD
+     requests 404 by route-table design; GET is the real path.)
+   - GET /demo -> 307 to / for non-navigation fetches only; browser navigations
+     get index.html from the assets layer with pathname intact (demo mode boots).
+4. Pushed main: ef98752..cd1027d (6b7dd8a sign-in implementation + cd1027d
+   progress).
+
+OPERATOR STEP REMAINING (user, cannot be done from here): in the Google Cloud
+console, add authorized redirect URI
+https://prospect-research.sam-5b1.workers.dev/api/auth/callback
+to the OAuth client (same client as Gmail sending). Until then, "Continue with
+Google" ends at Google's redirect_uri_mismatch screen. After it is added:
+sign in live, verify /api/me returns the user, and the gate becomes invisible.
+
+## 2026-10-31 — Change control: research-loop spec v0.3 (research directive)
+
+User approved the brief-composer proposal ("GO AHEAD. DO WHAT'S BEST") after the
+504Yard investigation. specs/research-loop.md updated: status line v0.3 approved/
+implementation pending; version history entry; new SS12.11 "Research directive":
+the commercial brief gains a category sweep plan (named organisation categories,
+buyer roles per category, one owner-checkable qualification artifact per row,
+directory-grade rubric caps), composed alongside the brief, stored on the run;
+discover sweeps per category; artifact-less candidates cap at manual_review,
+never qualified. Rationale (one line): the 504Yard method (204 evidence-backed
+prospects, zero duplicates, honest bands, 21 replies) proves brief-first
+category sweeps with per-row verification artifacts beat generic ICP sweeps.
+Prior spec text retained in git history (v0.2 text unchanged apart from the
+status line; change noted in version history). Implementation: next batch.

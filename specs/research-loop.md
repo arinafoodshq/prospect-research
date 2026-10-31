@@ -1,6 +1,7 @@
 # specs/research-loop.md — Product Runtime Loop (System B)
 
-- Status: v0.2 live 2026-10-29 (v0.1 draft 2026-10-28).
+- Status: v0.3 approved 2026-10-31, implementation pending (v0.2 live 2026-10-29;
+  v0.1 draft 2026-10-28).
 - Owner: System B only. Deployed loop (Worker + Workflow + D1). Distinct from the
   development controller loop in `specs/agent-loop.md`: different runtime, tools,
   state, budgets, and gates. Machine-readable tool contracts: `tools.md` Part B.
@@ -127,6 +128,10 @@ Evidence: approval in `progress.md`.
 - v0.1 (2026-10-28): initial draft for review.
 - v0.2 (2026-10-29): research-intelligence upgrade (§12); approved in
   progress.md 2026-10-29 entry "Research upgrade deployed".
+- v0.3 (2026-10-31): research directive (§12.11) added to the commercial-brief
+  step (brief-composer, the "504Yard method"); approved in progress.md
+  2026-10-31; implementation pending. Prior text retained in git history
+  (v0.2 tagged by the 2026-10-31 entries).
 
 ## 12. Research-intelligence pipeline (v0.2, live)
 
@@ -193,3 +198,22 @@ in-segment, 0 hard violations, 100% qualified with prospect-owned source,
     icp_fit 5, zero shortlisted). `needs_research` / `manual_review`
     stay draftless (evidence too thin). Drafts for steady prospects use
     hypothesis wording for timing ("no trigger observed").
+
+11. **Research directive (v0.3, 2026-10-31).** The commercial brief (item 1)
+    gains a research-directive section composed in the same model call: a
+    bounded category sweep plan derived from the offer + geography — named
+    organisation categories to research (event-ecosystem style: venues,
+    planners, faith communities, business clubs, corporate employers,
+    associations, ...), each with its buyer roles, its owner-checkable
+    qualification artifact (own site, Google Business Profile, or a social/
+    business page the owner can open), and a rubric cap when evidence is
+    directory-grade. Provenance: the 504Yard method (OpenCode session
+    ses_ea237a001ffe) — a quality brief generated BEFORE research and executed
+    as category-batched sweeps with a mechanical per-row artifact gate produced
+    204 evidence-backed prospects, zero duplicates, honest bands (A/B/C =
+    3/94/107), ~$5.6 model spend, and a real reply funnel (56 contacted, 21
+    replies). Rules: discover sweeps per directive category (queries stay
+    problem-led per item 3); a candidate lacking every directive artifact can
+    enter qualification only as manual_review, never qualified; the directive
+    is stored on the run and versioned with the brief; regression tests pin
+    stored directives verbatim.
