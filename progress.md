@@ -1804,3 +1804,19 @@ uses wa.me and has the same emoji bug - the fix is portable there.
 Smoke gained the wa send-stack assertions (number normalisation, emoji
 encoding via codepoint-built literals, per-app intents, endpoint choice);
 464/464 vitest, SMOKE PASS.
+
+## 2026-11-01 — Emoji fix CONFIRMED in the owner's real WhatsApp; test-message incident + guard
+
+The owner sent a screenshot of WhatsApp Desktop (chat with Duban
+International Hotel): the four earlier wa.me-path test messages arrived
+MANGLED (replacement chars) while the api.whatsapp.com-path message arrived
+INTACT ("Quick test 🔥 emoji survives") - the emoji fix is confirmed in the
+real app, not just in tests.
+
+Incident: the garbled test prefills reached a REAL prospect (some were sent
+from the compose window). A recovery note was handed to the owner to send at
+their discretion. Guard added so this cannot recur (commit 4279c7f, deployed
+25e8d7a6): the studio send card now has "Test on yourself first" - the owner
+enters THEIR OWN number and the message opens on their WhatsApp; tests never
+touch the lead and are never auto-logged.
+Verification: 464/464 vitest, SMOKE PASS, deployed.
