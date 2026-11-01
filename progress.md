@@ -1778,3 +1778,29 @@ Verified live in the owner's Chrome: saved "Funmi Adeleke, Reservations
 Manager" on Duban International Hotel (audit row: POST 200, input+output
 captured), Reach out panel rendering all routes with Copy. Existing leads
 gain socials on their next assess pass.
+
+## 2026-11-01 — Manual WhatsApp send verified live; emoji-loss ROOT CAUSE found and fixed
+
+User: WhatsApp is manual (click per lead, opens the app), must respect
+WhatsApp vs WhatsApp Business on the device, and must not lose emoji in
+transit - see 504Yard. Built (46d209e) and verified in the owner's Chrome:
+- Message studio WhatsApp tab: "Send now, by hand" card - app selector
+  Auto/WhatsApp/WhatsApp Business (intent:// package dispatch com.whatsapp /
+  com.whatsapp.w4b, saved per device in localStorage), Open WhatsApp buttons
+  per phone route (multi-number up to 4), landline + unverified guards
+  (504Yard heuristics), greeting personalisation from the lead's contact
+  person, contact logged on open. Email tab: mailto with subject+body.
+  DM tab: opens their social profile.
+- Verified live: studio -> WhatsApp tab -> Open WhatsApp -> unverified
+  confirm -> contact logged (audit row 201) -> WhatsApp handoff.
+
+Emoji ROOT CAUSE (measured, not assumed): wa.me's own redirect MANGLES
+emoji - request with correct %F0%9F%94%A5 came back 302 with
+text=...%EF%BF%BD... (replacement chars) on api.whatsapp.com. Fix (8b459e4,
+deployed 0e14ce52): waUrl() now builds on api.whatsapp.com/send/?phone=...&text=...
+which PRESERVES emoji (verified end-to-end live: the page URL carries
+%F0%9F%94%A5 intact and hands off to the app). NOTE: 504Yard's manager app
+uses wa.me and has the same emoji bug - the fix is portable there.
+Smoke gained the wa send-stack assertions (number normalisation, emoji
+encoding via codepoint-built literals, per-app intents, endpoint choice);
+464/464 vitest, SMOKE PASS.
