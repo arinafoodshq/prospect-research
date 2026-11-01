@@ -22,6 +22,7 @@ import {
 import { ASR_ENDPOINT, buildTranscribeForm, parseTranscribeResponse } from "./asr";
 import * as auth from "./auth";
 import { auditEvent } from "./audit";
+import { DEFAULT_CAPS } from "./research/budgets";
 import { createMetaClient } from "./meta";
 import { ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
@@ -326,7 +327,11 @@ const postRun: Handler = async ({ req, env }) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id, profileId, wfId, JSON.stringify({ queries: [] }), "created", null,
-    JSON.stringify({ searches: 30, fetches: 40, candidates: 25, cost_usd: 6, active_compute_s: 1200 }),
+    JSON.stringify({
+      searches: DEFAULT_CAPS.searches, fetches: DEFAULT_CAPS.fetches,
+      candidates: DEFAULT_CAPS.candidates, cost_usd: DEFAULT_CAPS.cost_usd,
+      active_compute_s: DEFAULT_CAPS.active_compute_s,
+    }),
     JSON.stringify({ searches: 0, fetches: 0, candidates: 0, tool_rounds: 0, cost_usd_est: 0 }),
     now, null, now,
   ).run();

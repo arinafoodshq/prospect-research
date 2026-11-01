@@ -6,9 +6,9 @@
  */
 
 export interface BudgetCaps {
-  searches: number; // <= 30
-  fetches: number; // <= 40
-  candidates: number; // <= 25
+  searches: number; // <= 40
+  fetches: number; // <= 80
+  candidates: number; // <= 30
   tool_rounds: number; // <= 6 per burst
   cost_usd: number; // <= 6
   active_compute_s: number; // <= 1200 (20 min)
@@ -24,9 +24,9 @@ export interface BudgetConsumed {
 }
 
 export const DEFAULT_CAPS: BudgetCaps = {
-  searches: 30,
-  fetches: 40,
-  candidates: 25,
+  searches: 40,
+  fetches: 80,
+  candidates: 30,
   tool_rounds: 6,
   cost_usd: 6,
   active_compute_s: 1200,

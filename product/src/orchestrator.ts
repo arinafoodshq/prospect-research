@@ -212,12 +212,13 @@ export class ResearchWorkflow {
     const MAX_SWEEPS = 3;
     let prevCandidates = -1;
     for (let sweep = 1; sweep <= MAX_SWEEPS; sweep += 1) {
-      // Sweep share: never let sweep 1 spend the whole run budget — each
-      // sweep may use an equal slice of what remains, so the replan loop has
-      // real budget to work with (run_27e246ba spent 30/30 searches in
-      // sweep 1 and the replans had nothing left).
+      // Sweep share: budget must not starve the pipeline (owner directive
+      // 2026-11-01). Each sweep may spend up to HALF of what remains, so
+      // sweep 1 has real room (the old equal-thirds starved assess —
+      // run_26e1b058 A/B: 16 investigated, only 9 assessed) while later
+      // sweeps still keep a bound.
       const ctxNow = await this.phaseCtx();
-      const left = Math.max(1, MAX_SWEEPS - sweep + 1);
+      const left = Math.min(2, Math.max(1, MAX_SWEEPS - sweep + 1));
       const share = {
         searches: ctxNow.consumed.searches + Math.max(1, Math.ceil((ctxNow.caps.searches - ctxNow.consumed.searches) / left)),
         fetches: ctxNow.consumed.fetches + Math.max(1, Math.ceil((ctxNow.caps.fetches - ctxNow.consumed.fetches) / left)),
