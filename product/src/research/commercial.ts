@@ -529,6 +529,7 @@ export function buildPlanGoal(b: CommercialBrief): string {
     `Queries must find BUYING businesses in: ${seg.industries.join(", ")} (${seg.label}), near ${seg.geos.join(", ")}.`,
     `Buyers are the organizations that host, organize, or budget for the offer (${buyers}) — query buyer types and occasions, not lookalike sellers.`,
     `Source like an ecosystem researcher: named venues, centres, clubs, associations, event calendars and recurring programmes ('<venue> Ikeja capacity contacts', '<association> Lagos events calendar', '<street or neighbourhood> companies', '<venue> outside vendors policy') — never role listings or job ads.`,
+    `Queries name a PLACE and an entity type, and seek official pages ('<venue or estate or street> <area> official site', '<association> <city> members events'). Never put careers, jobs, vacancies or salary in a query, and never ship scrape-shaped queries like '<category> companies contact' — they return directories, not buyers.`,
     b.directive
       ? `Sweep every directive category with at least one problem-led query, capped per category: ${b.directive.categories.map((c) => `${c.name} ≤${c.max_queries}`).join(", ")}.`
       : `Cover at least 4 distinct buyer categories across the queries (venues/centres, planners, corporate offices, faith and community organisations, hospitality, clubs).`,

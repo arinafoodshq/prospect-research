@@ -286,11 +286,18 @@ const JOB_WORDS = new Set(
 const STREET_ENDING = /\b(street|road|avenue|way|close|crescent|lane|boulevard|estate|estates)\.?$/i;
 const LISTICLE_START = /^\s*(the\s+)?best\s+\w+(\s+\w+){1,}/i;
 const TOP_N_START = /^\s*top\s+\d+/i;
+/** "Top Event Management Companies" — a numberless ranking roundup. Real
+ * names starting with Top (Topmark, Topfit) survive: they have no space
+ * after "top". */
+const TOP_ROUNDUP = /^\s*(the\s+)?top\s+\w+(\s+\w+){0,5}\s+(companies|planners|agencies|firms|venues|centres|centers|hotels|restaurants|shops|stores|suppliers|consultants|contractors|services|schools|banks)\b/i;
 const POSSESSIVE_POST = /\w+'s\s+(posts?|blogs?|articles?|profile)\b/i;
 const SITES_LIKE = /\bsites?\s+like\b/i;
 const BARE_DOMAIN = /\.(com|org|ng|net|io|co|info|biz)\b/i;
 /** Page-type words: portal/login/archive pages are never the business itself. */
-const PAGE_TYPE_WORDS = /\b(portal|portals|login|logins|archives?|sitemap|homepage|webmail)\b/i;
+const PAGE_TYPE_WORDS = /\b(portal|portals|login|logins|archives?|sitemap|homepage|webmail|gallery|galleries|photos|images|videos|media|menu|faqs?|careers|jobs?|vacanc)\b/i;
+/** "Our Services" / "Our Events Gallery" / "Our contact details" — website
+ * section headings shipped as business names (run_26e1b058). */
+const OUR_SECTION = /^our\s+(services|products?|solutions?|events?|gallery|portfolio|works?|projects?|clients?|contact|details|story|about|team|offerings?|packages?|process|faq|mission|vision)\b/i;
 /** Company-profile page titles ("X Overview, Competitors & Contact Info"). */
 const PROFILE_TITLE = /\b(overview|competitors?|revenue|employees|funding|valuation)\b/i;
 /** Headline verbs observed in live-run junk (extends HEADLINE_VERBS cases). */
@@ -501,6 +508,8 @@ export function isPlausibleName(raw: string): boolean {
   if (/alternativ/i.test(trimmed) && /competitor/i.test(trimmed)) return false; // comparison article, not a business
   if (LISTICLE_START.test(trimmed)) return false; // "The Best X..." listicle, not a business
   if (TOP_N_START.test(trimmed)) return false; // "Top N..." ranking, not a business
+  if (TOP_ROUNDUP.test(trimmed)) return false; // "Top Event Management Companies" roundup, not a business
+  if (OUR_SECTION.test(trimmed)) return false; // "Our Services" section heading, not a business
   if (POSSESSIVE_POST.test(trimmed)) return false; // "X's Posts" blog page, not a business
   if (SITES_LIKE.test(trimmed)) return false; // "sites like X" roundup, not a business
   if (/alternativ/i.test(trimmed) && BARE_DOMAIN.test(trimmed)) return false; // "X alternatives" roundup, not a business
