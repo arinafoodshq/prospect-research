@@ -1652,3 +1652,34 @@ sectors, online and offline, via Browser MCP.
   (455/455) before push after two sloppy push-before-green corrections
   (browsermcp config test updated for the local wiring + windows paths).
 - Note: cost_usd_est stays 0 - cost tracking not wired to usage yet.
+
+## 2026-11-01 — Audit verdict + candidate-quality fix (user-approved)
+
+Audit of the 4 live business profiles: PrintFlex NG + Little Steps Academy
+completed end-to-end; Choice Cleaners + GlowMart died on the pre-fix budget
+bug (their workflow instances predated the fix). Across 100 candidates:
+ZERO keepers. The gates behaved correctly (0 hard violations, nothing junk
+kept) but candidate EXTRACTION was the failure: search-result titles shipped
+as business names ("Top Event Management Companies", "Our Services", "Our
+Events Gallery", "More teachers needed in Lagos public schools", "Africa
+Internet Group moves office to", "Araromi ... « HEYPLACES.COM.NG").
+
+Fixes (3 commits, deployed 85962022):
+- 31e440b: name-quality gate round 1 (numberless Top-roundups, "Our ..."
+  section headings, gallery/careers page-type words) + plan-goal entity bias
+  (queries must name a place + entity type + official site; careers/jobs/
+  scrape shapes banned). Verified live: the re-run of Little Steps produced
+  entity-biased queries ("...family support official site", "...association
+  members events").
+- 18cc886: round 2 (staffing-demand and office-move headlines, directory
+  tails heyplaces, domain-in-name) with the brand+tld exception preserved
+  (Supermart.ng keeps passing - pinned by test).
+- Budget stops rank what exists (6542cc4, deployed 356874bb) from the
+  Choice Cleaners post-mortem.
+
+Verification: tsc clean; vitest 464/464 (+ name-quality suite); SMOKE PASS;
+deployed; trace file regenerated (C:\Users\User\Videos\prospect-trace.md).
+Little Steps re-run completed in ~5 min (23 disqualified, 2 investigating,
+0 kept) - extraction still shipped headline junk through the round-1 gate,
+which round 2 now closes. Next measurement: run a fresh profile and compare
+keeper rate.
