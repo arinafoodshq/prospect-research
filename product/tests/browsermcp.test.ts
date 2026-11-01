@@ -47,8 +47,10 @@ describe("@browsermcp/mcp wiring", () => {
       expect(entry!.type).toBe("local");
       expect(entry!.enabled).not.toBe(false);
       const cmd = (entry!.command ?? []).join(" ");
-      expect(cmd).toContain("npx");
-      expect(cmd).toContain("@browsermcp/mcp@latest");
+      // Both valid wirings: npx @browsermcp/mcp@latest, or the locally
+      // installed dist/index.js (used here — instant spawn, no npx delay).
+      expect(cmd).toContain("@browsermcp/mcp");
+      expect(cmd.includes("@latest") || cmd.includes("dist" + path.sep + "index.js") || cmd.includes("dist/index.js")).toBe(true);
     },
   );
 
