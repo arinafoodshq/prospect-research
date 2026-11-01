@@ -237,6 +237,9 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 #shortlist-bar p { margin: 0; font-weight: 600; }
 #shortlist-bar button { margin-left: auto; flex: 0 0 auto; }
+/* The sticky bar overlays page bottom — give the evidence panel clearance
+   so accordions are never hidden underneath it. */
+#evidence-panel { padding-bottom: 92px; margin-bottom: -64px; }
 #evidence-panel { margin-top: 1rem; }
 #evidence-panel blockquote {
   background: var(--ground);
