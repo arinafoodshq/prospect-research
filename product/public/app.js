@@ -1318,7 +1318,11 @@
       return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Send now, by hand</p>" +
         "<p class=\"muted small\">Clicking opens WhatsApp with this message pre-filled — you press send." +
         (person ? " Greeting uses " + esc(person) + "." : "") + "</p>" +
-        "<div class=\"chips wa-app-row\">" + appSel + "</div>" + btns + "</div>";
+        "<div class=\"chips wa-app-row\">" + appSel + "</div>" + btns +
+        "<div class=\"wa-test\"><label for=\"wa-test-num\">Test on yourself first</label>" +
+        "<input id=\"wa-test-num\" data-field=\"wa-test-num\" placeholder=\"Your own WhatsApp number\" />" +
+        "<button type=\"button\" data-act=\"wa-test\">Open on my number</button>" +
+        "<p class=\"muted small\">Opens the same message on YOUR WhatsApp — the lead never sees a test.</p></div></div>";
     }
     if (st.tab === "email") {
       var emails = routes.filter(function (r) { return r.channel === "email"; });
@@ -1508,6 +1512,16 @@
     if (act === "wa-app" && ds.id) {
       try { localStorage.setItem("wa_app", ds.id); } catch (e2) { /* private mode */ }
       renderStudioInner();
+      return;
+    }
+    if (act === "wa-test") {
+      var numEl = st.el.querySelector('[data-field="wa-test-num"]');
+      var toMe = waNumber(numEl ? numEl.value : "");
+      if (!toMe || toMe.length < 11) { window.alert("Enter your own WhatsApp number (e.g. 0803 123 4567)."); return; }
+      var pT = studioProspect(d);
+      var bT = st.el.querySelector('[data-field="body"]');
+      var msgT = personalize(bT && bT.value ? bT.value : d.body, pT && pT.contact_name);
+      window.open(waUrl(toMe, msgT, waApp()), "_blank");
       return;
     }
     if (act === "studio-prev") { studioNav(-1); return; }

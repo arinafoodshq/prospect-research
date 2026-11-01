@@ -1011,6 +1011,13 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
   font: inherit; font-weight: 700; padding: 0 18px; cursor: pointer; }
 .wa-open:hover { filter: brightness(1.08); }
 .wa-warn { font-weight: 600; font-size: 12px; color: #FFE9C7; }
+.wa-test { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border-top: 1px dashed var(--border); margin-top: 12px; padding-top: 10px; }
+.wa-test label { font-size: 13px; font-weight: 700; color: var(--muted); flex: none; }
+.wa-test input { flex: 1 1 180px; min-height: 40px; border: 1.5px solid var(--border-strong);
+  border-radius: 10px; padding: 6px 10px; font: inherit; background: var(--surface); color: var(--text); }
+.wa-test button { background: var(--surface); border: 1.5px solid var(--accent); border-radius: var(--radius-pill);
+  color: var(--accent-deep); font: inherit; font-weight: 700; font-size: 13px; min-height: 40px; padding: 0 16px; cursor: pointer; }
 .log-contact { display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
   padding-top: 10px; border-top: 1px solid var(--border); }
 .log-contact .lf { display: flex; flex-direction: column; gap: 4px; }
