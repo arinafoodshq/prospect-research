@@ -1751,3 +1751,30 @@ channel/date/note fields, unclear evidence) and asked for accordions +
 Verified live in the owner's Chrome via Browser MCP on the Duban
 International Hotel shortlist (screenshots reviewed, 2-image budget).
 Evidence: 464/446->464/464 vitest, SMOKE PASS each deploy.
+
+## 2026-11-01 — Full contact set per lead (user request: socials, emails, phones, persons)
+
+User asked for Instagram/Facebook/Twitter/LinkedIn/website/email/phone AND
+contact persons per lead. Built (commits b07a279 + 6dfa40f, deployed
+e36dd067/111f775b, migration 0007 applied remote):
+- Extraction: the assess burst now extracts contacts from evidence — social
+  profile urls (instagram/facebook/x/twitter/linkedin/tiktok) and the named
+  contact person + role — grounded in code (the url must appear verbatim in
+  the prospect's own evidence text; protocol-stripped match).
+- Storage: socials saved as contact_route (channel social_profile,
+  verification unchecked — published, never confirmed); contact person stored
+  on prospect (contact_name/contact_title, migration 0007), never overwriting
+  owner-set names.
+- Owner edit: POST /api/prospects/:id/contact-person (owner-provided beats
+  extraction; 504Yard "type it there" pattern).
+- UI: Reach out accordion (first, open) in the evidence panel — Contact
+  person row (extracted or "Not named yet" + inline name/role edit + Save),
+  then every route as a chip row (Email/Phone/Instagram/... network parsed
+  from the url) with verification state and Copy buttons.
+- Cache bug found live: getEvidence memoized responses, so a saved contact
+  person showed "Not named yet" until reload — cache now invalidated on
+  setContactPerson and logContact.
+Verified live in the owner's Chrome: saved "Funmi Adeleke, Reservations
+Manager" on Duban International Hotel (audit row: POST 200, input+output
+captured), Reach out panel rendering all routes with Copy. Existing leads
+gain socials on their next assess pass.
