@@ -1296,6 +1296,12 @@
   /** Manual-send block per channel (504Yard patterns): WhatsApp app selector
    * (Auto/WhatsApp/WhatsApp Business, saved per device), multi-number buttons
    * with landline + unverified warnings, mailto and social-profile links. */
+  function waTestNum() {
+    try { return localStorage.getItem("wa_test_num") || ""; } catch (e) { return ""; }
+  }
+  function ownerEmail() {
+    try { return localStorage.getItem("owner_email") || ""; } catch (e) { return ""; }
+  }
   function studioSendHtml(d, p, st) {
     var routes = ((st.evidence[d.prospectId] || {}).routes) || [];
     var person = (p && p.contact_name) || "";
@@ -1320,19 +1326,23 @@
         (person ? " Greeting uses " + esc(person) + "." : "") + "</p>" +
         "<div class=\"chips wa-app-row\">" + appSel + "</div>" + btns +
         "<div class=\"wa-test\"><label for=\"wa-test-num\">Test on yourself first</label>" +
-        "<input id=\"wa-test-num\" data-field=\"wa-test-num\" placeholder=\"Your own WhatsApp number\" />" +
+        "<input id=\"wa-test-num\" data-field=\"wa-test-num\" value=\"" + esc(waTestNum()) + "\" placeholder=\"Your own WhatsApp number\" />" +
         "<button type=\"button\" data-act=\"wa-test\">Open on my number</button>" +
         "<p class=\"muted small\">Opens the same message on YOUR WhatsApp — the lead never sees a test.</p></div></div>";
     }
     if (st.tab === "email") {
       var emails = routes.filter(function (r) { return r.channel === "email"; });
-      if (!emails.length) return "<div class=\"card send-card\"><p class=\"hint\">No email route yet for this pick.</p></div>";
-      return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Send now, by hand</p>" +
-        emails.slice(0, 2).map(function (r) {
-          return "<button type=\"button\" class=\"wa-open\" data-act=\"mail-open\" data-email=\"" + esc(r.value) + "\"" +
-            (r.verification === "unchecked" || r.verification === "public_listing" ? " data-unv=\"1\"" : "") +
-            ">Open email draft (" + esc(r.value) + ")</button>";
-        }).join("") + "</div>";
+      var leadBtns = emails.slice(0, 2).map(function (r) {
+        return "<button type=\"button\" class=\"wa-open\" data-act=\"mail-open\" data-email=\"" + esc(r.value) + "\"" +
+          (r.verification === "unchecked" || r.verification === "public_listing" ? " data-unv=\"1\"" : "") +
+          ">Open email draft (" + esc(r.value) + ")</button>";
+      }).join("");
+      if (!leadBtns) leadBtns = "<p class=\"hint\">No email route yet for this pick.</p>";
+      return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Send now, by hand</p>" + leadBtns +
+        "<div class=\"wa-test\"><label for=\"mail-test-email\">Test on yourself first</label>" +
+        "<input id=\"mail-test-email\" data-field=\"mail-test-email\" value=\"" + esc(ownerEmail()) + "\" placeholder=\"Your own email\" />" +
+        "<button type=\"button\" data-act=\"mail-test\">Email it to me</button>" +
+        "<p class=\"muted small\">Arrives in your own inbox — the lead never sees a test.</p></div></div>";
     }
     var socials = routes.filter(function (r) { return r.channel === "social_profile"; });
     if (!socials.length) return "";
@@ -1518,10 +1528,24 @@
       var numEl = st.el.querySelector('[data-field="wa-test-num"]');
       var toMe = waNumber(numEl ? numEl.value : "");
       if (!toMe || toMe.length < 11) { window.alert("Enter your own WhatsApp number (e.g. 0803 123 4567)."); return; }
+      try { localStorage.setItem("wa_test_num", numEl.value); } catch (e3) { /* private mode */ }
       var pT = studioProspect(d);
       var bT = st.el.querySelector('[data-field="body"]');
       var msgT = personalize(bT && bT.value ? bT.value : d.body, pT && pT.contact_name);
       window.open(waUrl(toMe, msgT, waApp()), "_blank");
+      return;
+    }
+    if (act === "mail-test") {
+      var meEl = st.el.querySelector('[data-field="mail-test-email"]');
+      var mine = meEl ? meEl.value.trim() : "";
+      if (!mine || mine.indexOf("@") < 0) { window.alert("Enter your own email address."); return; }
+      try { localStorage.setItem("owner_email", mine); } catch (e4) { /* private mode */ }
+      var pM = studioProspect(d);
+      var bM = st.el.querySelector('[data-field="body"]');
+      var sM = st.el.querySelector('[data-field="subject"]');
+      var bodyM = personalize(bM && bM.value ? bM.value : d.body, pM && pM.contact_name);
+      var subjM = personalize(sM && sM.value ? sM.value : (d.subject || ""), pM && pM.contact_name);
+      window.location.href = "mailto:" + mine + "?subject=" + encodeURIComponent(subjM) + "&body=" + encodeURIComponent(bodyM);
       return;
     }
     if (act === "studio-prev") { studioNav(-1); return; }
