@@ -1564,3 +1564,33 @@ Remaining observation (not fixed here): candidate quality upstream - queries
 returned directory-heavy pages; the gates held the line (0 junk kept) but
 the sweep-share fix gives replans room to find better veins. Watch the next
 run's audit rows.
+
+## 2026-11-01 — Run recovery: continue, never restart (user request)
+
+User asked: the results page should let a user see where the research stopped
+after bad network and CONTINUE to the drafts with all data remaining - not
+retry or restart.
+
+Gap fixed: the run id lived only in browser memory - a reload, closed tab, or
+dead network orphaned the run (no way back except a new run, which re-spends
+budget).
+
+Implementation (commit 4fe0cf0, deployed 98b9248a-ffdc-44fa-912a-8e8ef7442d1c):
+- GET /api/runs/latest: the operator's newest run + profile name (gated like
+  every API; registered before /api/runs/:id so "latest" is not read as an id).
+- Landing resume card (hidden until the boot check finds a resumable run):
+  "Pick up where you left off - <Business> - <where the run is>" with
+  Continue / Start fresh instead. Boot check runs after whoAmI (signed in,
+  live, no run in flight); statuses created..awaiting_approval are resumable.
+- Continue restores state.runId + profile from the server and opens the
+  progress view with the existing poll (which resolves to the shortlist on
+  approval/complete) - one path for every state, all data from D1, no new
+  run, no budget re-spend. Within the progress page the existing navigation
+  stays: Preview results so far, Stop and adjust my brief, Retry (now
+  blip-tolerant), Start over.
+
+Verification: node --check ok; tsc clean; vitest 452/452 (+3 recovery tests:
+gated 401, newest run + profile name, run:null); SMOKE PASS; deployed; live
+check: /api/runs/latest 401 signed out, root 200; latest run in D1 confirmed
+(run_27e246ba, complete). Limitation: latest-run only (single-operator MVP) -
+the card shows the most recent run, not a run list.
