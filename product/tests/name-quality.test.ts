@@ -43,6 +43,18 @@ describe("name-quality gate: page-heading names never become candidates", () => 
     }
   });
 
+  it("rejects staffing-demand and office-move headlines", () => {
+    for (const bad of ["More teachers needed in Lagos public schools", "Africa Internet Group moves office to", "Hypercity Nigeria hiring Admin Manager", "Tech firm relocating to Ikeja"]) {
+      expect(isPlausibleName(bad)).toBe(false);
+    }
+  });
+
+  it("rejects directory tails and domains inside names", () => {
+    expect(isPlausibleName("Araromi Youth Development Centre Lagos. « HEYPLACES.COM.NG")).toBe(false);
+    expect(isPlausibleName("GlowMart Beauty www.glowmart.ng")).toBe(false);
+    expect(isPlausibleName("Supermart.ng")).toBe(true); // brand+tld, not a tail
+  });
+
   it("keeps real businesses that merely start with Top or Our", () => {
     expect(isPlausibleName("Topmark Services")).toBe(true);
     expect(isPlausibleName("Ours Glazing Works")).toBe(true);

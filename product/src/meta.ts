@@ -433,7 +433,7 @@ const DIRECTORY_HOSTS = [
   // caterer; news/map/venue aggregators shipped headlines and list pages.
   "betajob", "grabjobs", "myjobmag", "jobgivers", "glassdoor", "zippia",
   "cvent", "vymaps", "mapcarta", "placedigger", "billionaires.africa",
-  "amimagazine", "nairaland",
+  "amimagazine", "nairaland", "heyplaces", "heyplace",
 ];
 /** Pattern layer: a denylist alone lost to enbizopedia (run_109a87e6
  * shipped barbers for a caterer from it). Match aggregator-shaped hosts. */
@@ -494,8 +494,10 @@ export function isPlausibleName(raw: string): boolean {
   // at Flutterwave May, 2022").
   if (/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s*,?\s*20\d\d\b/i.test(trimmed)) return false;
   // "X hiring Y" is a job ad, never a business ("Hypercity (Nigeria) hiring
-  // Admin Manager Job").
-  if (/\bhiring\b/i.test(trimmed)) return false;
+  // Admin Manager Job"). Same for staffing-demand and office-move headlines
+  // ("More teachers needed in Lagos public schools", "Africa Internet Group
+  // moves office to ...") — run_cb6fec23 shipped both as candidates.
+  if (/\bhiring\b|\bneeded\b|\bseeking\b|\bmoves?\b|\bmoved\b|\brelocat\w+\b/i.test(trimmed)) return false;
   // Document and listing artefacts read as names ("AIS Professional
   // Services — Firm brochure 2026", "Result page 13 for ...").
   if (/—/u.test(trimmed)) return false; // em-dash = title separator
@@ -503,6 +505,12 @@ export function isPlausibleName(raw: string): boolean {
   if (/^result page\b/i.test(trimmed)) return false;
   if (/@/.test(trimmed)) return false; // contains an email address: contact page, never a business name
   if (/\//.test(trimmed)) return false; // url path, not a name
+  if (/[«»]/.test(trimmed)) return false; // directory-tail guillemets, not a name
+  // A bare domain inside the name is a directory/attribution tail
+  // ("Araromi Youth Development Centre Lagos. « HEYPLACES.COM.NG") — unless
+  // the whole name is brand+tld ("Supermart.ng" is a real brand).
+  const beforeTld = (trimmed.split(/\s*\.(?:com|com\.ng|ng|org|net|co)\b/i)[0] ?? "").trim();
+  if (/\.(com|com\.ng|ng|org|net|co)\b/i.test(trimmed) && beforeTld.split(/\s+/).length >= 2) return false;
   if (/area guide|neighbourhood guide|neighborhood guide|city guide/i.test(trimmed)) return false; // guide page, not a business
   if (STREET_ENDING.test(trimmed)) return false; // ends with a street suffix: the street, not a business
   if (/alternativ/i.test(trimmed) && /competitor/i.test(trimmed)) return false; // comparison article, not a business
