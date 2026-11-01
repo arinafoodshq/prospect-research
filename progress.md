@@ -1594,3 +1594,30 @@ gated 401, newest run + profile name, run:null); SMOKE PASS; deployed; live
 check: /api/runs/latest 401 signed out, root 200; latest run in D1 confirmed
 (run_27e246ba, complete). Limitation: latest-run only (single-operator MVP) -
 the card shows the most recent run, not a run list.
+
+## 2026-11-01 — Browser MCP added (@latest) + tests (user request)
+
+User installed the Browser MCP Chrome extension and asked to add
+@browsermcp/mcp@latest and tests.
+
+- Global OpenCode config had browsermcp pinned to the ancient
+  @browsermcp/mcp@0.1.3 - updated to @browsermcp/mcp@latest (surgical text
+  replace; backup at opencode.json.bak-browsermcp; browsermcp entry verified:
+  type local, enabled, npx -y @browsermcp/mcp@latest). OpenCode needs a
+  restart for the server to load; first browser-tool use triggers the
+  six-digit pairing (click Allow in the extension popup).
+- product: @browsermcp/mcp@2.3.0 installed as devDependency (commit 3cb98c8).
+- Tests (tests/browsermcp.test.ts, 3 passing):
+  1. installed package is the modern line (>= 2), never the 0.1.3 pin;
+  2. global opencode.json wires browsermcp on @latest (skipIf config absent);
+  3. the real binary speaks MCP over stdio: initialize -> serverInfo
+     "Browser MCP" 2.3.0, tools/list -> the `browser` tool.
+  Gotcha documented in the test: the server exits on stdin EOF - the client
+  must hold the stream open or tools/list races shutdown (observed:
+  initialize answered, then exit 0).
+
+Verification: vitest 455/455; global config parse-verified. No product
+runtime change (dev tooling only) - no deploy needed. Live-site note:
+browsermcp.io says v2.0 extension + server only work together - if the
+extension is still 1.x, update it (chrome://extensions -> Developer mode ->
+Update) or the pair will refuse to connect.
