@@ -1708,3 +1708,22 @@ candidates, 9 disqualified, 16 investigating, 0 drafts.
 Next levers (need decision): raise fetch caps (40 -> 60?) so assess finishes;
 or assess-on-snippets for investigated-but-unassessed candidates at rank;
 or more round-2 name patterns.
+
+## 2026-11-01 — Budget headroom raised; FIRST END-TO-END KEEPER (user: "let budget not be in the way")
+
+Owner directive: budget must not constrain runs. Fixed three things
+(commit b458f86, deployed 2d0d36de):
+- DEFAULT_CAPS raised: searches 30->40, fetches 40->80, candidates 25->30.
+- THE ROOT BLOCKER: postRun hardcoded budgets {30,40,25} in the run row -
+  DEFAULT_CAPS was never consulted. Runs now write budgets from DEFAULT_CAPS.
+- Sweep share: each sweep may spend up to HALF of what remains (was equal
+  thirds) so sweep 1 has real room for investigate+assess.
+
+Measured with Choice Cleaners (the run that had never finished): status
+awaiting_approval - the first run to reach the drafts gate. 30 candidates,
+28 disqualified (gates strict), 1 shortlisted WITH a draft awaiting approval:
+"Duban International Hotel" - subject "Post-event / next-morning cleaning for
+your Ogba hall" - a real venue with a grounded use case. Keeper rate 0 -> 1/30.
+
+Verification: tsc clean, vitest 464/464, SMOKE PASS, deployed, caps verified
+in the live run row (40/80/30). Trace file regenerated.
