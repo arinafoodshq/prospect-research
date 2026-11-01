@@ -176,6 +176,27 @@ const PHASE_RUN_STATUS: Record<Exclude<WorkflowPhase, "close">, RunStatus | null
 export class ResearchWorkflow {
   constructor(private runtime: WorkflowRuntime, private deps?: OrchestratorDeps) {}
 
+  /** Run discover→investigate→assess for one sweep. Returns the budget-stop
+   * message when a phase stops on budget (rank what exists instead of
+   * failing — run_064223c3 died on "investigate stopped: budget_fetches"
+   * because the sweep share made mid-run budget stops normal). Non-budget
+   * stops (model failures, plan errors) remain fatal. */
+  private async runSweepPhases(sweep: number, share: { searches?: number; fetches?: number; candidates?: number }): Promise<string | null> {
+    for (const name of ["discover", "investigate", "assess"] as const) {
+      try {
+        await this.phase(name, () => this.dispatch(name, name === "assess" ? undefined : share));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/^\w+ stopped: budget_/.test(msg)) {
+          this.runtime.log(`sweep ${sweep}: ${msg} — ranking what exists`);
+          return msg;
+        }
+        throw e;
+      }
+    }
+    return null;
+  }
+
   async run(): Promise<void> {
     // Brief gate first: runs are created only from confirmed briefs, so this
     // is normally a no-op; an unconfirmed brief waits instead of planning.
@@ -202,9 +223,8 @@ export class ResearchWorkflow {
         fetches: ctxNow.consumed.fetches + Math.max(1, Math.ceil((ctxNow.caps.fetches - ctxNow.consumed.fetches) / left)),
         candidates: ctxNow.caps.candidates,
       };
-      await this.phase("discover", () => this.dispatch("discover", share));
-      await this.phase("investigate", () => this.dispatch("investigate", share));
-      await this.phase("assess", () => this.dispatch("assess"));
+      const budgetStop = await this.runSweepPhases(sweep, share);
+      if (budgetStop) break; // rank what exists
       // eslint-disable-next-line no-await-in-loop
       const qa = await this.runtime.step(`qa:${sweep}`, () => this.qualitySnapshot()) as RunQuality & { budgetLeft: boolean };
       this.runtime.log(`qa sweep ${sweep}: good ${qa.good}, junk ${qa.junk}, candidates ${qa.candidates}, unlocated ${qa.unlocated}`);
