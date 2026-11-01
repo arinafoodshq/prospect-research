@@ -191,6 +191,7 @@ const sandbox = {
   window: windowStub,
   location: windowStub.location,
   localStorage: localStorageStub,
+  module: { exports: {} },
   setInterval, clearInterval, setTimeout, clearTimeout,
   Promise, URLSearchParams, encodeURIComponent, JSON, Math, Object, Array, String, Number, parseInt,
   console,
@@ -635,5 +636,21 @@ ok(visible("view-profile"), "stop returns to the brief");
   ok(stop && stop.body.to === "stopped", "stop posts the stopped transition");
 }
 
-console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters");
+// --- manual WhatsApp send stack (504Yard patterns, user request 2026-11-01)
+const app = sandbox.module.exports;
+ok(app.waNumber("08031234567") === "2348031234567", "waNumber normalises 0-prefixed NG numbers");
+ok(app.waNumber("+234 810 378 5017") === "2348103785017", "waNumber strips spaces and plus");
+ok(app.waNumber("2348103785017") === "2348103785017", "waNumber keeps international form");
+ok(app.waUrl("2348103785017", "Hello 🔥 intro", "auto").includes(encodeURIComponent("Hello 🔥 intro")),
+  "waUrl emoji-safe: the full message survives percent-encoding");
+ok(app.waUrl("2348103785017", "🔥", "auto").includes("%F0%9F%94%A5"), "emoji encodes as UTF-8 bytes");
+ok(app.waUrl("2348103785017", "x", "biz").includes("com.whatsapp.w4b"), "WhatsApp Business targets w4b via intent");
+ok(app.waUrl("2348103785017", "x", "wa").includes("package=com.whatsapp;"), "plain WhatsApp targets com.whatsapp via intent");
+ok(app.waUrl("2348103785017", "x", "auto").startsWith("https://wa.me/"), "auto uses plain wa.me");
+ok(app.waWarning("23481234567890") === "unusual number length", "landline guard: odd length flagged");
+ok(app.waWarning("234145345678").includes("landline"), "landline guard: 1/2 network digit flagged");
+ok(app.personalize("Hello [Name], we grill.", "Tolu") === "Hello Tolu, we grill.", "personalise fills the greeting");
+ok(app.personalize("Hello [Name], we grill.", "to verify") === "Hello, we grill.", "personalise drops verify-flagged names");
+
+console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters + wa send stack");
 process.exit(0);

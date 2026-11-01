@@ -1226,10 +1226,48 @@
   var STUDIO_TABS = ["whatsapp", "email", "dm"];
   var STUDIO_TAB_LABEL = { whatsapp: "WhatsApp", email: "Email", dm: "Direct message" };
   var STUDIO_SENDER = {
-    whatsapp: "Sends from your own WhatsApp Business number, at a time you choose.",
-    email: "Sends from your connected email sender, at a time you choose.",
-    dm: "Sends from an account you connect, at a time you choose."
+    whatsapp: "Manual send: the button below opens WhatsApp with this message pre-filled — you press send.",
+    email: "Manual send: opens your email app with the draft pre-filled — you press send.",
+    dm: "Manual send: open their profile and paste the message yourself."
   };
+
+  // --- WhatsApp manual send (504Yard pattern). The owner clicks per lead;
+  // nothing is ever sent for them. Emoji-safe: every message rides
+  // encodeURIComponent (UTF-8 percent-encoding, 🔥 → %F0%9F%94%A5).
+  function waNumber(raw) {
+    var d = String(raw || "").replace(/[^0-9]/g, "");
+    if (d.indexOf("234") === 0) return d;
+    if (d.indexOf("0") === 0 && d.length === 11) return "234" + d.slice(1);
+    if (d.length === 10) return "234" + d;
+    return d;
+  }
+  function waWarning(d) {
+    if (d.length !== 12 && d.length !== 13) return "unusual number length";
+    if ("12".indexOf(d.charAt(3)) >= 0) return "landline — may not have WhatsApp";
+    return "";
+  }
+  function waApp() {
+    try { return localStorage.getItem("wa_app") || "auto"; } catch (e) { return "auto"; }
+  }
+  function waUrl(to, msg, app) {
+    var plain = "https://wa.me/" + to + "?text=" + encodeURIComponent(msg);
+    if (app === "wa") {
+      return "intent://wa.me/" + to + "?text=" + encodeURIComponent(msg) +
+        "#Intent;scheme=https;package=com.whatsapp;S.browser_fallback_url=" + encodeURIComponent(plain) + ";end";
+    }
+    if (app === "biz") {
+      return "intent://wa.me/" + to + "?text=" + encodeURIComponent(msg) +
+        "#Intent;scheme=https;package=com.whatsapp.w4b;S.browser_fallback_url=" + encodeURIComponent(plain) + ";end";
+    }
+    return plain;
+  }
+  function personalize(t, name) {
+    var n = (name || "").trim();
+    var has = n && !/\b(?:to verify|verify|tbd|unknown|pending)\b/i.test(n);
+    t = t.replace(/\b(Hello|Hi|Dear)[ \t]*\[Name\][ \t]*,?/gi, function (m, g) { return has ? g + " " + n + "," : g + ","; });
+    t = t.replace(/[ \t]*\[Name\][ \t]*,?/gi, " ").replace(/[ \t]{2,}/g, " ");
+    return t.trim();
+  }
 
   /** Map a route-style suggestion onto a studio tab (short notes read as DMs). */
   function studioTabFor(channel) {
@@ -1252,6 +1290,52 @@
     if (n <= 40) return "Short enough to read in one glance.";
     if (n <= 80) return "Room for context, still under 80 words.";
     return "Over 80 words. Shorter usually earns the reply.";
+  }
+
+  /** Manual-send block per channel (504Yard patterns): WhatsApp app selector
+   * (Auto/WhatsApp/WhatsApp Business, saved per device), multi-number buttons
+   * with landline + unverified warnings, mailto and social-profile links. */
+  function studioSendHtml(d, p, st) {
+    var routes = ((st.evidence[d.prospectId] || {}).routes) || [];
+    var person = (p && p.contact_name) || "";
+    if (st.tab === "whatsapp") {
+      var phones = routes.filter(function (r) { return r.channel === "phone"; });
+      var btns = phones.slice(0, 4).map(function (r, i) {
+        var to = waNumber(r.value);
+        var warn = waWarning(to);
+        var unv = r.verification === "unchecked" || r.verification === "public_listing";
+        return "<button type=\"button\" class=\"wa-open\" data-act=\"wa-open\" data-wato=\"" + esc(to) + "\"" +
+          (unv ? " data-unv=\"1\"" : "") + (warn ? " data-warn=\"" + esc(warn) + "\"" : "") +
+          ">Open WhatsApp" + (phones.length > 1 ? " (" + (i + 1) + ")" : "") +
+          (warn ? " <span class=\"wa-warn\">" + esc(warn) + "</span>" : "") + "</button>";
+      }).join("");
+      if (!btns) btns = "<p class=\"hint\">No WhatsApp number yet for this pick. Add one on the lead's Reach out panel.</p>";
+      var appSel = [["auto", "Auto"], ["wa", "WhatsApp"], ["biz", "WhatsApp Business"]].map(function (a) {
+        return "<button type=\"button\" class=\"chip wa-app" + (waApp() === a[0] ? " selected" : "") +
+          "\" data-act=\"wa-app\" data-id=\"" + a[0] + "\">" + a[1] + "</button>";
+      }).join("");
+      return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Send now, by hand</p>" +
+        "<p class=\"muted small\">Clicking opens WhatsApp with this message pre-filled — you press send." +
+        (person ? " Greeting uses " + esc(person) + "." : "") + "</p>" +
+        "<div class=\"chips wa-app-row\">" + appSel + "</div>" + btns + "</div>";
+    }
+    if (st.tab === "email") {
+      var emails = routes.filter(function (r) { return r.channel === "email"; });
+      if (!emails.length) return "<div class=\"card send-card\"><p class=\"hint\">No email route yet for this pick.</p></div>";
+      return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Send now, by hand</p>" +
+        emails.slice(0, 2).map(function (r) {
+          return "<button type=\"button\" class=\"wa-open\" data-act=\"mail-open\" data-email=\"" + esc(r.value) + "\"" +
+            (r.verification === "unchecked" || r.verification === "public_listing" ? " data-unv=\"1\"" : "") +
+            ">Open email draft (" + esc(r.value) + ")</button>";
+        }).join("") + "</div>";
+    }
+    var socials = routes.filter(function (r) { return r.channel === "social_profile"; });
+    if (!socials.length) return "";
+    return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Open their profile to DM</p>" +
+      socials.slice(0, 3).map(function (r) {
+        return "<a class=\"link-gold\" href=\"" + esc(r.value) + "\" target=\"_blank\" rel=\"noopener\">Open " +
+          esc(routeLabel(r)) + "</a>";
+      }).join(" ") + "</div>";
   }
 
   function rationaleRemainder(rationale) {
@@ -1398,6 +1482,33 @@
     var act = ds.act;
     if (!act || !state.studio || !state.studio.el) return;
     var d = studioDraft();
+    var st = state.studio;
+    if (act === "wa-open") {
+      var p0 = studioProspect(d);
+      if (ds.unv === "1" && !window.confirm("This route is published, not yet verified. Verify via official channels first. Continue?")) return;
+      if (ds.warn && !window.confirm(ds.warn + ". Continue?")) return;
+      var bodyEl = st.el.querySelector('[data-field="body"]');
+      var msg = personalize(bodyEl && bodyEl.value ? bodyEl.value : d.body, p0 && p0.contact_name);
+      api.logContact(d.prospectId, { channel: "whatsapp", note: "Opened WhatsApp +" + ds.wato });
+      window.open(waUrl(ds.wato, msg, waApp()), "_blank");
+      return;
+    }
+    if (act === "mail-open") {
+      var p1 = studioProspect(d);
+      if (ds.unv === "1" && !window.confirm("This route is published, not yet verified. Verify via official channels first. Continue?")) return;
+      var bEl = st.el.querySelector('[data-field="body"]');
+      var sEl = st.el.querySelector('[data-field="subject"]');
+      var body1 = personalize(bEl && bEl.value ? bEl.value : d.body, p1 && p1.contact_name);
+      var subj1 = personalize(sEl && sEl.value ? sEl.value : (d.subject || ""), p1 && p1.contact_name);
+      api.logContact(d.prospectId, { channel: "email", note: "Opened email draft " + ds.email });
+      window.location.href = "mailto:" + ds.email + "?subject=" + encodeURIComponent(subj1) + "&body=" + encodeURIComponent(body1);
+      return;
+    }
+    if (act === "wa-app" && ds.id) {
+      try { localStorage.setItem("wa_app", ds.id); } catch (e2) { /* private mode */ }
+      renderStudioInner();
+      return;
+    }
     if (act === "studio-prev") { studioNav(-1); return; }
     if (act === "studio-next") { studioNav(1); return; }
     if (act === "studio-tab" && ds.id) {
@@ -1504,6 +1615,7 @@
       n + " words. " + esc(wordGuidance(n)) + "</p><div class=\"chips tone-row\" id=\"studio-tones\">" + tones + "</div></div>" +
       "<div class=\"card sender-card\"><p>" + esc(STUDIO_SENDER[st.tab]) + " Every message includes a way to opt out.</p>" +
       "<button type=\"button\" class=\"link-gold\" data-act=\"studio-sender\">Change sender</button></div>" +
+      studioSendHtml(d, p, st) +
       "<div class=\"row studio-actions\"><button type=\"button\" data-act=\"approve\">Approve and schedule <span aria-hidden=\"true\">→</span></button>" +
       "<button type=\"button\" class=\"secondary\" data-act=\"studio-test\"" + (st.busy ? " disabled" : "") + ">Send a test to myself</button>" +
       "<button type=\"button\" class=\"linklike\" data-act=\"skip\">Skip this one</button>" +
@@ -2167,7 +2279,7 @@
   }
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { VIEWS: VIEWS, showView: showView, submitOnboard: submitOnboard, confirmBriefAndRun: confirmBriefAndRun, pollProgress: pollProgress, renderShortlist: renderShortlist, selectProspect: selectProspect, renderDrafts: renderDrafts, decideDraft: decideDraft, renderStatuses: renderStatuses, restart: restart };
+    module.exports = { VIEWS: VIEWS, showView: showView, submitOnboard: submitOnboard, confirmBriefAndRun: confirmBriefAndRun, pollProgress: pollProgress, renderShortlist: renderShortlist, selectProspect: selectProspect, renderDrafts: renderDrafts, decideDraft: decideDraft, renderStatuses: renderStatuses, restart: restart, waNumber: waNumber, waUrl: waUrl, waWarning: waWarning, personalize: personalize, waApp: waApp };
   }
 
   if (typeof document !== "undefined") {
