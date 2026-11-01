@@ -135,6 +135,7 @@ const IDS = [
   "link-signin", "signin-note",
   "auth-area", "hdr-signin", "hdr-user", "btn-signout",
   "view-signin", "btn-google-signin", "signin-view-note", "signin-back",
+  "resume-card", "resume-status", "btn-resume-continue", "btn-resume-dismiss",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
   "campaign-wizard",

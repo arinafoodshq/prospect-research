@@ -504,8 +504,12 @@
     return where ? who + " in " + where : who;
   }
 
-  RealApi.prototype.getProgressSnapshot = function (runId) {
-    var self = this;
+  /** Run recovery: the operator's most recent run, whatever its state. */
+  RealApi.prototype.getLatestRun = function () {
+    return this._req("/api/runs/latest");
+  };
+
+  RealApi.prototype.getProgressSnapshot = function (runId) {    var self = this;
     return self._req("/api/runs/" + encodeURIComponent(runId)).then(function (run) {
       return self._req("/api/runs/" + encodeURIComponent(runId) + "/prospects").then(function (res) {
         var list = res.prospects || [];

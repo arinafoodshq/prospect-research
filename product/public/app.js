@@ -47,6 +47,62 @@
     if (note) note.textContent = expiryMessage || "";
   }
 
+  // --- Run recovery: a run survives reloads and dead networks on the server.
+  // On boot (signed in, live, no run in flight) the landing offers to bring
+  // the owner back to it — continue, never restart.
+  var pendingRestore = null;
+
+  function resumeStatusText(run) {
+    var name = run.profile_name || "Your business";
+    var state2 = {
+      created: "ready to start its research.",
+      awaiting_brief: "waiting for your brief confirmation.",
+      discovering: "searching for buyers right now.",
+      investigating: "opening businesses' own pages right now.",
+      assessing: "checking fit against your must-haves right now.",
+      drafting: "writing messages for your approval right now.",
+      awaiting_approval: "drafts are waiting for your approval.",
+    }[run.status];
+    return name + " — " + (state2 || "is at “" + run.status + "”.");
+  }
+
+  function checkResumableRun() {
+    if (api.mode !== "live" || !me || state.runId || !api.getLatestRun) return;
+    api.getLatestRun().then(function (res) {
+      var run = res && res.run;
+      if (!run) return;
+      var resumable = ["created", "awaiting_brief", "discovering", "investigating", "assessing", "drafting", "awaiting_approval"];
+      if (resumable.indexOf(run.status) < 0) return;
+      pendingRestore = run;
+      var card = $("resume-card");
+      if (!card) return;
+      $("resume-status").textContent = resumeStatusText(run);
+      card.hidden = false;
+    }).catch(function () { /* recovery check is best-effort */ });
+  }
+
+  function wireResumeCard() {
+    var card = $("resume-card");
+    if (!card) return;
+    $("btn-resume-continue").addEventListener("click", function () {
+      var run = pendingRestore;
+      if (!run) return;
+      state.runId = run.id;
+      state.profile = { id: run.profile_id, name: run.profile_name || "" };
+      card.hidden = true;
+      pendingRestore = null;
+      // One path for every state: the progress poll resolves to the
+      // shortlist when the run reaches approval/complete (all data from D1
+      // — continue, never restart).
+      showView("progress");
+      pollProgress();
+    });
+    $("btn-resume-dismiss").addEventListener("click", function () {
+      card.hidden = true;
+      pendingRestore = null;
+    });
+  }
+
   function $(id) { return document.getElementById(id); }
 
   var CHROMELESS = ["landing", "onboard", "profile", "progress", "shortlist", "drafts"];
@@ -1926,7 +1982,7 @@
     });
     // Sign-in state: whoAmI on boot (live), then the header reflects it.
     if (api.whoAmI) {
-      api.whoAmI().then(function (user) { me = user; renderAuthUi(); });
+      api.whoAmI().then(function (user) { me = user; renderAuthUi(); checkResumableRun(); });
     }
     renderAuthUi();
     if (api.mode === "live" && typeof window.ApiLayer !== "undefined") {
@@ -1948,6 +2004,7 @@
     });
     var back = $("signin-back");
     if (back) back.addEventListener("click", function () { showView("landing"); });
+    wireResumeCard();
     var out = $("btn-signout");
     if (out) out.addEventListener("click", function () {
       if (api.signOut) api.signOut().catch(function () { /* best effort */ });

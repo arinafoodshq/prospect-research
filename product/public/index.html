@@ -50,6 +50,18 @@
         <span class="l-brand"><img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" />Prospect Research</span>
         <a class="l-signin" id="link-signin" href="/api/auth/start" hidden>Sign in</a>
       </nav>
+      <!-- Run recovery: a research run survives reloads and dead networks on
+           the server; this card brings the owner back to it — continue, never
+           restart. Hidden until the boot check finds a resumable run. -->
+      <section class="resume-card" id="resume-card" hidden aria-label="Continue your research">
+        <p class="kicker">Pick up where you left off</p>
+        <h2 class="resume-title">Your research is safe on the server.</h2>
+        <p class="resume-status" id="resume-status"></p>
+        <div class="resume-actions">
+          <button type="button" class="btn-dark" id="btn-resume-continue">Continue <span aria-hidden="true">&rarr;</span></button>
+          <button type="button" class="link-gold" id="btn-resume-dismiss">Start fresh instead</button>
+        </div>
+      </section>
       <p class="l-signin-note" id="signin-note" hidden></p>
 
       <div class="l-hero">

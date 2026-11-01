@@ -903,6 +903,19 @@ route("POST", "/api/profiles/:id/confirm", postConfirm);
 route("POST", "/api/onboard/turn", postOnboardTurn);
 route("POST", "/api/transcribe", postTranscribe);
 route("POST", "/api/runs", postRun);
+// Latest run for the signed-in operator (run recovery). Registered BEFORE
+// /api/runs/:id so "latest" is not captured as an id parameter.
+const getLatestRun: Handler = async ({ env }) => {
+  const row = await env.DB.prepare(
+    "SELECT r.*, p.name AS profile_name FROM research_run r LEFT JOIN business_profile p ON p.id = r.profile_id ORDER BY r.started_at DESC LIMIT 1",
+  ).bind().first<Record<string, unknown>>();
+  if (!row) return json({ run: null });
+  return json({
+    run: { ...serializeRun(row as unknown as RunRow), profile_name: row["profile_name"] ?? null },
+  });
+};
+
+route("GET", "/api/runs/latest", getLatestRun);
 route("GET", "/api/runs/:id", getRunById);
 route("POST", "/api/runs/:id/resume", postResume);
 route("GET", "/api/runs/:id/prospects", getProspects);
