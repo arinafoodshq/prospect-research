@@ -1621,3 +1621,34 @@ runtime change (dev tooling only) - no deploy needed. Live-site note:
 browsermcp.io says v2.0 extension + server only work together - if the
 extension is still 1.x, update it (chrome://extensions -> Developer mode ->
 Update) or the pair will refuse to connect.
+
+## 2026-11-01 — 4 business profiles driven live via Browser MCP + budget-stop fix
+
+User asked for a local trace file (input/process/output per model step, human-
+readable) and to test 4 different business profiles across industries and
+sectors, online and offline, via Browser MCP.
+
+- Trace exporter: product/scripts/export-trace.mjs -> C:\Users\User\Videos\
+  prospect-trace.md (outside the repo: runtime data never lives in the repo).
+  Sections: runs overview, model steps (goal head -> output head, tokens,
+  duration), full brief/plan/prospects/drafts for the newest run, owner input
+  -> product response. Regenerated: 1639 lines.
+- Browser MCP worked after pointing the global config at the local install.
+  The extension bridge needed no pairing prompt (already allowed).
+- 4 journeys driven through the user's signed-in Chrome (real flow: describe
+  -> chat -> confirm -> run): PrintFlex NG (online print shop, nationwide),
+  Choice Cleaners (cleaning, Ikeja), Little Steps Academy (school, Surulere),
+  GlowMart Beauty (beauty retail, Instagram + Ikota shop). Onboarding behaved:
+  name/area extracted from prose, no re-asks, followup cap held, resume card
+  appeared on new tabs for the running run (recovery feature confirmed live).
+- Run outcomes at report time: PrintFlex complete (16/30 searches, 25
+  candidates, 20 disqualified, 0 drafts); Little Steps investigating;
+  GlowMart created; Choice Cleaners FAILED on "investigate stopped:
+  budget_fetches".
+- FIX (commit 6542cc4, deployed 356874bb): budget stops are now NON-FATAL -
+  the sweep loop catches "X stopped: budget_*" and proceeds to rank what
+  exists (spec behaviour) instead of failing the run. The sweep share change
+  had made mid-run budget stops normal, exposing the flaw. Test suite green
+  (455/455) before push after two sloppy push-before-green corrections
+  (browsermcp config test updated for the local wiring + windows paths).
+- Note: cost_usd_est stays 0 - cost tracking not wired to usage yet.
