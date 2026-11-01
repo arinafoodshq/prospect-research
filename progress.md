@@ -1683,3 +1683,28 @@ Little Steps re-run completed in ~5 min (23 disqualified, 2 investigating,
 0 kept) - extraction still shipped headline junk through the round-1 gate,
 which round 2 now closes. Next measurement: run a fresh profile and compare
 keeper rate.
+
+## 2026-11-01 — PrintFlex A/B with all gates: junk cut 55%, bottleneck moved to assess throughput
+
+Controlled A/B: same PrintFlex NG brief re-run (baseline 2026-10-31: 16
+searches, 25 candidates, 20 disqualified, 5 investigating, 0 kept). Re-run
+(2026-11-01, all gates live): COMPLETE, 10 searches, 13 fetches, 25
+candidates, 9 disqualified, 16 investigating, 0 drafts.
+
+- Name gate working: junk candidates dropped 20 -> 9; real named entities now
+  reach the pool (Landmark Events Centre, Korex Events, Omega Events,
+  Eventful Nigeria Limited, Jemz Events - yesterday's run had almost none).
+- Remaining junk shapes leak ("Event Managers in Nigeria, Wedding Planners
+  and Coordinators", "Paystack x Stripe", "Company Formation", "Leading SME
+  Brands") - further patterns needed.
+- NEW bottleneck: assess throughput. 16 candidates investigated but only 9
+  assessed before the fetch budget stopped; budget-stop fix correctly ranked
+  what existed (run completed instead of failing) but 0 shortlisted -> 0
+  drafts. Little Steps round-1 re-run also completed: 0 keepers (round-1
+  gate only).
+- Browser MCP note: the extension disconnected mid-journey once ("No browser
+  is connected") after a server restart; reconnecting needed a new session.
+  The confirm click lost in that gap did NOT create a run - re-driven.
+Next levers (need decision): raise fetch caps (40 -> 60?) so assess finishes;
+or assess-on-snippets for investigated-but-unassessed candidates at rank;
+or more round-2 name patterns.
