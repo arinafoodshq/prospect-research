@@ -95,6 +95,7 @@
       channel: ch,
       subject: "Weekday lunches for " + p.name,
       body: body,
+      variants: { whatsapp: "WhatsApp version: " + p.name + ", one-week lunch trial — reply yes and we start." },
       next_action: DRAFT_NEXT[p.id] || "Ask for a quick reply.",
       status: "pending"
     };
@@ -619,10 +620,16 @@
     return this._req("/api/runs/" + encodeURIComponent(runId) + "/drafts").then(function (res) {
       return {
         drafts: (res.drafts || []).map(function (d) {
+          var variants = {};
+          try {
+            var parsed = typeof d.variants === "string" ? JSON.parse(d.variants) : (d.variants || {});
+            if (parsed && typeof parsed === "object") variants = parsed;
+          } catch (e) { variants = {}; }
           return {
             id: d.id, prospectId: d.prospect_id,
             channel: d.channel_suggestion || "other",
             subject: d.subject || "(no subject)", body: d.body,
+            variants: variants,
             next_action: d.next_action || "",
             status: d.status === "draft" ? "pending" : d.status
           };

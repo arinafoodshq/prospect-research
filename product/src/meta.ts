@@ -826,7 +826,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       phase: "draft",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims]}]. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`
+        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims],"variants":{"whatsapp":"<=60 words, casual and direct, greeting by name, no citations","email":"<=120 words, professional, matches body but tighter","dm":"<=35 words, ultra casual for Instagram/TikTok"}}]. The variants are the messages the prospect actually receives on each channel — same facts, shaped for the channel. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category, contact_person: p.contact_name ?? null })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`
         : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
@@ -842,6 +842,20 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       const supportingIds = Array.isArray(item["supporting_ids"])
         ? (item["supporting_ids"] as unknown[]).filter((x): x is string => typeof x === "string")
         : [];
+      const vRaw = isRecord(item["variants"]) ? (item["variants"] as Record<string, unknown>) : null;
+      let variants: DraftProposal["variants"];
+      if (vRaw) {
+        const pick = (v: unknown, cap: number): string | undefined =>
+          typeof v === "string" && v.trim() !== "" ? v.trim().slice(0, cap) : undefined;
+        const built: { whatsapp?: string; email?: string; dm?: string } = {};
+        const w = pick(vRaw["whatsapp"], 700);
+        const e = pick(vRaw["email"], 1400);
+        const dm = pick(vRaw["dm"], 400);
+        if (w) built.whatsapp = w;
+        if (e) built.email = e;
+        if (dm) built.dm = dm;
+        if (Object.keys(built).length > 0) variants = built;
+      }
       out.push({
         prospect_id: pid,
         channel: typeof channel === "string" && (DRAFT_CHANNELS as readonly string[]).includes(channel)
@@ -855,6 +869,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
           ? { follow_up_days: Math.floor(item["follow_up_days"]) }
           : {}),
         ...(supportingIds.length > 0 ? { supporting_ids: supportingIds } : {}),
+        ...(variants && Object.keys(variants).length > 0 ? { variants } : {}),
       });
     }
     return out;
@@ -926,7 +941,7 @@ function extractVisibleText(html: string): string {
 
   async function fetchPage(
     url: string, timeoutMs: number,
-  ): Promise<{ text: string } | { failure: "blocked" | "empty" | "timeout"; detail: string }> {
+  ): Promise<{ text: string; socials?: string[] } | { failure: "blocked" | "empty" | "timeout"; detail: string }> {
     let res: Response;
     try {
       res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -938,7 +953,18 @@ function extractVisibleText(html: string): string {
     }
     if (res.status === 404 || res.status === 410) return { failure: "empty", detail: `http ${res.status}` };
     if (!res.ok) return { failure: "blocked", detail: `http ${res.status}` };
-    return { text: extractVisibleText(await res.text()).slice(0, FETCH_TEXT_CAP) };
+    const html = await res.text();
+    // Social-link harvest: the lead's own page declares its profiles in the
+    // markup (footer usually) — visible text often omits them. Grounded by
+    // construction: these come from the prospect's own page.
+    const socials = new Set<string>();
+    const re = /https?:\/\/(?:www\.)?(instagram\.com|facebook\.com|fb\.com|x\.com|twitter\.com|linkedin\.com|tiktok\.com)\/[A-Za-z0-9_.\-/]{1,60}/gi;
+    for (const m of html.matchAll(re)) {
+      const u = m[0].replace(/[)\]}"'?#,;]+$/, "");
+      if (u.length <= 100) socials.add(u);
+    }
+    const harvested = [...socials].slice(0, 8);
+    return { text: extractVisibleText(html).slice(0, FETCH_TEXT_CAP), ...(harvested.length > 0 ? { socials: harvested } : {}) };
   }
 
   let activeBrief: CommercialBrief | null = null;

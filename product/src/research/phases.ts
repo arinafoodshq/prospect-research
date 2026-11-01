@@ -82,6 +82,9 @@ export interface DraftProposal {
   follow_up_days?: number;
   /** Prospect-evidence ids backing the draft's claims (audited in code). */
   supporting_ids?: string[];
+  /** Per-channel versions (user request 2026-11-01): WhatsApp short + casual,
+   * Email full with the subject, DM ultra-short for Instagram/TikTok. */
+  variants?: { whatsapp?: string; email?: string; dm?: string };
 }
 
 /** Business-profile fields the brief builder reasons over (plain strings). */
@@ -500,6 +503,20 @@ export async function investigate(
           });
         } catch {
           /* url route is best-effort too */
+        }
+        // Social-link harvest (user request 2026-11-01): the crawled page's
+        // own markup declares its Instagram/Facebook/X/LinkedIn/TikTok
+        // profiles. Grounded by construction — they come from the lead's own
+        // site — stored unchecked, deduped by value.
+        for (const s of res.value.socials ?? []) {
+          const existing = await db.prepare("SELECT id FROM contact_route WHERE prospect_id = ? AND value = ?")
+            .bind(p.id, s).first<string>("id");
+          if (existing) continue;
+          try {
+            await saveRoute(db, { prospect_id: p.id, channel: "social_profile", value: s, evidence_id: evId, verification: "unchecked" });
+          } catch {
+            /* social routes are best-effort */
+          }
         }
       }
     } else {
@@ -1097,6 +1114,7 @@ export async function draft(
         prospect_id: t.id, channel_suggestion: prop.channel_suggestion ?? prop.channel,
         subject: prop.subject ?? null, body: prop.body, next_action: prop.next_action,
         ...(prop.follow_up_days !== undefined ? { follow_up_days: prop.follow_up_days } : {}),
+        ...(prop.variants ? { variants: prop.variants } : {}),
       });
       await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "drafted", note: null });
       done += 1;

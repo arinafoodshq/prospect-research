@@ -53,7 +53,7 @@ export interface FetchPageDeps {
   consumed: BudgetConsumed;
   caps: BudgetCaps;
   /** Low-level fetcher injected by the Workflow (mocked in tests). */
-  fetcher: (url: string, timeoutMs: number) => Promise<{ text: string } | { failure: "blocked" | "empty" | "timeout"; detail: string }>;
+  fetcher: (url: string, timeoutMs: number) => Promise<{ text: string; socials?: string[] } | { failure: "blocked" | "empty" | "timeout"; detail: string }>;
 }
 
 export const FETCH_TIMEOUT_MS = 10_000;
@@ -81,7 +81,7 @@ function isPublicWebUrl(url: string): boolean {
 export async function execFetchPage(
   deps: FetchPageDeps,
   input: FetchPageInput,
-): Promise<ToolResult<{ text: string }>> {
+): Promise<ToolResult<{ text: string; socials?: string[] }>> {
   if (typeof input.url !== "string" || input.url.trim() === "") return fail("invalid_url");
   if (!isPublicWebUrl(input.url)) return fail("url_rejected", "private/non-web URL rejected");
   const maxChars = input.max_chars ?? FETCH_MAX_CHARS_DEFAULT;
@@ -96,7 +96,7 @@ export async function execFetchPage(
       if (!res.text || res.text.trim() === "") { last = { failure: "empty", detail: "empty page text" }; continue; }
       deps.consumed.fetches += 1;
       deps.consumed.tool_rounds += 1;
-      return { ok: true, value: { text: res.text.slice(0, Math.min(maxChars, FETCH_RAW_CAP_BYTES)) } };
+      return { ok: true, value: { text: res.text.slice(0, Math.min(maxChars, FETCH_RAW_CAP_BYTES)), ...(res.socials ? { socials: res.socials } : {}) } };
     }
     last = res.failure ? { failure: res.failure, detail: res.detail } : last;
     if (res.failure === "blocked") break; // no retry for blocks

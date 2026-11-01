@@ -60,6 +60,9 @@ export interface Prospect {
   location: Record<string, string>; dedupe_key: string;
   evidence_ids: string[];
   status: ProspectStatus; rank: number | null; created_at: string;
+  /** Contact person (migration 0007): model-extracted or owner-set. */
+  contact_name?: string | null;
+  contact_title?: string | null;
 }
 
 export interface Assessment {
@@ -373,7 +376,7 @@ export async function saveRoute(
 /** Draft writer: prospect must be shortlisted; body must carry an evidence citation marker. */
 export async function saveDraft(
   db: Db,
-  input: { prospect_id: string; channel_suggestion: string; subject: string | null; body: string; next_action: string; follow_up_days?: number },
+  input: { prospect_id: string; channel_suggestion: string; subject: string | null; body: string; next_action: string; follow_up_days?: number; variants?: { whatsapp?: string; email?: string; dm?: string } },
 ): Promise<string> {
   const prospect = await db.prepare("SELECT id, status FROM prospect WHERE id = ?").bind(input.prospect_id).first<{ id: string; status: ProspectStatus }>();
   if (!prospect) throw new DbValidationError(`prospect ${input.prospect_id} does not exist`);
@@ -384,11 +387,34 @@ export async function saveDraft(
   // bracket-marker regex here: the regex silently dropped grounded drafts.
   const id = makeId("dr");
   await db.prepare(
-    `INSERT INTO outreach_draft (id, prospect_id, channel_suggestion, subject, body, next_action, follow_up_days, status, edited_by_human, decided_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 0, NULL, ?)`,
+    `INSERT INTO outreach_draft (id, prospect_id, channel_suggestion, subject, body, next_action, follow_up_days, variants, status, edited_by_human, decided_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 0, NULL, ?)`,
 ).bind(id, input.prospect_id, input.channel_suggestion, input.subject === null ? null : sanitizeText(input.subject),
-sanitizeText(input.body), sanitizeText(input.next_action), input.follow_up_days ?? null, nowIso()).run();
+sanitizeText(input.body), sanitizeText(input.next_action), input.follow_up_days ?? null,
+input.variants ? JSON.stringify(input.variants) : null, nowIso()).run();
   return id;
+}
+
+/** Update one per-channel variant of a draft (owner edit in the studio). */
+export async function updateDraftVariant(
+  db: Db,
+  draft_id: string,
+  variant: "whatsapp" | "email" | "dm",
+  text: string,
+): Promise<void> {
+  if (text.length > 2000) throw new DbValidationError("variant text exceeds 2000 chars");
+  const row = await db.prepare("SELECT variants, status, edited_by_human FROM outreach_draft WHERE id = ?").bind(draft_id)
+    .first<{ variants: string | null; status: string; edited_by_human: number }>();
+  if (!row) throw new DbValidationError(`draft ${draft_id} does not exist`);
+  if (row.status !== "draft") throw new DbValidationError("only undecided drafts can be edited");
+  let v: Record<string, string> = {};
+  try {
+    const parsed: unknown = JSON.parse(row.variants ?? "{}");
+    if (parsed && typeof parsed === "object") v = parsed as Record<string, string>;
+  } catch { v = {}; }
+  v[variant] = sanitizeText(text);
+  await db.prepare("UPDATE outreach_draft SET variants = ?, edited_by_human = 1 WHERE id = ?")
+    .bind(JSON.stringify(v), draft_id).run();
 }
 
 /** Transition a prospect's status with validation + activity log. */

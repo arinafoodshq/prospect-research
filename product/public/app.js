@@ -1545,7 +1545,7 @@
       if (ds.unv === "1" && !window.confirm("This route is published, not yet verified. Verify via official channels first. Continue?")) return;
       if (ds.warn && !window.confirm(ds.warn + ". Continue?")) return;
       var bodyEl = st.el.querySelector('[data-field="body"]');
-      var msg = personalize(cleanCitations(bodyEl && bodyEl.value ? bodyEl.value : d.body), p0 && p0.contact_name);
+      var msg = personalize(cleanCitations(bodyEl && bodyEl.value ? bodyEl.value : studioBodyFor(d, "whatsapp")), p0 && p0.contact_name);
       api.logContact(d.prospectId, { channel: "whatsapp", note: "Opened WhatsApp +" + ds.wato });
       window.open(waUrl(ds.wato, msg, waApp()), "_blank");
       return;
@@ -1555,7 +1555,7 @@
       if (ds.unv === "1" && !window.confirm("This route is published, not yet verified. Verify via official channels first. Continue?")) return;
       var bEl = st.el.querySelector('[data-field="body"]');
       var sEl = st.el.querySelector('[data-field="subject"]');
-      var body1 = personalize(cleanCitations(bEl && bEl.value ? bEl.value : d.body), p1 && p1.contact_name);
+      var body1 = personalize(cleanCitations(bEl && bEl.value ? bEl.value : studioBodyFor(d, "email")), p1 && p1.contact_name);
       var subj1 = personalize(cleanCitations(sEl && sEl.value ? sEl.value : (d.subject || "")), p1 && p1.contact_name);
       api.logContact(d.prospectId, { channel: "email", note: "Opened email draft " + ds.email });
       window.location.href = "mailto:" + ds.email + "?subject=" + encodeURIComponent(subj1) + "&body=" + encodeURIComponent(body1);
@@ -1573,7 +1573,7 @@
       try { localStorage.setItem("wa_test_num", numEl.value); } catch (e3) { /* private mode */ }
       var pT = studioProspect(d);
       var bT = st.el.querySelector('[data-field="body"]');
-      var msgT = personalize(cleanCitations(bT && bT.value ? bT.value : d.body), pT && pT.contact_name);
+      var msgT = personalize(cleanCitations(bT && bT.value ? bT.value : studioBodyFor(d, "whatsapp")), pT && pT.contact_name);
       window.open(waUrl(toMe, msgT, waApp()), "_blank");
       return;
     }
@@ -1602,9 +1602,15 @@
     if (act === "studio-cancel") { state.studio.editing = false; renderStudioInner(); return; }
     if (act === "studio-save") {
       var el = state.studio.el;
+      var isVariant = st.tab !== studioTabFor(d.channel) && d.variants;
       decideDraft(d.prospectId, "save-edit", el).then(function () {
+        var text = el.querySelector('[data-field="body"]').value;
+        if (isVariant) {
+          d.variants[st.tab] = text; // local echo; the decide payload stored it
+        } else {
+          d.body = text;
+        }
         d.subject = el.querySelector('[data-field="subject"]').value;
-        d.body = el.querySelector('[data-field="body"]').value;
         state.studio.editing = false;
         renderStudioInner();
       });
@@ -1630,6 +1636,13 @@
     }
   }
 
+  /** The message for the active tab: the per-channel variant when the
+   * research wrote one, else the shared body. */
+  function studioBodyFor(d, tab) {
+    var v = (d && d.variants) || {};
+    return cleanCitations(v[tab] || d.body);
+  }
+
   function renderStudioInner() {
     var st = state.studio;
     var d = studioDraft();
@@ -1643,7 +1656,8 @@
         (st.tab === t ? "true" : "false") + "\">" + STUDIO_TAB_LABEL[t] + "</button>";
     }).join("");
     var bodyHtml;
-    var shownBody = cleanCitations(d.body);
+    var shownBody = studioBodyFor(d, st.tab);
+    var hasVariant = !!(d.variants && d.variants[st.tab]);
     if (st.tab === primary) {
       var subj = st.tab === "email" && d.subject ? "<p class=\"studio-subject\">" + esc(d.subject) + "</p>" : "";
       var paras = esc(shownBody).split("\n").map(function (line) {
@@ -1652,12 +1666,12 @@
       bodyHtml = subj + "<div class=\"studio-text\">" + paras + "</div>" +
         "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
     } else {
-      // One message, every channel: the research wrote it as a <label>
-      // message, but the prose reads fine on the others too (user feedback
-      // 2026-11-01: "no whatsapp version" made people think there was
-      // nothing to send).
-      bodyHtml = "<p class=\"hint\">The research wrote this as a " + esc(studioSuggestionLabel(d.channel).toLowerCase()) +
-        " message — it reads fine here too.</p>" +
+      // Per-channel versions: the research wrote a WhatsApp/Email/DM shape
+      // when it could; a missing variant falls back to the shared message,
+      // honestly labelled (user feedback 2026-11-01).
+      bodyHtml = (hasVariant ? "" :
+        "<p class=\"hint\">No per-channel version yet — showing the research's " +
+        esc(studioSuggestionLabel(d.channel).toLowerCase()) + " message; it reads fine here.</p>") +
         "<div class=\"studio-text\">" + esc(shownBody).split("\n").map(function (line) {
           return "<p>" + (line || "&nbsp;") + "</p>";
         }).join("") + "</div>" +
@@ -1724,22 +1738,36 @@
     var subject = divEl.querySelector('[data-field="subject"]').value;
     var body = divEl.querySelector('[data-field="body"]').value;
     var decision = act === "approve" ? "approved" : act === "reject" ? "rejected" : act === "skip" ? "deferred" : "pending";
+    var st = state.studio;
+    var d = st && state.drafts.filter(function (x) { return x.prospectId === prospectId; })[0];
+    var primary = d ? studioTabFor(d.channel) : null;
+    var isVariantEdit = d && st.tab && st.tab !== primary && d.variants;
     if (act === "save-edit") {
       state.decisions[prospectId] = { decision: decision === "pending" ? (state.decisions[prospectId] ? state.decisions[prospectId].decision : "pending") : decision, body: subject + "\n\n" + body };
     }
     var payload = subject + "\n\n" + body;
     var args = [prospectId, decision === "pending" ? "edited" : decision, payload];
     if (api.mode === "live") {
-      var d = state.drafts.filter(function (x) { return x.prospectId === prospectId; })[0] || {};
-      args = [d.id, decision === "pending" ? "edited" : decision,
-        { subject: subject, body: body, edited: subject !== (d.subject || "") || body !== (d.body || "") }];
+      var dref = d || {};
+      if (isVariantEdit) {
+        args = [dref.id, decision === "pending" ? "edited" : decision,
+          { variant: st.tab, variant_body: body, edited: true }];
+      } else {
+        args = [dref.id, decision === "pending" ? "edited" : decision,
+          { subject: subject, body: body, edited: subject !== (dref.subject || "") || body !== (dref.body || "") }];
+      }
     }
     return api.decideDraft(args[0], args[1], args[2]).then(function () {
+      if (isVariantEdit && d) {
+        d.variants[st.tab] = body; // local echo of the stored variant
+      }
       var prev = state.decisions[prospectId];
       state.decisions[prospectId] = { decision: act === "save-edit" ? (prev ? prev.decision : "pending") : decision, body: payload };
       var badge = divEl.querySelector(".decision");
-      badge.textContent = "[" + state.decisions[prospectId].decision + "]";
-      badge.className = "decision " + state.decisions[prospectId].decision;
+      if (badge) {
+        badge.textContent = "[" + state.decisions[prospectId].decision + "]";
+        badge.className = "decision " + state.decisions[prospectId].decision;
+      }
     });
   }
 

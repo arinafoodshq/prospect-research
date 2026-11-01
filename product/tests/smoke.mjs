@@ -414,7 +414,7 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   ok(/MESSAGE 2 OF 3/.test(studio().innerHTML), "pager advances to the next message");
   ok(/Your note to St. Raphael Clinic/.test(studio().innerHTML), "pager shows the next pick");
   await clickOn("studio-tab", { id: "whatsapp" });
-  ok(/reads fine here too/.test(studio().innerHTML), "off-channel tab shows the same message, honestly labelled");
+  ok(/WhatsApp version:/.test(studio().innerHTML), "whatsapp tab shows the per-channel variant");
   ok(!/\[source 1\]/.test(studio().innerHTML), "citation markers never render in the studio");
   await clickOn("studio-tab", { id: "email" });
   ok(/Weekday lunches for/.test(studio().innerHTML), "email tab shows the subject line");

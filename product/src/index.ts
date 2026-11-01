@@ -9,6 +9,7 @@
 import {
   assertRunTransition,
   decideDraft,
+  updateDraftVariant,
   DbValidationError,
   editDraft,
   logActivity,
@@ -651,8 +652,15 @@ const postDecision: Handler = async ({ req, env, params }) => {
   if (typeof bodyText === "string" && bodyText.length > 4000) return err("body_too_long", 400);
   const edited = parsed.body["edited_by_human"] === true || subject !== undefined || bodyText !== undefined
     || draft.edited_by_human === 1;
+  // Per-channel variant edit (studio tab != draft's primary channel): the
+  // variant text is stored in the draft's variants JSON, not the body.
+  const variantRaw = parsed.body["variant"];
+  const variantText = parsed.body["variant_body"];
+  const variant = variantRaw === "whatsapp" || variantRaw === "email" || variantRaw === "dm" ? variantRaw : null;
   try {
-    if (subject !== undefined || bodyText !== undefined) {
+    if (variant && typeof variantText === "string") {
+      await updateDraftVariant(env.DB, draftId, variant, variantText);
+    } else if (subject !== undefined || bodyText !== undefined) {
       await editDraft(env.DB, {
         draft_id: draftId,
         ...(typeof subject === "string" ? { subject } : {}),
