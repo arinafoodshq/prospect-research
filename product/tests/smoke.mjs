@@ -414,7 +414,8 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   ok(/MESSAGE 2 OF 3/.test(studio().innerHTML), "pager advances to the next message");
   ok(/Your note to St. Raphael Clinic/.test(studio().innerHTML), "pager shows the next pick");
   await clickOn("studio-tab", { id: "whatsapp" });
-  ok(/No whatsapp version/.test(studio().innerHTML), "off-channel tab stays honest about the single variant");
+  ok(/reads fine here too/.test(studio().innerHTML), "off-channel tab shows the same message, honestly labelled");
+  ok(!/\[source 1\]/.test(studio().innerHTML), "citation markers never render in the studio");
   await clickOn("studio-tab", { id: "email" });
   ok(/Weekday lunches for/.test(studio().innerHTML), "email tab shows the subject line");
   await clickOn("studio-edit");
@@ -651,6 +652,18 @@ ok(app.waWarning("23481234567890") === "unusual number length", "landline guard:
 ok(app.waWarning("234145345678").includes("landline"), "landline guard: 1/2 network digit flagged");
 ok(app.personalize("Hello [Name], we grill.", "Tolu") === "Hello Tolu, we grill.", "personalise fills the greeting");
 ok(app.personalize("Hello [Name], we grill.", "to verify") === "Hello, we grill.", "personalise drops verify-flagged names");
+ok(app.tidyProse("Multipurpose conference and event hall at Ogunnusi Road Ogba .") ===
+  "Multipurpose conference and event hall at Ogunnusi Road, Ogba.",
+  "tidyProse: road takes a comma before the place, no space before the period");
+ok(app.tidyProse("Airport Road Hotel") === "Airport Road Hotel",
+  "tidyProse: business names after a road keep no comma");
+ok(app.verdictHuman("no_signal").indexOf("no dated buying signal") >= 0 &&
+  app.verdictHuman("no_signal").indexOf("no_signal") < 0,
+  "verdictHuman translates codes, never shows them");
+ok(app.cleanCitations("I saw your hall at Ogunnusi Road, Ogba [source 1]. Would it help?") ===
+  "I saw your hall at Ogunnusi Road, Ogba. Would it help?",
+  "cleanCitations strips provenance markers from the message a prospect reads");
+ok(app.cleanCitations("no markers here") === "no markers here", "cleanCitations leaves plain text alone");
 
 console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters + wa send stack");
 process.exit(0);

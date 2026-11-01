@@ -1078,6 +1078,7 @@
       var proofs = res.evidence.map(function (ev) {
         var quote = String(ev.quote || "");
         if (quote.length > 240) quote = quote.slice(0, 240).replace(/\s+\S*$/, "") + "…";
+        quote = tidyProse(quote);
         return "<li class=\"proof\"><p class=\"proof-claim\">" + esc(quote) + "</p>" +
           "<p class=\"proof-src\">" + esc(typeLabel(ev.type)) + " · <a href=\"" + esc(ev.source) + "\" target=\"_blank\" rel=\"noopener\">" + esc(hostOfUrl(ev.source)) + "</a>" +
           (isDemo() ? " · example data" : "") + "</p></li>";
@@ -1269,6 +1270,15 @@
     t = t.replace(/[ \t]*\[Name\][ \t]*,?/gi, " ").replace(/[ \t]{2,}/g, " ");
     return t.trim();
   }
+  /** Citation markers are internal provenance (audit keeps them); the message
+   * a prospect reads — on screen or in transit — never shows "[source 1]". */
+  function cleanCitations(t) {
+    return String(t || "")
+      .replace(/\s*\[(?:source|ev_|cite)[\s\d]*\d*\]/gi, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\s+([.,;:!?])/g, "$1")
+      .trim();
+  }
 
   /** Map a route-style suggestion onto a studio tab (short notes read as DMs). */
   function studioTabFor(channel) {
@@ -1282,12 +1292,44 @@
     return ROUTE_LABELS[channel] || "Contact";
   }
 
+  /** Prose tidier for anything the owner reads: no space before punctuation,
+   * a comma after road/street before a place name ("Ogunnusi Road Ogba" ->
+   * "Ogunnusi Road, Ogba"), collapsed double spaces. Applied to evidence
+   * quotes and hypotheses — never to business names. */
+  function tidyProse(s) {
+    var t = String(s || "");
+    t = t.replace(/\s+([.,;:!?])/g, "$1");
+    t = t.replace(/\b(Road|Street|Avenue|Ave|Way|Close|Lane|Drive|Crescent)\s+(?=[A-Z])(?![A-Za-z]*\b(Hotel|Centre|Center|Ltd|Limited|Gym|Clinic|School|Church|Events?|Planners?|Services)\b)/g, "$1, ");
+    t = t.replace(/[ \t]{2,}/g, " ");
+    return t.trim();
+  }
+
+  /** Internal verdict codes never reach the owner — translated, not shown. */
+  var VERDICT_HUMAN = {
+    qualified: "Strong fit — the research saw a live buying signal.",
+    no_signal: "Good fit — no dated buying signal yet, so a patient introduction is suggested.",
+    needs_research: "Promising — a few things still need verifying before you reach out.",
+    manual_review: "You should make the final call here — the research is not sure.",
+    disqualified: "Set aside — it did not pass your must-haves.",
+  };
+  function verdictHuman(v) {
+    return VERDICT_HUMAN[v] || "";
+  }
+  function stripVerdict(r) {
+    return String(r || "").replace(/\s*\[verdict:[^\]]*\]\s*$/i, "").trim();
+  }
+
   function countWords(s) {
     var t = String(s || "").trim();
     return t ? t.split(/\s+/).length : 0;
   }
 
-  function wordGuidance(n) {
+  function wordGuidance(n, tab) {
+    if (tab === "whatsapp") {
+      if (n <= 60) return "Good length for WhatsApp.";
+      if (n <= 100) return "A bit long for a cold WhatsApp — “More direct” trims it.";
+      return "Too long for a cold WhatsApp — cut to the point or use “More direct”.";
+    }
     if (n <= 40) return "Short enough to read in one glance.";
     if (n <= 80) return "Room for context, still under 80 words.";
     return "Over 80 words. Shorter usually earns the reply.";
@@ -1503,7 +1545,7 @@
       if (ds.unv === "1" && !window.confirm("This route is published, not yet verified. Verify via official channels first. Continue?")) return;
       if (ds.warn && !window.confirm(ds.warn + ". Continue?")) return;
       var bodyEl = st.el.querySelector('[data-field="body"]');
-      var msg = personalize(bodyEl && bodyEl.value ? bodyEl.value : d.body, p0 && p0.contact_name);
+      var msg = personalize(cleanCitations(bodyEl && bodyEl.value ? bodyEl.value : d.body), p0 && p0.contact_name);
       api.logContact(d.prospectId, { channel: "whatsapp", note: "Opened WhatsApp +" + ds.wato });
       window.open(waUrl(ds.wato, msg, waApp()), "_blank");
       return;
@@ -1513,8 +1555,8 @@
       if (ds.unv === "1" && !window.confirm("This route is published, not yet verified. Verify via official channels first. Continue?")) return;
       var bEl = st.el.querySelector('[data-field="body"]');
       var sEl = st.el.querySelector('[data-field="subject"]');
-      var body1 = personalize(bEl && bEl.value ? bEl.value : d.body, p1 && p1.contact_name);
-      var subj1 = personalize(sEl && sEl.value ? sEl.value : (d.subject || ""), p1 && p1.contact_name);
+      var body1 = personalize(cleanCitations(bEl && bEl.value ? bEl.value : d.body), p1 && p1.contact_name);
+      var subj1 = personalize(cleanCitations(sEl && sEl.value ? sEl.value : (d.subject || "")), p1 && p1.contact_name);
       api.logContact(d.prospectId, { channel: "email", note: "Opened email draft " + ds.email });
       window.location.href = "mailto:" + ds.email + "?subject=" + encodeURIComponent(subj1) + "&body=" + encodeURIComponent(body1);
       return;
@@ -1531,7 +1573,7 @@
       try { localStorage.setItem("wa_test_num", numEl.value); } catch (e3) { /* private mode */ }
       var pT = studioProspect(d);
       var bT = st.el.querySelector('[data-field="body"]');
-      var msgT = personalize(bT && bT.value ? bT.value : d.body, pT && pT.contact_name);
+      var msgT = personalize(cleanCitations(bT && bT.value ? bT.value : d.body), pT && pT.contact_name);
       window.open(waUrl(toMe, msgT, waApp()), "_blank");
       return;
     }
@@ -1601,18 +1643,27 @@
         (st.tab === t ? "true" : "false") + "\">" + STUDIO_TAB_LABEL[t] + "</button>";
     }).join("");
     var bodyHtml;
+    var shownBody = cleanCitations(d.body);
     if (st.tab === primary) {
       var subj = st.tab === "email" && d.subject ? "<p class=\"studio-subject\">" + esc(d.subject) + "</p>" : "";
-      var paras = esc(d.body).split("\n").map(function (line) {
+      var paras = esc(shownBody).split("\n").map(function (line) {
         return "<p>" + (line || "&nbsp;") + "</p>";
       }).join("");
       bodyHtml = subj + "<div class=\"studio-text\">" + paras + "</div>" +
         "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
     } else {
-      bodyHtml = "<p class=\"hint\">No " + esc(STUDIO_TAB_LABEL[st.tab].toLowerCase()) + " version for this pick. " +
-        "The research wrote one " + esc(studioSuggestionLabel(d.channel).toLowerCase()) + " draft.</p>";
+      // One message, every channel: the research wrote it as a <label>
+      // message, but the prose reads fine on the others too (user feedback
+      // 2026-11-01: "no whatsapp version" made people think there was
+      // nothing to send).
+      bodyHtml = "<p class=\"hint\">The research wrote this as a " + esc(studioSuggestionLabel(d.channel).toLowerCase()) +
+        " message — it reads fine here too.</p>" +
+        "<div class=\"studio-text\">" + esc(shownBody).split("\n").map(function (line) {
+          return "<p>" + (line || "&nbsp;") + "</p>";
+        }).join("") + "</div>" +
+        "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
     }
-    var n = countWords(d.body);
+    var n = countWords(shownBody);
     var tones = st.tab === primary
       ? [["warmer", "Warmer"], ["more_direct", "More direct"], ["another", "Write another"]].map(function (t) {
         return "<button type=\"button\" data-act=\"studio-tone\" data-id=\"" + t[0] + "\"" +
@@ -1621,22 +1672,24 @@
       : "";
     var editor = "<div class=\"studio-editor\"" + (st.editing ? "" : " hidden") + ">" +
       "<label>Subject <input data-field=\"subject\" value=\"" + esc(d.subject || "") + "\" /></label>" +
-      "<label>Message <textarea data-field=\"body\" rows=\"6\">" + esc(d.body) + "</textarea></label>" +
+      "<label>Message <textarea data-field=\"body\" rows=\"6\">" + esc(shownBody) + "</textarea></label>" +
       "<div class=\"row\"><button type=\"button\" data-act=\"studio-save\">Save</button>" +
       "<button type=\"button\" class=\"secondary\" data-act=\"studio-cancel\">Cancel</button></div></div>";
     // Hidden mirror keeps decideDraft + smoke working when the editor is closed.
     var mirror = st.editing ? "" : "<div hidden><input data-field=\"subject\" value=\"" + esc(d.subject || "") +
-      "\" /><textarea data-field=\"body\">" + esc(d.body) + "</textarea></div>";
+      "\" /><textarea data-field=\"body\">" + esc(shownBody) + "</textarea></div>";
     var ev = (st.evidence[d.prospectId] && st.evidence[d.prospectId].evidence) || [];
     var fact = ev[0];
-    var hypothesis = (p && p.hypothesis) || rationaleRemainder(p && p.rationale) ||
+    var hypothesis = (p && p.hypothesis) || tidyProse(stripVerdict(p && p.rationale)) ||
       "The research flagged no separate hypothesis.";
+    var statusLine = verdictHuman(p && p.verdict);
     var why = "<div class=\"card why\"><p class=\"kicker kicker-dim\">Why this message</p>" +
       "<div class=\"why-row\"><h4 class=\"why-fact\">A fact we found</h4>" +
-      (fact ? "<p>" + esc(fact.quote) + "</p><p class=\"muted small\">" +
+      (fact ? "<p>" + esc(tidyProse(fact.quote)) + "</p><p class=\"muted small\">" +
         sourceLink(fact.source, sourceLabel(fact.source)) + "</p>"
         : "<p class=\"muted\">No linked evidence for this draft.</p>") + "</div>" +
-      "<div class=\"why-row\"><h4 class=\"why-hyp\">Our hypothesis, not confirmed</h4><p>" + esc(hypothesis) + "</p></div>" +
+      "<div class=\"why-row\"><h4 class=\"why-hyp\">Our hypothesis, not confirmed</h4><p>" + esc(hypothesis) + "</p>" +
+      (statusLine ? "<p class=\"status-chip\">" + esc(statusLine) + "</p>" : "") + "</div>" +
       "<div class=\"why-row\"><h4 class=\"why-dim\">Your offer</h4><p>" + esc(profileOffer()) + "</p></div>" +
       "<div class=\"why-row\"><h4 class=\"why-dim\">A small ask</h4><p>" + esc(d.next_action || "Ask for a quick reply.") + "</p></div>" +
       "<p class=\"muted small note-box\">We never claim a problem we have not confirmed. If the facts change, the message says so too.</p></div>";
@@ -1651,7 +1704,7 @@
       "<div role=\"tablist\" aria-label=\"Message channel\" class=\"tabs\">" + tabs + "</div>" +
       "<div class=\"card studio-card\"><p class=\"kicker kicker-dim\">Draft, tap to edit</p>" + bodyHtml + editor + mirror +
       "<p class=\"word-line\"><svg class=\"tick\" viewBox=\"0 0 12 10\" aria-hidden=\"true\"><path d=\"M1 5.5 4.5 9 11 1\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>" +
-      n + " words. " + esc(wordGuidance(n)) + "</p><div class=\"chips tone-row\" id=\"studio-tones\">" + tones + "</div></div>" +
+      n + " words. " + esc(wordGuidance(n, st.tab)) + "</p><div class=\"chips tone-row\" id=\"studio-tones\">" + tones + "</div></div>" +
       "<div class=\"card sender-card\"><p>" + esc(STUDIO_SENDER[st.tab]) + " Every message includes a way to opt out.</p>" +
       "<button type=\"button\" class=\"link-gold\" data-act=\"studio-sender\">Change sender</button></div>" +
       studioSendHtml(d, p, st) +
@@ -2318,7 +2371,7 @@
   }
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { VIEWS: VIEWS, showView: showView, submitOnboard: submitOnboard, confirmBriefAndRun: confirmBriefAndRun, pollProgress: pollProgress, renderShortlist: renderShortlist, selectProspect: selectProspect, renderDrafts: renderDrafts, decideDraft: decideDraft, renderStatuses: renderStatuses, restart: restart, waNumber: waNumber, waUrl: waUrl, waWarning: waWarning, personalize: personalize, waApp: waApp };
+    module.exports = { VIEWS: VIEWS, showView: showView, submitOnboard: submitOnboard, confirmBriefAndRun: confirmBriefAndRun, pollProgress: pollProgress, renderShortlist: renderShortlist, selectProspect: selectProspect, renderDrafts: renderDrafts, decideDraft: decideDraft, renderStatuses: renderStatuses, restart: restart, waNumber: waNumber, waUrl: waUrl, waWarning: waWarning, personalize: personalize, waApp: waApp, tidyProse: tidyProse, verdictHuman: verdictHuman, cleanCitations: cleanCitations };
   }
 
   if (typeof document !== "undefined") {
