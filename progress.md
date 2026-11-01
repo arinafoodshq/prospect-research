@@ -1820,3 +1820,27 @@ their discretion. Guard added so this cannot recur (commit 4279c7f, deployed
 enters THEIR OWN number and the message opens on their WhatsApp; tests never
 touch the lead and are never auto-logged.
 Verification: 464/464 vitest, SMOKE PASS, deployed.
+
+## 2026-11-01 — Studio text fixes (user critique): citations leak, dead-end tabs, verdict codes
+
+User flagged: [source 1] placeholder visible in the WhatsApp message; "No
+whatsapp version for this pick" confusing (a send block existed below); raw
+verdict code "[verdict: no_signal ...]" in the hypothesis; broken punctuation
+("Road Ogba ."). Fixes (commit 063fd88, deployed 57c851a6):
+- cleanCitations: provenance markers ([source N]) are audit-only - stripped
+  from display, editor, and the sent/mailed message (stored draft keeps its
+  linkage via supporting_ids; editDraft never required the marker).
+- One message, every channel: off-channel tabs show the same draft labelled
+  "The research wrote this as a <channel> message - it reads fine here too"
+  instead of a dead end.
+- verdictHuman: verdict codes translated (no_signal -> "Good fit - no dated
+  buying signal yet, so a patient introduction is suggested."); raw
+  "[verdict: ...]" stripped from the hypothesis; a friendly status chip
+  shown instead.
+- tidyProse: no space before punctuation, comma after Road/Street before a
+  place name ("Ogunnusi Road, Ogba."), double spaces collapsed - applied to
+  evidence quotes and hypotheses (business names protected: "Airport Road
+  Hotel" keeps no comma).
+- WhatsApp-aware length guidance (<=60 words good; >100 "cut to the point").
+Verified: 464/464 vitest, SMOKE PASS (new assertions: same-message tab,
+no citation markers render, tidyProse exactly on the user's example).
