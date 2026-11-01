@@ -961,6 +961,37 @@ input, textarea, select {
 .resume-status { color: var(--muted); font-size: 15px; margin: 0 0 18px; }
 .resume-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 
+/* Evidence panel: accordions, proof rows, tidy contact-log form */
+#evidence-panel .acc { border: 1px solid var(--border); border-radius: 12px; margin: 0 0 10px;
+  background: var(--surface); overflow: hidden; }
+#evidence-panel .acc summary { cursor: pointer; font-weight: 700; padding: 12px 14px;
+  list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--touch); }
+#evidence-panel .acc summary::-webkit-details-marker { display: none; }
+#evidence-panel .acc summary::before { content: ""; width: 8px; height: 8px; flex: none;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transition: transform 0.15s ease; }
+#evidence-panel .acc[open] summary::before { transform: rotate(45deg); }
+#evidence-panel .acc summary:hover { background: var(--accent-soft); }
+#evidence-panel .acc > *:not(summary) { padding: 0 14px 12px; }
+ul.proofs, ul.timeline { list-style: none; margin: 0; padding: 0; }
+.proof { border-top: 1px solid var(--border); padding: 10px 0 0; margin: 0 0 10px; }
+.proof:first-child { border-top: 0; }
+.proof-claim { margin: 0 0 4px; }
+.proof-src { margin: 0; color: var(--muted); font-size: 13px; }
+.proof-src a { color: var(--accent-deep); font-weight: 600; text-decoration: none; }
+.proof-src a:hover { text-decoration: underline; }
+ul.timeline li { padding: 6px 0; border-top: 1px dashed var(--border); font-size: 14px; }
+ul.timeline li:first-child { border-top: 0; }
+ul.timeline li.contact { color: var(--accent-deep); font-weight: 600; }
+.log-contact { display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  padding-top: 10px; border-top: 1px solid var(--border); }
+.log-contact .lf { display: flex; flex-direction: column; gap: 4px; }
+.log-contact .lf-wide { grid-column: 1 / -1; }
+.log-contact label { font-size: 13px; font-weight: 700; color: var(--muted); }
+.log-contact select, .log-contact input { min-height: 42px; border: 1.5px solid var(--border-strong);
+  border-radius: 10px; padding: 8px 10px; font: inherit; background: var(--surface); color: var(--text); }
+.log-contact .row { grid-column: 1 / -1; margin: 0; }
+
 /* Header auth area */
 .auth-area { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .auth-link { color: var(--accent-deep); font-weight: 700; text-decoration: none; padding: 0 8px; min-height: var(--touch); display: inline-flex; align-items: center; }

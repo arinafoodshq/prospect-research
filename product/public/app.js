@@ -1071,40 +1071,77 @@
     items.forEach(function (li) { li.setAttribute("aria-selected", li.dataset.id === id ? "true" : "false"); });
     return api.getEvidence(id).then(function (res) {
       var body = $("evidence-body");
-      $("evidence-hint").textContent = api.mode === "live"
-        ? "Why " + res.prospect.name + " made your shortlist:"
-        : "Why " + res.prospect.name + " made the example shortlist:";
-      body.innerHTML = res.evidence.map(function (ev) {
-        return "<blockquote>" + esc(ev.quote) + "<cite>Source: " + esc(ev.source) + " (" + esc(ev.type) + (isDemo() ? ", example data" : "") + ")</cite></blockquote>";
+      var who = res.prospect.name;
+      $("evidence-hint").textContent = isDemo()
+        ? "Why " + who + " made the example shortlist:"
+        : "Why " + who + " was shortlisted:";
+      var proofs = res.evidence.map(function (ev) {
+        return "<li class=\"proof\"><p class=\"proof-claim\">" + esc(ev.quote) + "</p>" +
+          "<p class=\"proof-src\">" + esc(typeLabel(ev.type)) + " · <a href=\"" + esc(ev.source) + "\" target=\"_blank\" rel=\"noopener\">" + esc(hostOfUrl(ev.source)) + "</a>" +
+          (isDemo() ? " · example data" : "") + "</p></li>";
       }).join("");
-      return renderTimeline(id, body);
+      body.innerHTML =
+        "<details class=\"acc\" open><summary>Why " + esc(who) + " was shortlisted</summary>" +
+        "<ul class=\"proofs\">" +
+        (proofs || "<li class=\"proof\"><p class=\"proof-claim\">No proof captured yet.</p></li>") +
+        "</ul></details>" +
+        "<div id=\"history-slot\"></div>";
+      return renderTimeline(id, $("history-slot"));
     });
   }
 
+  function typeLabel(t) {
+    var labels = { fetched_page: "their own page", search_snippet: "search result", fetched_page_failed: "page could not be opened" };
+    return labels[t] || t;
+  }
+
+  function hostOfUrl(u) {
+    try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; }
+  }
+
+  var EVENT_LABEL = {
+    created: "Added",
+    shortlisted: "Shortlisted",
+    drafted: "Draft written",
+    approved: "Approved",
+    rejected: "Rejected",
+    deferred: "Deferred",
+    disqualified: "Set aside",
+    "auto: contact logged": "Contact logged",
+  };
+
+  function cleanTime(iso) {
+    try { return new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); }
+    catch (e) { return String(iso || ""); }
+  }
+
   function timelineItem(t) {
-    var when = "";
-    try { when = new Date(t.at).toLocaleString(); } catch (e) { when = String(t.at || ""); }
+    var when = cleanTime(t.at);
+    var note = t.note ? ". " + esc(String(t.note).replace(/^dedupe merge:\s*/i, "Merged with duplicate ")) : "";
     if (t.kind === "contact") {
       return "<li class=\"contact\">" + esc(t.direction === "inbound" ? "Heard back" : "Contacted") +
-        " via " + esc(t.channel) + " · " + esc(when) + (t.note ? ". " + esc(t.note) : "") + "</li>";
+        " via " + esc(t.channel) + " · " + esc(when) + note + "</li>";
     }
-    return "<li>" + esc(t.event || "update") + " · " + esc(when) + (t.note ? ". " + esc(t.note) : "") + "</li>";
+    var label = EVENT_LABEL[t.event] || String(t.event || "update").replace(/_/g, " ");
+    return "<li>" + esc(label) + " · " + esc(when) + note + "</li>";
   }
 
   function renderTimeline(id, body) {
     return api.getTimeline(id).then(function (res) {
       var items = (res.timeline || []).map(timelineItem).join("");
-      body.innerHTML += "<h4>History</h4><ul class=\"timeline\">" +
+      body.innerHTML =
+        "<details class=\"acc\"><summary>History</summary><ul class=\"timeline\">" +
         (items || "<li>No contact yet. Log your first touch below.</li>") + "</ul>" +
-        "<div class=\"log-contact\">" +
-        "<label>Channel <select data-field=\"contact-channel\">" +
+        "<form class=\"log-contact\" data-id=\"" + esc(id) + "\">" +
+        "<div class=\"lf\"><label for=\"lc-channel\">Channel</label><select id=\"lc-channel\" data-field=\"contact-channel\">" +
         ["whatsapp", "email", "telegram", "phone", "sms", "in_person", "other"].map(function (c) {
-          return "<option value=\"" + c + "\">" + c + "</option>";
-        }).join("") + "</select></label>" +
-        "<label>Date <input data-field=\"contact-date\" type=\"date\" /></label>" +
-        "<label>Note <input data-field=\"contact-note\" placeholder=\"e.g. Sent intro + menu\" /></label>" +
+          var label = { whatsapp: "WhatsApp", email: "Email", telegram: "Telegram", phone: "Phone call", sms: "SMS", in_person: "In person", other: "Other" }[c];
+          return "<option value=\"" + c + "\">" + label + "</option>";
+        }).join("") + "</select></div>" +
+        "<div class=\"lf\"><label for=\"lc-date\">Date</label><input id=\"lc-date\" data-field=\"contact-date\" type=\"date\" /></div>" +
+        "<div class=\"lf lf-wide\"><label for=\"lc-note\">Note</label><input id=\"lc-note\" data-field=\"contact-note\" placeholder=\"e.g. Sent the intro, asked about their next event\" /></div>" +
         "<div class=\"row\"><button type=\"button\" data-act=\"log-contact\" data-id=\"" + esc(id) + "\">Log contact</button></div>" +
-        "</div>";
+        "</form></details>";
     }, function () { /* timeline is best-effort; evidence already rendered */ });
   }
 

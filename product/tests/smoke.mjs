@@ -127,7 +127,7 @@ const IDS = [
   "stat-found", "stat-opened", "stat-kept",
   "progress-setaside", "progress-setaside-empty", "progress-error",
   "btn-preview-progress", "btn-stop-progress",
-  "prospect-list", "evidence-body", "evidence-hint", "draft-list", "drafts-note", "status-board",
+  "prospect-list", "evidence-body", "evidence-hint", "history-slot", "draft-list", "drafts-note", "status-board",
   "shortlist-kicker", "shortlist-title", "shortlist-sub", "shortlist-tabs", "shortlist-empty",
   "tab-ready", "tab-warm", "tab-look", "tab-ready-n", "tab-warm-n", "tab-look-n",
   "shortlist-count",
