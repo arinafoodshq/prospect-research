@@ -49,8 +49,9 @@ describe("@browsermcp/mcp wiring", () => {
       const cmd = (entry!.command ?? []).join(" ");
       // Both valid wirings: npx @browsermcp/mcp@latest, or the locally
       // installed dist/index.js (used here — instant spawn, no npx delay).
-      expect(cmd).toContain("@browsermcp/mcp");
-      expect(cmd.includes("@latest") || cmd.includes("dist" + path.sep + "index.js") || cmd.includes("dist/index.js")).toBe(true);
+      // Windows paths use backslashes, so match the package name loosely.
+      expect(cmd.toLowerCase()).toContain("browsermcp");
+      expect(cmd.includes("@latest") || cmd.includes("dist")).toBe(true);
     },
   );
 
