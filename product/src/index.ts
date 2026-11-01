@@ -405,8 +405,25 @@ const getDrafts: Handler = async ({ env, params }) => {
   return json({ run_id: runId, drafts: await draftsForRun(env, runId) });
 };
 
-const getProspectDetail: Handler = async ({ env, params }) => {
-  const p = await env.DB.prepare("SELECT * FROM prospect WHERE id = ?").bind(params["id"] as string)
+/** Owner sets the contact person they know (504Yard pattern: type it there —
+ * the greeting personalises). Owner-provided beats model extraction. */
+const postContactPerson: Handler = async ({ req, env, params }) => {
+  const parsed = await readJson(req);
+  if (!parsed.ok) return parsed.res;
+  if (!isObj(parsed.body)) return err("invalid_body", 400);
+  const name = typeof parsed.body["contact_name"] === "string" ? (parsed.body["contact_name"] as string).trim().slice(0, 120) : "";
+  const title = typeof parsed.body["contact_title"] === "string" ? (parsed.body["contact_title"] as string).trim().slice(0, 120) : "";
+  if (!name && !title) return err("invalid_body", 400, "a name or a title is required");
+  const p = await env.DB.prepare("SELECT id FROM prospect WHERE id = ?").bind(params["id"] as string)
+    .first<{ id: string }>();
+  if (!p) return err("prospect_not_found", 404);
+  await env.DB.prepare("UPDATE prospect SET contact_name = ?, contact_title = ? WHERE id = ?")
+    .bind(name || null, title || null, p.id).run();
+  await auditEvent(env.DB, { kind: "api_request", subject: "POST /api/prospects/:id/contact-person", summary: { status: 200, prospect: p.id } });
+  return json({ id: p.id, contact_name: name || null, contact_title: title || null });
+};
+
+const getProspectDetail: Handler = async ({ env, params }) => {  const p = await env.DB.prepare("SELECT * FROM prospect WHERE id = ?").bind(params["id"] as string)
     .first<Record<string, unknown>>();
   if (!p) return err("prospect_not_found", 404);
   const assessments = await env.DB.prepare("SELECT * FROM assessment WHERE prospect_id = ?").bind(p["id"])
@@ -936,6 +953,7 @@ route("PATCH", "/api/drafts/:id", patchDraft);
 route("POST", "/api/drafts/:id/rewrite", postRewriteDraft);
 route("POST", "/api/drafts/:id/test-send", postTestSend);
 route("GET", "/api/prospects/:id", getProspectDetail);
+route("POST", "/api/prospects/:id/contact-person", postContactPerson);
 route("POST", "/api/runs/:id/start", postStart);
 route("GET", "/api/runs/:id/statuses", getStatuses);
 route("GET", "/api/runs/:id/follow-ups", getFollowUps);

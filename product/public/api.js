@@ -581,12 +581,24 @@
     });
   };
 
-  RealApi.prototype.getEvidence = function (prospectId) {
-    var self = this;
+  /** Owner sets the contact person they know. */
+  RealApi.prototype.setContactPerson = function (prospectId, payload) {
+    return this._req("/api/prospects/" + encodeURIComponent(prospectId) + "/contact-person", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  };
+
+  RealApi.prototype.getEvidence = function (prospectId) {    var self = this;
     if (self._evCache[prospectId]) return Promise.resolve(self._evCache[prospectId]);
     return self._req("/api/prospects/" + encodeURIComponent(prospectId)).then(function (res) {
       var mapped = {
-        prospect: { id: res.prospect.id, name: res.prospect.name },
+        prospect: {
+          id: res.prospect.id, name: res.prospect.name,
+          contact_name: res.prospect.contact_name || "",
+          contact_title: res.prospect.contact_title || "",
+        },
         assessments: res.assessments || [],
         evidence: (res.evidence || []).map(function (e) {
           return { quote: e.quote, source: e.source_url || "model inference", type: e.source_type };

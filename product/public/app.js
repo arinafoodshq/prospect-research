@@ -1083,6 +1083,7 @@
           (isDemo() ? " · example data" : "") + "</p></li>";
       }).join("");
       body.innerHTML =
+        "<details class=\"acc\" open><summary>Reach out</summary>" + reachOutHtml(res) + "</details>" +
         "<details class=\"acc\" open><summary>Why " + esc(who) + " was shortlisted</summary>" +
         "<ul class=\"proofs\">" +
         (proofs || "<li class=\"proof\"><p class=\"proof-claim\">No proof captured yet.</p></li>") +
@@ -1090,6 +1091,51 @@
         "<div id=\"history-slot\"></div>";
       return renderTimeline(id, $("history-slot"));
     });
+  }
+
+  var ROUTE_LABELS = {
+    website_form: "Website form", email: "Email", phone: "Phone",
+    social_profile: "Social profile", other: "Other",
+  };
+  var ROUTE_VERIFY = {
+    public_listing: "Published", verified: "Verified", unchecked: "not yet checked",
+  };
+
+  function routeLabel(r) {
+    if (r.channel !== "social_profile") return ROUTE_LABELS[r.channel] || r.channel;
+    try {
+      var h = new URL(r.value).hostname.replace(/^www\./, "").toLowerCase();
+      if (h.indexOf("instagram") >= 0) return "Instagram";
+      if (h.indexOf("facebook") >= 0 || h === "fb.com") return "Facebook";
+      if (h === "x.com" || h.indexOf("twitter") >= 0) return "X (Twitter)";
+      if (h.indexOf("linkedin") >= 0) return "LinkedIn";
+      if (h.indexOf("tiktok") >= 0) return "TikTok";
+    } catch (e) { /* fall through */ }
+    return "Social profile";
+  }
+
+  function reachOutHtml(res) {
+    var routes = res.routes || [];
+    var rows = routes.map(function (r) {
+      var label = routeLabel(r);
+      var verify = ROUTE_VERIFY[r.verification] || "";
+      return "<li class=\"route\"><span class=\"route-chip\">" + esc(label) + "</span>" +
+        "<span class=\"route-value\">" + esc(r.value) + "</span>" +
+        (verify ? "<span class=\"route-verify\">" + esc(verify) + "</span>" : "") +
+        "<button type=\"button\" class=\"copy-route\" data-copy=\"" + esc(r.value) + "\">Copy</button></li>";
+    }).join("");
+    var person = res.prospect || {};
+    var personHtml =
+      "<li class=\"route route-person\"><span class=\"route-chip\">Contact person</span>" +
+      "<span class=\"route-value\">" +
+      (person.contact_name
+        ? esc(person.contact_name) + (person.contact_title ? " · " + esc(person.contact_title) : "")
+        : "<em>Not named yet — add them when you know.</em>") +
+      "</span></li>" +
+      "<li class=\"route route-edit\"><input data-field=\"person-name\" placeholder=\"Contact person's name\" maxlength=\"120\" />" +
+      "<input data-field=\"person-title\" placeholder=\"Their role (optional)\" maxlength=\"120\" />" +
+      "<button type=\"button\" data-act=\"save-person\" data-id=\"" + esc(person.id) + "\">Save</button></li>";
+    return "<ul class=\"routes\">" + personHtml + (rows || "<li class=\"route\"><span class=\"route-value\"><em>No published route yet.</em></span></li>") + "</ul>";
   }
 
   function typeLabel(t) {
@@ -1150,6 +1196,22 @@
   function onEvidenceClick(e) {
     var t = e.target || {};
     var ds = t.dataset || {};
+    if (ds.act === "copy-route" || t.classList && t.classList.contains("copy-route")) {
+      var val = t.getAttribute("data-copy") || "";
+      if (val && navigator.clipboard) navigator.clipboard.writeText(val).catch(function () { /* best effort */ });
+      t.textContent = "Copied";
+      setTimeout(function () { t.textContent = "Copy"; }, 1500);
+      return;
+    }
+    if (ds.act === "save-person" && ds.id) {
+      var body = $("evidence-body");
+      var name = body.querySelector('[data-field="person-name"]');
+      var title = body.querySelector('[data-field="person-title"]');
+      var payload = { contact_name: name ? name.value.trim() : "", contact_title: title ? title.value.trim() : "" };
+      if (!payload.contact_name && !payload.contact_title) return;
+      api.setContactPerson(ds.id, payload).then(function () { selectProspect(ds.id); });
+      return;
+    }
     if (ds.act !== "log-contact" || !ds.id) return;
     var body = $("evidence-body");
     var channel = body.querySelector('[data-field="contact-channel"]');

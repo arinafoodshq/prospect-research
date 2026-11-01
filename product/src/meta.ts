@@ -764,7 +764,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       phase: "assess",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality: an official site or business social profile counts as a usable route (1=none),"confidence":1-5 source quality}}]. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`
+        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality: an official site or business social profile counts as a usable route (1=none),"confidence":1-5 source quality},"contacts":{"person_name":"the contact person's name as published, or null","person_title":"their role, or null","socials":["full profile urls copied from the evidence, e.g. https://instagram.com/handle"]}}]. Extract contacts ONLY from the evidence text — never invent emails, phones, handles or names; socials must be real profile urls on instagram.com, facebook.com, x.com, twitter.com or linkedin.com that appear in the evidence. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`
         : `Rate fit 1-5 for each prospect. Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"..."}]. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
@@ -791,6 +791,22 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
             confidence: dimsRaw["confidence"] as number,
           }
         : null;
+      // Contact extraction (user request 2026-11-01): person + socials,
+      // grounded later in code against the prospect's own evidence text.
+      let contacts: AssessProposal["contacts"] | undefined;
+      const cRaw = isRecord(item["contacts"]) ? (item["contacts"] as Record<string, unknown>) : null;
+      if (cRaw) {
+        const socials = Array.isArray(cRaw["socials"])
+          ? (cRaw["socials"] as unknown[]).filter((u): u is string => typeof u === "string" && u.length <= 300).slice(0, 8)
+          : [];
+        contacts = {
+          ...(typeof cRaw["person_name"] === "string" && cRaw["person_name"].trim() !== ""
+            ? { person_name: (cRaw["person_name"] as string).trim().slice(0, 120) } : {}),
+          ...(typeof cRaw["person_title"] === "string" && cRaw["person_title"].trim() !== ""
+            ? { person_title: (cRaw["person_title"] as string).trim().slice(0, 120) } : {}),
+          ...(socials.length > 0 ? { socials } : {}),
+        };
+      }
       out.push({
         prospect_id: pid,
         fit_rating: rating,
@@ -798,6 +814,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
         ...(weakening.length > 0 ? { weakening_claims: weakening } : {}),
         rationale: typeof item["rationale"] === "string" ? item["rationale"] : "",
         ...(dims ? { dimensions: dims } : {}),
+        ...(contacts ? { contacts } : {}),
       });
     }
     return out;

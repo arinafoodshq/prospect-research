@@ -66,6 +66,9 @@ export interface AssessProposal {
   rationale: string;
   /** Dimensional scores (new path); absent = legacy overall-only proposal. */
   dimensions?: { icp_fit: number; problem: number; readiness: number; reachability: number; confidence: number };
+  /** Grounded-then-validated contact extraction (user request 2026-11-01):
+   * social profiles + the named contact person, when the evidence states them. */
+  contacts?: { person_name?: string; person_title?: string; socials?: string[] };
 }
 
 export interface DraftProposal {
@@ -603,6 +606,59 @@ export function linkTextsToEvidence(
 /** Bracket citation in a draft body: trusted-but-bound to own evidence. */
 const CITATION_MARKER = /\[(ev_|source\s*\d+|cite)/i;
 
+/** Social hosts a lead's profile may live on (user request 2026-11-01). */
+const SOCIAL_ROUTE_HOSTS = ["instagram.com", "facebook.com", "fb.com", "x.com", "twitter.com", "linkedin.com", "tiktok.com"];
+
+export function isSocialRoute(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    return SOCIAL_ROUTE_HOSTS.some((d) => h === d || h.endsWith("." + d));
+  } catch {
+    return false;
+  }
+}
+
+/** Grounding: the url (protocol stripped) must appear in the prospect's own
+ * evidence text — the model may only copy what the page actually says. */
+export function socialGrounded(url: string, texts: string[]): boolean {
+  const bare = url.replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
+  return bare.length > 0 && texts.some((t) => t.toLowerCase().includes(bare));
+}
+
+/**
+ * Persist a prospect's extracted contacts: social profile routes (grounded,
+ * verification 'unchecked' — published but never confirmed) and the contact
+ * person when the evidence names one. Never overwrites an owner-set name.
+ */
+export async function persistContacts(
+  db: Db, prospect_id: string,
+  contacts: AssessProposal["contacts"],
+  ownEvidence: Array<{ id: string; claim: string; quote: string; source_type?: string }>,
+): Promise<void> {
+  if (!contacts) return;
+  const texts = ownEvidence.map((e) => `${e.claim}\n${e.quote}`);
+  const routeEv = ownEvidence.find((e) => e.source_type === "fetched_page") ?? ownEvidence[0];
+  for (const url of contacts.socials ?? []) {
+    if (!isSocialRoute(url) || !socialGrounded(url, texts)) continue;
+    const existing = await db.prepare("SELECT id FROM contact_route WHERE prospect_id = ? AND value = ?")
+      .bind(prospect_id, url).first<string>("id");
+    if (existing || !routeEv) continue;
+    try {
+      await saveRoute(db, { prospect_id, channel: "social_profile", value: url, evidence_id: routeEv.id, verification: "unchecked" });
+    } catch (e) {
+      if (!(e instanceof DbValidationError)) throw e;
+    }
+  }
+  if ((contacts.person_name || contacts.person_title)) {
+    const p = await db.prepare("SELECT contact_name FROM prospect WHERE id = ?").bind(prospect_id)
+      .first<{ contact_name: string | null }>();
+    if (p && !p.contact_name) { // owner-set names always win
+      await db.prepare("UPDATE prospect SET contact_name = ?, contact_title = ? WHERE id = ?")
+        .bind(contacts.person_name ?? null, contacts.person_title ?? null, prospect_id).run();
+    }
+  }
+}
+
 /**
  * assess: per investigated prospect, structured assessment → assessment rows +
  * prospect → qualified | disqualified with rationale. Empty supporting evidence
@@ -681,6 +737,7 @@ export async function assess(
           rationale: `${prop?.rationale ?? "model assessment"} [verdict: ${decision.verdict} — ${decision.reason}]`,
           model_id: modelId, dimensions: dims, verdict: decision.verdict,
         });
+        await persistContacts(db, t.id, prop?.contacts, ownEvidence);
         // Terminal statuses only for decided outcomes; the undecided stay
         // investigating with their verdict recorded on the assessment.
         if (decision.verdict === "qualified" || decision.verdict === "disqualified") {
