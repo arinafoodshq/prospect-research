@@ -643,10 +643,10 @@ ok(app.waNumber("+234 810 378 5017") === "2348103785017", "waNumber strips space
 ok(app.waNumber("2348103785017") === "2348103785017", "waNumber keeps international form");
 ok(app.waUrl("2348103785017", "Hello 🔥 intro", "auto").includes(encodeURIComponent("Hello 🔥 intro")),
   "waUrl emoji-safe: the full message survives percent-encoding");
-ok(app.waUrl("2348103785017", "🔥", "auto").includes("%F0%9F%94%A5"), "emoji encodes as UTF-8 bytes");
+ok(app.waUrl("2348103785017", "\u{1F525}", "auto").includes("%F0%9F%94%A5"), "emoji encodes as UTF-8 bytes (codepoint-built, toolchain-safe)");
 ok(app.waUrl("2348103785017", "x", "biz").includes("com.whatsapp.w4b"), "WhatsApp Business targets w4b via intent");
 ok(app.waUrl("2348103785017", "x", "wa").includes("package=com.whatsapp;"), "plain WhatsApp targets com.whatsapp via intent");
-ok(app.waUrl("2348103785017", "x", "auto").startsWith("https://wa.me/"), "auto uses plain wa.me");
+ok(app.waUrl("2348103785017", "x", "auto").startsWith("https://api.whatsapp.com/send/"), "waUrl uses the emoji-preserving endpoint (wa.me mangles, measured 2026-11-01)");
 ok(app.waWarning("23481234567890") === "unusual number length", "landline guard: odd length flagged");
 ok(app.waWarning("234145345678").includes("landline"), "landline guard: 1/2 network digit flagged");
 ok(app.personalize("Hello [Name], we grill.", "Tolu") === "Hello Tolu, we grill.", "personalise fills the greeting");

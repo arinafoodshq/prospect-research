@@ -1250,16 +1250,17 @@
     try { return localStorage.getItem("wa_app") || "auto"; } catch (e) { return "auto"; }
   }
   function waUrl(to, msg, app) {
-    var plain = "https://wa.me/" + to + "?text=" + encodeURIComponent(msg);
+    // api.whatsapp.com preserves emoji; wa.me's own redirect mangles them
+    // (measured 2026-11-01: wa.me 302 re-encoded 🔥 to U+FFFD, api.whatsapp
+    // carried "🔥" intact to the app link).
+    var base = "https://api.whatsapp.com/send/?phone=" + to + "&text=" + encodeURIComponent(msg) + "&type=phone_number&app_absent=0";
     if (app === "wa") {
-      return "intent://wa.me/" + to + "?text=" + encodeURIComponent(msg) +
-        "#Intent;scheme=https;package=com.whatsapp;S.browser_fallback_url=" + encodeURIComponent(plain) + ";end";
+      return "intent://" + base.slice("https://".length) + "#Intent;scheme=https;package=com.whatsapp;S.browser_fallback_url=" + encodeURIComponent(base) + ";end";
     }
     if (app === "biz") {
-      return "intent://wa.me/" + to + "?text=" + encodeURIComponent(msg) +
-        "#Intent;scheme=https;package=com.whatsapp.w4b;S.browser_fallback_url=" + encodeURIComponent(plain) + ";end";
+      return "intent://" + base.slice("https://".length) + "#Intent;scheme=https;package=com.whatsapp.w4b;S.browser_fallback_url=" + encodeURIComponent(base) + ";end";
     }
-    return plain;
+    return base;
   }
   function personalize(t, name) {
     var n = (name || "").trim();
