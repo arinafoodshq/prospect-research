@@ -583,6 +583,7 @@
 
   /** Owner sets the contact person they know. */
   RealApi.prototype.setContactPerson = function (prospectId, payload) {
+    delete this._evCache[prospectId]; // the panel re-renders from fresh data
     return this._req("/api/prospects/" + encodeURIComponent(prospectId) + "/contact-person", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -667,6 +668,7 @@
     return this._req("/api/prospects/" + encodeURIComponent(prospectId) + "/timeline");
   };
   RealApi.prototype.logContact = function (prospectId, payload) {
+    delete this._evCache[prospectId]; // the timeline re-renders from fresh data
     return this._req("/api/prospects/" + encodeURIComponent(prospectId) + "/contacts",
       { method: "POST", body: JSON.stringify(payload) });
   };
