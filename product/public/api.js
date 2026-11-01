@@ -496,6 +496,20 @@
     return head.slice(0, 140);
   }
 
+  /** Inherited brief locations concatenate every geo ("Ikeja, Lagos, Nigeria,
+   * Maryland, Lagos, Nigeria, ...") — collapse repeated city/state pairs so
+   * the card reads "Ikeja, Maryland, Ogba and Oregun, Lagos, Nigeria". */
+  function tidyArea(s) {
+    var t = String(s || "");
+    var pairs = (t.match(/Lagos,\s*Nigeria/gi) || []).length;
+    if (pairs >= 2) {
+      t = t.replace(/,?\s*Lagos,\s*Nigeria/gi, "");
+      t = t.replace(/,\s*,/g, ",").replace(/^[,\s]+|[,\s]+$/g, "");
+      t += ", Lagos, Nigeria";
+    }
+    return t;
+  }
+
   function searchLineFromBrief(brief) {
     var seg = brief && brief.primary_segment;
     if (!seg) return "buyers that fit";
@@ -548,7 +562,7 @@
           var firstEv = (details[i].evidence && details[i].evidence[0]) || {};
           return {
             id: p.id, name: p.name,
-            area: loc.area || loc.note || loc.city || "Area unconfirmed",
+            area: tidyArea(loc.area || loc.note || loc.city || "Area unconfirmed"),
             category: p.category || "unclassified",
             score: rating ? rating * 20 : 0,
             summary: asmt && asmt.rationale ? String(asmt.rationale).slice(0, 140) : "Not scored yet. Thin evidence.",

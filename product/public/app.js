@@ -1074,7 +1074,7 @@
       var who = res.prospect.name;
       $("evidence-hint").textContent = isDemo()
         ? "Why " + who + " made the example shortlist:"
-        : "Why " + who + " was shortlisted:";
+        : "The research behind this pick:";
       var proofs = res.evidence.map(function (ev) {
         return "<li class=\"proof\"><p class=\"proof-claim\">" + esc(ev.quote) + "</p>" +
           "<p class=\"proof-src\">" + esc(typeLabel(ev.type)) + " · <a href=\"" + esc(ev.source) + "\" target=\"_blank\" rel=\"noopener\">" + esc(hostOfUrl(ev.source)) + "</a>" +

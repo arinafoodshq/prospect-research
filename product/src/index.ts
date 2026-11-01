@@ -425,6 +425,11 @@ const getProspectDetail: Handler = async ({ env, params }) => {
   for (const a of aRows) {
     for (const id of [...a.supporting_evidence_ids, ...a.weakening_evidence_ids]) linked.add(id);
   }
+  // Discovery proof counts too: the candidate's own evidence_ids (the search
+  // results that surfaced it) were invisible here — the "Why shortlisted"
+  // panel rendered empty for every shortlisted pick (Duban, 2026-11-01).
+  const discovery = parseJson<string[]>(p["evidence_ids"] as string | null, []);
+  for (const id of discovery) linked.add(id);
   const ev = await env.DB.prepare("SELECT * FROM evidence WHERE run_id = ?").bind(p["run_id"])
     .all<Record<string, unknown>>();
   const routes = await env.DB.prepare("SELECT * FROM contact_route WHERE prospect_id = ?").bind(p["id"])
