@@ -1076,7 +1076,9 @@
         ? "Why " + who + " made the example shortlist:"
         : "The research behind this pick:";
       var proofs = res.evidence.map(function (ev) {
-        return "<li class=\"proof\"><p class=\"proof-claim\">" + esc(ev.quote) + "</p>" +
+        var quote = String(ev.quote || "");
+        if (quote.length > 240) quote = quote.slice(0, 240).replace(/\s+\S*$/, "") + "…";
+        return "<li class=\"proof\"><p class=\"proof-claim\">" + esc(quote) + "</p>" +
           "<p class=\"proof-src\">" + esc(typeLabel(ev.type)) + " · <a href=\"" + esc(ev.source) + "\" target=\"_blank\" rel=\"noopener\">" + esc(hostOfUrl(ev.source)) + "</a>" +
           (isDemo() ? " · example data" : "") + "</p></li>";
       }).join("");
