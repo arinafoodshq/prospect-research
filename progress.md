@@ -1844,3 +1844,28 @@ verdict code "[verdict: no_signal ...]" in the hypothesis; broken punctuation
 - WhatsApp-aware length guidance (<=60 words good; >100 "cut to the point").
 Verified: 464/464 vitest, SMOKE PASS (new assertions: same-message tab,
 no citation markers render, tidyProse exactly on the user's example).
+
+## 2026-11-01 — Per-channel draft versions + social harvest from the crawl (user request)
+
+User asked: generate WhatsApp, Email and DM (Instagram/TikTok) versions per
+lead (not one long message for every tab), and harvest the lead's social
+profile links when their website is crawled, shown with links.
+
+Built (commit 60449e0, deployed 9c27e4c4, migration 0008 applied remote):
+- Draft variants: the draft burst now writes three shapes per shortlisted
+  lead — WhatsApp (<=60 words, casual, greeting by name), Email (<=120 words,
+  professional), DM (<=35 words, ultra casual for Instagram/TikTok) — stored
+  on the draft (outreach_draft.variants JSON, migration 0008). The studio
+  renders the variant for the active tab; editing a tab edits that variant
+  (decide endpoint accepts {variant, variant_body} -> updateDraftVariant);
+  the send buttons use the active tab's version. Demo drafts carry a
+  WhatsApp variant for judges; a missing variant falls back to the shared
+  message with an honest label.
+- Social harvest: meta.fetchPage now scans the crawled page's raw HTML for
+  instagram/facebook/x/twitter/linkedin/tiktok profile links and returns
+  them; investigate stores each as a social_profile contact_route
+  (verification unchecked, deduped by value) — grounded by construction
+  (they come from the lead's own site). The Reach out panel lists them as
+  linked chips (Instagram/Facebook/X/LinkedIn/TikTok parsed from the url).
+Verification: tsc clean; 464/464 vitest (one fetchPage shape test updated);
+SMOKE PASS (demo WhatsApp variant asserted); deployed; push.
