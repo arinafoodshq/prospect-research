@@ -1909,3 +1909,34 @@ deployed 1fa67ac8):
 Verification: SMOKE PASS with new pins (bar hidden on landing, bar visible on
 progress view, header Dashboard opens the board, rail click jumps stages);
 464/464 vitest; no migration in this batch.
+
+## 2026-11-02 — Sidebar shell + dashboard revamp + human campaigns (user flow review, round 2)
+
+User: dashboard was wrongly a numbered step; wanted a left sidebar like normal
+apps; campaigns listed raw cmp_ ids, ISO stamps and provider words; dashboard
+should look like the landing (paper theme, vibrant, easy on the eyes); nav
+links must not be filled pills. Fixes (commit ad61cde, deployed 2d173918):
+
+- App shell rebuilt: LEFT SIDEBAR is the app navigation (Dashboard, Messages,
+  Campaigns, Senders + account at the bottom), hidden only on the landing and
+  sign-in screens; collapses to a top bar under 880px.
+- The 1-8 step rail is gone. A campaign's five stages (Onboard, Confirm
+  profile, Research run, Shortlist, Messages) live in a contextual "This
+  campaign" strip shown only while a campaign is in play; still clickable to
+  revisit what was done. Stages are a trail, not navigation.
+- Nav links are quiet (text rows, hover surface) per platform convention;
+  filled buttons reserved for a screen's primary action. Landing Dashboard
+  link reset to quiet text (button UA styles neutralized).
+- Dashboard revamp on the landing tokens: white cards on the paper ground,
+  one calm accent stripe per column (success/pending accent/marigold/warn),
+  rounded 16px, soft shadows, human empty copy ("Open Messages and approve
+  one"), board subtitle "Nothing sends without your approval."
+- Campaigns humanized: no internal ids, no ISO stamps (cleanTime), states in
+  the owner's words (Went out / Scheduled / Going out now / Failed; waiting,
+  not queued; provider errors become "the mail provider was unreachable");
+  schedule confirmation shows the send time in the owner's clock too.
+
+Verification: SMOKE PASS with new pins (sidebar hidden on landing, sidebar +
+stage strip on progress/shortlist, sidebar Dashboard opens the board, no stage
+strip on the dashboard, campaigns hide ids/ISO/queued); 464/464 vitest; no
+migration in this batch.
