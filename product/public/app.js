@@ -1600,6 +1600,35 @@
     });
   }
 
+  // One-click channel tune: rewrite the stored draft into this tab's shape
+  // and store it as the variant (user report 2026-11-02: legacy drafts stay
+  // long; no new campaign needed).
+  function studioRetune(d) {
+    var st = state.studio;
+    if (st.busy) return;
+    var tab = st.tab;
+    if (!tab || tab === studioTabFor(d.channel)) return;
+    st.busy = true;
+    renderStudioInner();
+    studioStatus("Writing the " + (STUDIO_TAB_LABEL[tab] || tab) + " version…");
+    api.retuneDraft(studioKey(d), tab).then(function (res) {
+      st.busy = false;
+      var text = res && res.text ? String(res.text) : "";
+      if (text) {
+        d.variants = d.variants || {};
+        d.variants[tab] = text; // local echo of the stored variant
+        studioStatus("Written. Review it before you approve.");
+      } else {
+        studioStatus("Could not write it. Check your connection and try again.");
+      }
+      renderStudioInner();
+    }, function (e) {
+      st.busy = false;
+      renderStudioInner();
+      studioStatus("Writing failed (" + ((e && e.detail) || "please try again") + "). Your text is unchanged.");
+    });
+  }
+
   function studioTest(d) {
     var st = state.studio;
     if (st.busy) return;
@@ -1708,6 +1737,7 @@
     }
     if (act === "studio-sender") { renderSendersView("drafts"); return; }
     if (act === "studio-tone" && ds.id) { studioTone(d, ds.id); return; }
+  if (act === "studio-retune") { studioRetune(d); return; }
     if (act === "studio-test") { studioTest(d); return; }
     if (act === "approve") {
       // "Approve and schedule" earns its label: approving the last undecided
@@ -1761,7 +1791,9 @@
       // honestly labelled (user feedback 2026-11-01).
       bodyHtml = (hasVariant ? "" :
         "<p class=\"hint\">No per-channel version yet — showing the research's " +
-        esc(studioSuggestionLabel(d.channel).toLowerCase()) + " message; it reads fine here.</p>") +
+        esc(studioSuggestionLabel(d.channel).toLowerCase()) + " message; it reads fine here.</p>" +
+        "<button type=\"button\" class=\"linklike\" data-act=\"studio-retune\"" + (st.busy ? " disabled" : "") +
+        ">Write the " + esc(STUDIO_TAB_LABEL[st.tab]) + " version</button>") +
         "<div class=\"studio-text\">" + esc(shownBody).split("\n").map(function (line) {
           return "<p>" + (line || "&nbsp;") + "</p>";
         }).join("") + "</div>" +

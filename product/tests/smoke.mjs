@@ -427,6 +427,14 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   ok(!/\[source 1\]/.test(studio().innerHTML), "citation markers never render in the studio");
   await clickOn("studio-tab", { id: "email" });
   ok(/Weekday lunches for/.test(studio().innerHTML), "email tab shows the subject line");
+  // Legacy drafts (written before per-channel variants) get a one-click tune.
+  await clickOn("studio-tab", { id: "dm" });
+  ok(/No per-channel version yet/.test(studio().innerHTML), "the missing DM version is honestly labelled");
+  ok(/Write the Direct message version/.test(studio().innerHTML), "a missing channel version offers one-click writing");
+  await clickOn("studio-retune");
+  ok(/one-week trial/.test(studio().innerHTML) && !/No per-channel version yet/.test(studio().innerHTML),
+    "the written DM version renders in place");
+  await clickOn("studio-tab", { id: "email" });
   await clickOn("studio-edit");
   studio().querySelector('[data-field="body"]').value = "Edited message body for the test.";
   await clickOn("studio-save");

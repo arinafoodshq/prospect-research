@@ -537,6 +537,56 @@ const postRewriteDraft: Handler = async ({ req, env, params }) => {
   return json({ draft: updated });
 };
 
+const RETUNE_CHANNELS = ["whatsapp", "email", "dm"] as const;
+
+/** Write a stored draft into ONE channel's shape and store it as that
+ * channel's variant (legacy drafts predate per-channel variants; user
+ * report 2026-11-02 — shorten in place, no new campaign required). */
+const postDraftRetune: Handler = async ({ req, env, params }) => {
+  const draftId = params["id"] as string;
+  const parsed = await readJson(req);
+  if (!parsed.ok) return parsed.res;
+  if (!isObj(parsed.body)) return err("invalid_body", 400);
+  const channel = parsed.body["channel"];
+  if (typeof channel !== "string" || !(RETUNE_CHANNELS as readonly string[]).includes(channel)) {
+    return err("unknown_channel", 400);
+  }
+  const draft = await env.DB.prepare(
+    "SELECT id, subject, body, status FROM outreach_draft WHERE id = ?",
+  ).bind(draftId).first<{ id: string; subject: string; body: string; status: string }>();
+  if (!draft) return err("draft_not_found", 404);
+  if (draft.status !== "draft") return err("illegal_edit", 400, "only undecided drafts can be tuned");
+  if (!env.MODEL_API_KEY) return err("model_not_configured", 500);
+  const meta = createMetaClient({
+    apiKey: env.MODEL_API_KEY,
+    ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
+    audit: (ev) => auditEvent(env.DB, ev),
+  });
+  if (!meta.retuneVariant) return err("model_not_configured", 500);
+  let text;
+  try {
+    text = await meta.retuneVariant({
+      subject: draft.subject ?? "",
+      body: draft.body ?? "",
+      channel_target: channel as "whatsapp" | "email" | "dm",
+    });
+  } catch {
+    return err("model_error", 502);
+  }
+  try {
+    await updateDraftVariant(env.DB, draftId, channel as "whatsapp" | "email" | "dm", text);
+  } catch (e) {
+    if (e instanceof DbValidationError) {
+      if (e.message.includes("does not exist")) return err("draft_not_found", 404);
+      return err("illegal_edit", 400, e.message);
+    }
+    throw e;
+  }
+  const updated = await env.DB.prepare("SELECT * FROM outreach_draft WHERE id = ?").bind(draftId)
+    .first<Record<string, unknown>>();
+  return json({ draft: updated });
+};
+
 const postTestSend: Handler = async ({ env, params }) => {
   const draftId = params["id"] as string;
   const draft = await env.DB.prepare(
@@ -959,6 +1009,7 @@ route("GET", "/api/runs/:id/drafts", getDrafts);
 route("POST", "/api/drafts/:id/decision", postDecision);
 route("PATCH", "/api/drafts/:id", patchDraft);
 route("POST", "/api/drafts/:id/rewrite", postRewriteDraft);
+route("POST", "/api/drafts/:id/retune", postDraftRetune);
 route("POST", "/api/drafts/:id/test-send", postTestSend);
 route("GET", "/api/prospects/:id", getProspectDetail);
 route("POST", "/api/prospects/:id/contact-person", postContactPerson);

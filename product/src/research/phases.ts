@@ -171,6 +171,9 @@ export interface MetaClient {
   modelId?: string;
   /** Rewrite one outreach draft in a requested tone (studio rewrite buttons). */
   rewriteDraft?: (input: RewriteInput) => Promise<RewriteResult>;
+  /** Rewrite a stored draft into ONE channel's shape (one-click tune for
+   * drafts written before per-channel variants existed). */
+  retuneVariant?: (input: import("../meta").RetuneInput) => Promise<string>;
   /** One conversational-onboarding turn: extract facts, ask at most one question. */
   onboardTurn?: (input: OnboardTurnInput) => Promise<OnboardTurnResult>;
 }

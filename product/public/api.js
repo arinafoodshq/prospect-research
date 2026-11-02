@@ -280,6 +280,16 @@
     }
     return Promise.resolve({ subject: (current && current.subject) || "", body: body });
   };
+  // One-click channel tune for drafts written before per-channel variants
+  // existed (user report 2026-11-02): the model shortens to the shape.
+  MockApi.prototype.retuneDraft = function (draftId, channel) {
+    var canned = {
+      whatsapp: "Hello! Quick one - we pack fresh office lunches for teams around Ikeja, 20 to 200 portions. Worth a one-week trial for your office?",
+      email: "Hello, we deliver fresh office lunches around Ikeja and Maryland for teams of 20 to 200. Teams like yours order weekly, and everyone picks their meal. Would a one-week trial at lunchtime suit your office? We handle delivery and invoicing.",
+      dm: "Hello! We pack fresh office lunches around Ikeja. Worth a one-week trial for your team?"
+    };
+    return Promise.resolve({ text: canned[channel] || "" });
+  };
   MockApi.prototype.testSend = function (prospectId) {
     return Promise.resolve({ to: "your own address (example)", status: "sent" });
   };
@@ -654,6 +664,14 @@
   RealApi.prototype.rewriteDraft = function (draftId, tone) {
     return this._req("/api/drafts/" + encodeURIComponent(draftId) + "/rewrite", { method: "POST", body: JSON.stringify({ tone: tone }) })
       .then(function (res) { return { subject: res.draft.subject, body: res.draft.body }; });
+  };
+  RealApi.prototype.retuneDraft = function (draftId, channel) {
+    return this._req("/api/drafts/" + encodeURIComponent(draftId) + "/retune", { method: "POST", body: JSON.stringify({ channel: channel }) })
+      .then(function (res) {
+        var v = res.draft && res.draft.variants ? res.draft.variants : {};
+        if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { v = {}; } }
+        return { text: (v && v[channel]) || "" };
+      });
   };
   RealApi.prototype.testSend = function (draftId) {
     return this._req("/api/drafts/" + encodeURIComponent(draftId) + "/test-send", { method: "POST", body: "{}" });

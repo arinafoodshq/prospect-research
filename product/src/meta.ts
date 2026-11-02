@@ -638,6 +638,13 @@ const REWRITE_TONE_GUIDE: Record<string, string> = {
   another: "Write a fresh version with a different opening angle.",
 };
 
+/** Channel tune input: the stored draft plus the target channel shape. */
+export interface RetuneInput {
+  subject: string;
+  body: string;
+  channel_target: "whatsapp" | "email" | "dm";
+}
+
 export function validateRewrite(item: unknown): RewriteResult {
   if (!isRecord(item)) throw new Error("rewrite burst did not return an object");
   const subject = item["subject"];
@@ -1011,6 +1018,39 @@ function extractVisibleText(html: string): string {
     return validateRewrite(item);
   }
 
+  /** Rewrite a stored draft into ONE channel's shape (user report 2026-11-02:
+   * drafts written before per-channel variants existed stay long on the
+   * WhatsApp tab; this tightens them in place — no new campaign needed). */
+  async function retuneVariant(input: RetuneInput): Promise<string> {
+    const shape: Record<string, string> = {
+      whatsapp: "Rewrite for WhatsApp: warm, plain, human. Greeting + one observed fact + one small ask. At most 60 words. No subject line, no markdown.",
+      email: "Rewrite as an email: a short human body of at most 120 words. Keep it specific, no markdown lists.",
+      dm: "Rewrite as an Instagram or TikTok direct message: at most 35 words, casual, one clear ask.",
+    };
+    const req = buildPhaseRequest({
+      phase: "plan",
+      briefExcerpt: brief || "Outreach draft channel tune.",
+      phaseGoal: `${shape[input.channel_target] ?? shape["whatsapp"]} Keep every fact, name and number exactly as written; change only shape and wording. Do not add new claims or names. Reply ONLY a JSON object: {"text": "..."}. Subject: ${JSON.stringify(input.subject)}. Message: ${JSON.stringify(input.body)}.`,
+    });
+    req.tools = []; // structured burst: answer in text, no tool loop offered
+    const parsed = await callResponses(req);
+    const raw = parsed.outputText;
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    let item: unknown = null;
+    if (start >= 0 && end > start) {
+      try {
+        item = JSON.parse(raw.slice(start, end + 1)) as unknown;
+      } catch { item = null; }
+    }
+    const text = item && typeof item === "object" && !Array.isArray(item) &&
+        typeof (item as Record<string, unknown>)["text"] === "string"
+      ? ((item as Record<string, unknown>)["text"] as string).trim()
+      : "";
+    if (!text) throw new Error("retune burst did not return text");
+    return text;
+  }
+
   async function buildBrief(profile: {
     name: string; website_url: string; description: string;
     target_market: string; service_area_note: string; constraints_note: string;
@@ -1042,5 +1082,5 @@ function extractVisibleText(html: string): string {
     activeBrief = b;
   }
 
-  return { planQueries, planMore, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, rewriteDraft, modelId: model };
+  return { planQueries, planMore, search, proposeAssessments, proposeDrafts, fetchPage, buildBrief, setBrief, onboardTurn, rewriteDraft, retuneVariant, modelId: model };
 }
