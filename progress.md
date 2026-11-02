@@ -1972,3 +1972,24 @@ deployed ccca4b36):
 Verification: SMOKE PASS (board is pure message states + doors pin, sends
 monitor pins moved to the Campaigns view incl. no ids/ISO/queued, campaign
 card hidden in demo), 464/464 vitest; no migration in this batch.
+
+## 2026-11-02 — One-click channel tune for legacy drafts (user: why is Duban's WhatsApp message still long)
+
+User asked whether the shortening applies to the already-written Duban draft,
+or whether a new campaign/re-click is needed. Answer shipped (commit 6690a0e,
+deployed a63f38a6): neither - a stored draft can now be tightened in place.
+
+- New endpoint POST /api/drafts/:id/retune {channel}: loads the undecided
+  draft, calls the model (muse-spark-1.3, audited) with the channel's shape
+  (WhatsApp <=60 words casual; Email <=120; DM <=35), stores the result via
+  updateDraftVariant (same guardrails: <=2000 chars, undecided only).
+- Studio: on any tab missing a per-channel variant (legacy drafts), the
+  honest label now carries a "Write the <channel> version" button; clicking
+  writes the variant in place with a busy state and honest failure text.
+  New drafts already get all three shapes at writing time.
+- Client: RealApi.retuneDraft (parses the stored variants JSON) +
+  MockApi.retuneDraft (canned tightened texts).
+
+Verification: tsc clean; SMOKE PASS with new pins (missing version honestly
+labelled, one-click write offered, written version renders in place);
+464/464 vitest; no migration in this batch.
