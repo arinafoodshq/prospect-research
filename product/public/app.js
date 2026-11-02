@@ -27,17 +27,11 @@
     var hdrUser = $("hdr-user");
     var hdrOut = $("btn-signout");
     var landing = $("link-signin");
-    var hdrDash = $("btn-dash");
-    var barDash = $("btn-dash-mini");
-    var barSignin = $("bar-signin");
     var landingDash = $("link-dash");
     if (!live) {
       if (hdrSignin) hdrSignin.hidden = true;
       if (hdrUser) hdrUser.hidden = true;
       if (hdrOut) hdrOut.hidden = true;
-      if (hdrDash) hdrDash.hidden = true;
-      if (barDash) barDash.hidden = true;
-      if (barSignin) barSignin.hidden = false;
       if (landingDash) landingDash.hidden = true;
       if (landing) { landing.hidden = false; landing.setAttribute("href", "#signin"); }
       return;
@@ -46,9 +40,6 @@
     if (hdrSignin) hdrSignin.hidden = signed;
     if (hdrUser) { hdrUser.hidden = !signed; if (signed) hdrUser.textContent = me.name || me.email; }
     if (hdrOut) hdrOut.hidden = !signed;
-    if (hdrDash) hdrDash.hidden = !signed;
-    if (barDash) barDash.hidden = !signed;
-    if (barSignin) barSignin.hidden = signed;
     if (landingDash) landingDash.hidden = !signed;
     if (landing) landing.hidden = signed;
   }
@@ -165,7 +156,13 @@
 
   function $(id) { return document.getElementById(id); }
 
-  var CHROMELESS = ["landing", "onboard", "profile", "progress"];
+  // The five stages of ONE campaign, in order. They are not the app's
+  // navigation (that is the sidebar) — they are a trail the owner can walk
+  // back through to see what was done.
+  var STAGES = ["onboard", "profile", "progress", "shortlist", "drafts"];
+  // Views without the app sidebar: the marketing landing (its own nav) and
+  // the pre-auth sign-in screen.
+  var NO_SIDEBAR = ["landing", "signin"];
   var EXTRA_VIEWS = ["signin"];
 
   function showView(name) {
@@ -177,15 +174,16 @@
       var el = $("view-" + v);
       if (el) el.hidden = (v !== name);
     });
-    var plain = CHROMELESS.indexOf(name) >= 0 || EXTRA_VIEWS.indexOf(name) >= 0;
-    var header = document.querySelector(".site-header");
-    if (header) header.hidden = plain;
+    var plain = NO_SIDEBAR.indexOf(name) >= 0;
+    var shell = $("shell");
+    if (shell) shell.classList.toggle("no-side", plain);
+    var side = $("sidebar");
+    if (side) side.hidden = plain;
     var footer = $("site-footer");
     if (footer) footer.hidden = plain;
-    // Dashboard bar: slim chrome for the mid-flow chromeless views. The
-    // landing keeps its own nav; the full views have the whole header.
-    var bar = $("dash-bar");
-    if (bar) bar.hidden = !(name === "onboard" || name === "profile" || name === "progress");
+    // The stage strip only makes sense while a campaign is in play.
+    var strip = $("stage-wrap");
+    if (strip) strip.hidden = STAGES.indexOf(name) < 0;
     ["progress-kicker", "shortlist-kicker", "drafts-kicker", "status-kicker",
      "campaigns-kicker", "senders-kicker"].forEach(setDemoKicker);
     var nav = $("step-nav");
@@ -193,10 +191,18 @@
       var items = nav.querySelectorAll("li");
       items.forEach(function (li) {
         var v = li.getAttribute("data-view");
+        var vi = STAGES.indexOf(v), ni = STAGES.indexOf(name);
         li.classList.toggle("active", v === name);
-        li.classList.toggle("done", VIEWS.indexOf(v) < VIEWS.indexOf(name));
+        li.classList.toggle("done", vi >= 0 && ni > vi);
       });
     }
+    // Sidebar active state: which app section is on screen.
+    var sbMap = { status: "btn-sb-dashboard", drafts: "btn-sb-messages",
+      campaigns: "btn-sb-campaigns", senders: "btn-sb-senders" };
+    ["btn-sb-dashboard", "btn-sb-messages", "btn-sb-campaigns", "btn-sb-senders"].forEach(function (id) {
+      var el = $(id);
+      if (el) el.classList.toggle("active", sbMap[name] === id);
+    });
     try { window.scrollTo(0, 0); } catch (e) { /* noop */ }
   }
 
@@ -1870,7 +1876,7 @@
       return "<li>" + esc("No drafts yet. Nothing qualified for messages.") + "</li>";
     }
     var notes = {
-      approved: "No approved drafts yet. Approve one above to see it here.",
+      approved: "No approved drafts yet. Open Messages and approve one — it lands here.",
       pending: "All drafts reviewed. Nice. Decided drafts are listed in their columns.",
       deferred: "No deferred drafts. Drafts you pause will wait here.",
       rejected: "No rejected drafts. Every draft is still waiting or approved.",
@@ -1886,6 +1892,7 @@
     STATUS_COLS.forEach(function (c) {
       var div = document.createElement("div");
       div.className = "column";
+      div.setAttribute("data-col", c.key);
       var names = state.drafts.filter(function (d) {
         var dec = decisionOf(d);
         if (c.key === "followups") {
@@ -1908,6 +1915,27 @@
     showView("status");
   }
 
+  // Campaign states, in the owner's words. Raw provider words ("complete",
+  // "queued", "accepted") never reach the screen.
+  var CAMPAIGN_STATE = {
+    complete: "Went out", completed: "Went out", scheduled: "Scheduled",
+    sending: "Going out now", failed: "Failed", error: "Failed"
+  };
+  var RECIPIENT_STATE = {
+    sent: "sent", accepted: "sent", delivered: "sent",
+    queued: "waiting", scheduled: "waiting",
+    failed: "failed", error: "failed", bounced: "failed"
+  };
+
+  function humanCampaignStat(key, value) {
+    if (typeof value !== "number") {
+      // e.g. stats.error = "provider smtp unavailable" — a message, not a count.
+      return key === "error" ? "the mail provider was unreachable" : String(value);
+    }
+    var label = { sent: "sent", accepted: "sent", queued: "waiting", failed: "failed" }[key] || key;
+    return value + " " + label;
+  }
+
   function renderCampaigns(board) {
     return api.getCampaigns().then(function (res) {
       var div = document.createElement("div");
@@ -1918,15 +1946,22 @@
       } else {
         div.innerHTML = "<h3>Email campaigns</h3>" + list.map(function (c) {
           var recs = (c.recipients || []).map(function (r) {
-            return "<li>" + esc(r.email) + ". " + esc(r.status) + "</li>";
+            return "<li>" + esc(r.email) + " — " + esc(RECIPIENT_STATE[r.status] || r.status) + "</li>";
           }).join("");
           var stats = c.stats && Object.keys(c.stats).length
-            ? " <span class=\"meta\">(" + Object.keys(c.stats).map(function (k) { return esc(k) + ": " + esc(c.stats[k]); }).join(", ") + ")</span>" : "";
-          var when = c.scheduled_at_utc ? " · sends " + esc(c.scheduled_at_utc) : "";
+            ? " · " + esc(Object.keys(c.stats).map(function (k) { return humanCampaignStat(k, c.stats[k]); }).join(", ")) : "";
+          // Times in the owner's clock, never ISO strings; internal ids
+          // never reach the screen.
+          var when = "";
+          if (c.scheduled_at_utc) {
+            var past = true;
+            try { past = new Date(c.scheduled_at_utc).getTime() <= Date.now(); } catch (e) { /* assume sent */ }
+            when = " · " + (past ? "Sent " : "Sends ") + esc(cleanTime(c.scheduled_at_utc));
+          }
           var cancel = (c.status === "scheduled" || c.status === "sending")
             ? " <button type=\"button\" class=\"secondary\" data-act=\"cancel-campaign\" data-id=\"" + esc(c.id) + "\">Cancel</button>" : "";
-          return "<div class=\"campaign\"><h4>" + esc(c.name) + ". " + esc(c.status) + "</h4>" +
-            "<p class=\"meta\">" + esc(c.id) + when + stats + "</p><ul>" + recs + "</ul>" + cancel + "</div>";
+          return "<div class=\"campaign\"><h4>" + esc(c.name) + ". " + esc(CAMPAIGN_STATE[c.status] || c.status) + "</h4>" +
+            "<p class=\"meta\">" + when + stats + "</p><ul>" + recs + "</ul>" + cancel + "</div>";
         }).join("");
       }
       var cta = document.createElement("div");
@@ -2191,6 +2226,10 @@
     var wiz = $("campaign-wizard");
     wiz.innerHTML = "<p class=\"hint\">Loading…</p>";
     wiz.onclick = onWizardClick;
+    if (!state.runId) {
+      wiz.innerHTML = "<p>No approved drafts yet. Approve drafts first, then build a campaign.</p>";
+      return;
+    }
     api.listConnections().then(function (creds) {
       var conns = (creds.connections || []).filter(function (c) { return c.status === "connected"; });
       if (!conns.length) {
@@ -2262,8 +2301,8 @@
       .then(function (cmp) { return api.approveCampaign(cmp.id, { scheduled_at_utc: scheduled }); })
       .then(function (ok) {
         wiz.innerHTML = "<p>Scheduled. " + recipients.length + " message(s), first send " +
-          esc(ok.scheduled_at_utc || scheduled) + ". Watch it land on the status board.</p>" +
-          "<div class=\"row\"><button type=\"button\" data-act=\"go-status\">Go to the status board</button>" +
+          esc(cleanTime(ok.scheduled_at_utc || scheduled)) + ". Watch it land on your dashboard.</p>" +
+          "<div class=\"row\"><button type=\"button\" data-act=\"go-status\">Go to the dashboard</button>" +
           "<button type=\"button\" class=\"secondary\" data-act=\"go-landing\">Describe another business</button></div>";
       }, function (e) {
         wiz.innerHTML = "<p>Could not schedule: " + esc((e && e.message) || e) + "</p>";
@@ -2432,20 +2471,29 @@
       showView("landing");
     });
 
-    // Dashboard entry points (see openDashboard). The bar's Sign in mirrors
-    // the landing link: in the demo it explains, in live it goes to Google.
-    var hdrDashBtn = $("btn-dash");
-    if (hdrDashBtn) hdrDashBtn.addEventListener("click", openDashboard);
-    var barDashBtn = $("btn-dash-mini");
-    if (barDashBtn) barDashBtn.addEventListener("click", openDashboard);
+    // Sidebar navigation (the app's left menu). Dashboard always renders;
+    // the other sections need a run (live, signed out: sign in first).
+    var sbDash = $("btn-sb-dashboard");
+    if (sbDash) sbDash.addEventListener("click", openDashboard);
+    var sbMsg = $("btn-sb-messages");
+    if (sbMsg) sbMsg.addEventListener("click", function () {
+      if (state.runId) { renderDrafts(); return; }
+      if (api.mode === "live" && !me) { goSignin(); return; }
+      showView("onboard");
+      obFirstPhase();
+    });
+    var sbCmp = $("btn-sb-campaigns");
+    if (sbCmp) sbCmp.addEventListener("click", function () {
+      if (api.mode === "live" && !me) { goSignin(); return; }
+      renderCampaignView();
+    });
+    var sbSnd = $("btn-sb-senders");
+    if (sbSnd) sbSnd.addEventListener("click", function () {
+      if (api.mode === "live" && !me) { goSignin(); return; }
+      renderSendersView();
+    });
     var landingDashBtn = $("link-dash");
     if (landingDashBtn) landingDashBtn.addEventListener("click", openDashboard);
-    var barSignin = $("bar-signin");
-    if (barSignin) barSignin.addEventListener("click", function (e) {
-      if (api.mode === "live") return;
-      if (e && e.preventDefault) e.preventDefault();
-      goSignin();
-    });
 
     $("btn-ob-back").addEventListener("click", function () { showView("landing"); });
     $("btn-ob-example").addEventListener("click", function () {

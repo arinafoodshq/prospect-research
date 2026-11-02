@@ -1052,24 +1052,121 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
   .l-typed.typing::after { animation: none; }
 }
 
-/* Dashboard bar: slim chrome for the chromeless mid-flow views (onboard,
-   profile, progress). Landing keeps its own nav; full views keep the header. */
-.dash-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  max-width: 72rem;
-  margin: 0 auto;
-  padding: 0.6rem var(--app-pad-x);
-  border-bottom: 1px solid var(--border-strong);
+/* Dashboard bar: REMOVED 2026-11-02 — replaced by the app sidebar (.sidebar). */
+
+/* ============================================================
+   App shell: left sidebar + content column (2026-11-02).
+   The sidebar is the app's navigation, like any normal workspace
+   app: Dashboard, Messages, Campaigns, Senders, account at the
+   bottom. Quiet items — navigation is never a filled button;
+   the page's one primary action keeps the fill (Nielsen:
+   consistency & standards; aesthetic & minimalist design).
+   ============================================================ */
+.shell { display: flex; align-items: stretch; min-height: 100vh; }
+.shell.no-side { display: block; }
+.shell.no-side .sidebar { display: none; }
+.sidebar {
+  position: sticky; top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  width: 15.5rem; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 1.1rem;
+  padding: 1.1rem 0.85rem;
+  background: var(--ground);
+  border-right: 1px solid var(--border);
 }
-.dash-bar[hidden] { display: none; }
-.db-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-family: var(--font-display);
-  font-weight: 700;
+.sb-brand {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-display); font-weight: 700; font-size: 1.02rem;
+  padding: 0 0.5rem; white-space: nowrap;
 }
-.db-actions { display: inline-flex; align-items: center; gap: 0.75rem; }
+.sb-nav { display: flex; flex-direction: column; gap: 0.2rem; }
+.sb-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  font: inherit; font-weight: 600; color: var(--muted);
+  cursor: pointer;
+  min-height: var(--touch);
+}
+.sb-item:hover { background: var(--surface); color: var(--text); }
+.sb-item.active { background: var(--accent-soft); color: var(--accent-deep); }
+.sb-account {
+  margin-top: auto;
+  display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start;
+  padding: 0.75rem 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+.auth-chip { max-width: 100%; overflow-wrap: anywhere; }
+.sb-content { flex: 1; min-width: 0; }
+
+/* Quiet nav on the landing: a text link, same as Sign in — never a
+   filled pill (the global button style must not leak into nav). */
+button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+
+/* This campaign's stages: a contextual trail, not navigation. Shown only
+   while a campaign is in play; clickable to revisit what was done. */
+.stage-strip {
+  max-width: 72rem; margin: 0 auto;
+  padding: 0.95rem var(--app-pad-x) 0;
+  display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+}
+.stage-label {
+  color: var(--dim); font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.09em;
+}
+
+@media (max-width: 880px) {
+  .shell { display: block; }
+  .sidebar {
+    position: static; height: auto; width: auto;
+    flex-direction: row; align-items: center; gap: 0.5rem;
+    border-right: 0; border-bottom: 1px solid var(--border);
+  }
+  .sb-nav { flex-direction: row; flex-wrap: wrap; }
+  .sb-item { width: auto; min-height: 2.4rem; }
+  .sb-account { margin: 0 0 0 auto; flex-direction: row; align-items: center; border-top: 0; padding: 0; }
+}
+
+/* ============================================================
+   Dashboard revamp (2026-11-02): the landing's paper theme —
+   white cards on the paper ground, one calm accent stripe per
+   column, soft shadows, roomy type. Vibrant through color
+   accents, not through noise.
+   ============================================================ */
+.board { gap: 0.9rem; }
+.board-sub { color: var(--muted); margin: 0.2rem 0 1.1rem; }
+.column {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 1rem 1rem 1.1rem;
+  box-shadow: 0 1px 2px rgba(11, 18, 32, 0.04);
+}
+.column[data-col="approved"]  { border-top-color: var(--success); }
+.column[data-col="pending"]   { border-top-color: var(--accent); }
+.column[data-col="followups"] { border-top-color: var(--marigold); }
+.column[data-col="deferred"]  { border-top-color: var(--warn); }
+.column[data-col="rejected"]  { border-top-color: var(--border-strong); }
+.column h3 { font-size: 0.92rem; margin: 0 0 0.65rem; letter-spacing: 0.01em; }
+.column ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.column li {
+  background: var(--ground);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.93rem;
+}
+
+/* Campaign monitor cards: same card language, human content. */
+.campaign {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.55rem;
+}
+.campaign h4 { margin: 0 0 0.15rem; font-size: 0.95rem; }
+.campaign .meta { color: var(--dim); font-size: 0.82rem; margin: 0 0 0.45rem; }
+.campaign ul { list-style: none; margin: 0 0 0.35rem; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.campaign li { font-size: 0.9rem; color: var(--muted); }

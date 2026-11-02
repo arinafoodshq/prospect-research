@@ -136,7 +136,8 @@ const IDS = [
   "auth-area", "hdr-signin", "hdr-user", "btn-signout",
   "view-signin", "btn-google-signin", "signin-view-note", "signin-back",
   "resume-card", "resume-status", "btn-resume-continue", "btn-resume-dismiss",
-  "dash-bar", "btn-dash", "btn-dash-mini", "bar-signin", "link-dash",
+  "link-dash", "shell", "sidebar", "stage-wrap",
+  "btn-sb-dashboard", "btn-sb-messages", "btn-sb-campaigns", "btn-sb-senders",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
   "campaign-wizard",
@@ -216,7 +217,7 @@ const evt = (extra) => Object.assign({ preventDefault() {}, target: {} }, extra 
 
 /* ---- Walk the flow. */
 ok(visible("view-landing"), "boots on the landing view");
-ok(els["dash-bar"].hidden !== false, "no dashboard bar on the landing (it has its own nav)");
+ok(els["sidebar"].hidden !== false, "no sidebar on the landing (marketing keeps its own nav)");
 await fire(els["link-signin"], "click", evt());
 ok(els["signin-note"].hidden === false && /demo needs no account/.test(els["signin-note"].textContent),
   "sign in link explains the demo needs no account");
@@ -302,7 +303,8 @@ let confirmedProfile = null;
 const runDone = fire(els["btn-confirm-profile"], "click", evt());
 await new Promise((r) => setTimeout(r, 1200)); // 3 of 5 mock ticks landed
 await tick(); await tick();
-ok(els["dash-bar"].hidden === false, "dashboard bar rides along on the progress view");
+ok(els["sidebar"].hidden === false, "sidebar rides along on the progress view");
+ok(els["stage-wrap"].hidden === false, "campaign stage strip shows on the progress view");
 ok(els["progress-kicker"].textContent === "EXAMPLE DATA", "progress kicker marks the example run");
 ok(els["stat-found"].textContent === "25" && els["stat-opened"].textContent === "14" && els["stat-kept"].textContent === "3",
   "progress stats count found/opened/kept (" + els["stat-found"].textContent + "/" + els["stat-opened"].textContent + "/" + els["stat-kept"].textContent + ")");
@@ -327,8 +329,8 @@ ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site 
     "profile offer does not duplicate the buyer (" + offer.slice(0, 80) + ")");
 }
 ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
-ok((sandbox.document.querySelector(".site-header") || {}).hidden === false,
-  "step rail visible on the shortlist (dashboard nav, user request 2026-11-02)");
+ok(els["stage-wrap"].hidden === false,
+  "campaign stage strip on the shortlist (stages are a trail, not nav, user request 2026-11-02)");
 ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "2" && els["tab-look-n"].textContent === "2",
   "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent + ")");
 ok(els["shortlist-title"].textContent === "Six buyers worth your time.", "title counts the shortlist");
@@ -462,6 +464,10 @@ ok(visible("view-status"), "drafts -> status board view");
   const campaigns = els["status-board"].children.filter((c) => c.className === "campaigns");
   ok(campaigns.length === 1, "campaigns monitor section renders on the status board");
   ok(/Ikeja offices/.test(campaigns[0].innerHTML), "campaigns section lists the demo campaign");
+  ok(!/cmp_[0-9a-f]/i.test(campaigns[0].innerHTML), "campaign list hides internal campaign ids");
+  ok(!/:[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(campaigns[0].innerHTML), "campaign list shows human times, never ISO stamps");
+  ok(!/>queued</.test(campaigns[0].innerHTML) && /waiting/.test(campaigns[0].innerHTML),
+    "recipient states are human (waiting, not queued)");
   ok(!/ready to send/i.test(all), "no 'ready to send' copy on the board");
   ok(!/Nothing here\./.test(all), "no dead-end 'Nothing here.' microcopy");
   const followCol = cols.find((c) => /Follow-ups/.test(c.innerHTML));
@@ -479,12 +485,12 @@ await fire(els["btn-back-shortlist"], "click", evt());
 await tick();
 ok(visible("view-shortlist"), "drafts -> back to shortlist");
 
-// Dashboard entry point: the header button hydrates from state and opens the
-// board; the rail jumps stage-to-stage (user request 2026-11-02).
-await fire(els["btn-dash"], "click", evt());
+// Sidebar navigation: the Dashboard item opens the board; the stage strip
+// disappears there (stages are not navigation, user request 2026-11-02).
+await fire(els["btn-sb-dashboard"], "click", evt());
 await tick();
-ok(visible("view-status"), "header Dashboard button opens the dashboard");
-ok(els["dash-bar"].hidden !== false, "full header replaces the bar on chrome'd views");
+ok(visible("view-status"), "sidebar Dashboard opens the dashboard");
+ok(els["stage-wrap"].hidden !== false, "no stage strip on the dashboard itself");
 {
   const li = { getAttribute: (k) => (k === "data-view" ? "shortlist" : null) };
   els["step-nav"]._listeners.click.forEach((fn) => fn({ target: { closest: () => li } }));
