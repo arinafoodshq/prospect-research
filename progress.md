@@ -1993,3 +1993,32 @@ deployed a63f38a6): neither - a stored draft can now be tightened in place.
 Verification: tsc clean; SMOKE PASS with new pins (missing version honestly
 labelled, one-click write offered, written version renders in place);
 464/464 vitest; no migration in this batch.
+
+## 2026-11-02 — Scheduler data fix + scale + loading honesty (user: empty message box, 200 recipients?, a minute of "Loading...")
+
+User: the scheduler's Subject/Message boxes were empty though an email version
+existed; names should be real, not generic; what happens at 200 recipients;
+and the page sat on bare "Loading..." for about a minute. Fixes (commit
+e5286ad, deployed da2435ef):
+
+- Root cause of the empty boxes: the wizard read `approved[i].draft`, a field
+  that does not exist on draft rows (subject/body are top-level), so the
+  fallback was `{}`; it also ignored the approved EMAIL variant. Now subject
+  and body fall back through every honest source and the send uses
+  variants.email when present - each recipient keeps their own approved,
+  personalized message.
+- Scale: recipients are collapsed rows (name + address visible, tap to open
+  the full To/Subject/Message editor, first row open), paginated 20 per page
+  with an honest pager; page edits fold into state before navigation and
+  before scheduling. 200 recipients = 10 tidy pages, not 200 textareas.
+- Loading: one loadingHint helper (spinner dot, then "Still loading - check
+  your connection and reload" after 6s) applied to the campaign card, the
+  scheduler, the sends monitor and the schedule submit; connections and
+  per-lead details now load in parallel instead of serially.
+
+Note (no code change): WhatsApp only opens when its own send button is
+pressed (manual send by design); the approve path contains no window.open.
+
+Verification: tsc clean; SMOKE PASS with new pins (recipient rows show real
+names; message arrives pre-filled, never empty); 464/464 vitest; no
+migration in this batch.
