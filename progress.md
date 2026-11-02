@@ -1883,3 +1883,29 @@ board, campaigns or senders. Fixed (commit 7d9dd6c, deployed 9648a3e6):
   (header stub added to the smoke DOM) and the senders click is wired in the
   real handler.
 Verification: 464/464 vitest, SMOKE PASS, deployed, push.
+
+## 2026-11-02 — Dashboard everywhere + smart resume (user flow review)
+
+User: "how do I go to dashboard from here" / "as a signed in user, I only saw
+continue" / "for Duban, messages were already written, why take me to #4
+shortlist where I have to click write message again". Fixes (commit 7cd30fd,
+deployed 1fa67ac8):
+
+- Dashboard entry on every screen: header button (full views), slim dash-bar
+  on onboard/profile/progress (Sign in there when signed out), Dashboard link
+  in the landing nav when signed in. Step 6 renamed "6. Dashboard"; the view
+  heading is now "Your dashboard".
+- Post-sign-in return goes to the owner's home, not the marketing page:
+  /api/auth/callback redirects to /?dash=1; boot opens the dashboard (status
+  board hydrated from the latest run via getShortlist + getDrafts). No run yet
+  for a fresh account -> stays on the landing.
+- Smart resume: pollProgress terminal in live mode checks getDrafts first -
+  if messages exist it lands straight in the drafts studio; empty/failed
+  draft fetch falls back to the shortlist. Demo keeps its teaching flow
+  (shortlist -> Write my messages).
+- Resume card button names the destination: "Open my messages" when the run
+  is awaiting_approval, else "Continue".
+
+Verification: SMOKE PASS with new pins (bar hidden on landing, bar visible on
+progress view, header Dashboard opens the board, rail click jumps stages);
+464/464 vitest; no migration in this batch.
