@@ -105,7 +105,7 @@
 
   function $(id) { return document.getElementById(id); }
 
-  var CHROMELESS = ["landing", "onboard", "profile", "progress", "shortlist", "drafts"];
+  var CHROMELESS = ["landing", "onboard", "profile", "progress"];
   var EXTRA_VIEWS = ["signin"];
 
   function showView(name) {
@@ -2358,7 +2358,20 @@
     if (stepNav) {
       stepNav.addEventListener("click", function (e) {
         var li = e.target && e.target.closest ? e.target.closest("li[data-view]") : null;
-        if (li && li.getAttribute("data-view") === "senders") renderSendersView("status");
+        if (!li) return;
+        var v = li.getAttribute("data-view");
+        // The step rail is the dashboard nav (user request 2026-11-02: "how
+        // do I navigate to my dashboard"). Jump to any stage the app can
+        // render right now; stages without data fall back sensibly.
+        if (v === "status") { renderStatuses(); return; }
+        if (v === "campaigns") { renderCampaignView(); return; }
+        if (v === "senders") { renderSendersView("status"); return; }
+        if (v === "drafts") { if (state.runId) renderDrafts(); return; }
+        if (v === "shortlist") { if (state.prospects.length) showView("shortlist"); return; }
+        if (v === "progress") { if (state.runId) { showView("progress"); pollProgress(); } return; }
+        if (v === "profile") { if (state.profile) { showView("profile"); return; } }
+        if (v === "onboard") { if (!state.runId) { showView("onboard"); obFirstPhase(); } return; }
+        if (v === "landing") showView("landing");
       });
     }
     $("onboard-form").addEventListener("submit", submitOnboard);
