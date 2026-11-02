@@ -32,7 +32,7 @@
         <button type="button" class="sb-item" id="btn-sb-dashboard">Dashboard</button>
         <button type="button" class="sb-item" id="btn-sb-messages">Messages</button>
         <button type="button" class="sb-item" id="btn-sb-campaigns">Campaigns</button>
-        <button type="button" class="sb-item" id="btn-sb-senders">Senders</button>
+        <button type="button" class="sb-item" id="btn-sb-senders">Email accounts</button>
       </nav>
       <div class="sb-account" id="auth-area">
         <a class="auth-link" id="hdr-signin" href="/api/auth/start" hidden>Sign in</a>
@@ -354,30 +354,35 @@
       <div class="board" id="status-board"></div>
       <div class="row">
         <button id="btn-back-drafts" type="button" class="secondary">Back to drafts</button>
-        <button id="btn-restart" type="button">Start over (new business)</button>
+        <button id="btn-restart" type="button">Start a new campaign</button>
       </div>
     </section>
     <!-- View 7: campaigns -->
-    <section id="view-campaigns" class="view" aria-label="Email campaigns">
+    <section id="view-campaigns" class="view" aria-label="Campaigns">
       <div class="ob-head">
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
         <p class="kicker">CAMPAIGNS</p>
       </div>
       <p class="kicker kicker-dim" id="campaigns-kicker" hidden></p>
       <button type="button" id="btn-back-campaigns" class="link-plain">&larr; Back to messages</button>
-      <h2>Schedule a campaign</h2>
-      <p class="hint">Pick approved prospects, review each message, choose a sender, and approve. Nothing sends until you say so.</p>
+      <h2>Your campaigns</h2>
+      <p class="hint">A campaign starts the moment you describe your business. Research, messages, sends and follow-ups all live under it — leave and come back any time.</p>
+      <div id="campaign-card" hidden></div>
+      <h3 class="sec-h">Schedule a send</h3>
+      <p class="hint">Pick approved prospects, review each message, choose the email account, and approve. Nothing sends until you say so.</p>
       <div id="campaign-wizard"><p class="hint">Loading…</p></div>
+      <h3 class="sec-h">Email sends</h3>
+      <div id="sends-monitor"><p class="hint">Loading…</p></div>
     </section>
     <!-- View 8: senders -->
-    <section id="view-senders" class="view" hidden aria-label="Email senders">
+    <section id="view-senders" class="view" hidden aria-label="Email accounts">
       <div class="ob-head">
         <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
-        <p class="kicker">SENDERS</p>
+        <p class="kicker">EMAIL ACCOUNTS</p>
       </div>
       <p class="kicker kicker-dim" id="senders-kicker" hidden></p>
-      <h2>Email senders</h2>
-      <p class="hint">Connect the address your campaigns send from. We test every sender before it can be used.</p>
+      <h2>Email accounts</h2>
+      <p class="hint">Connect the email account your messages send from. We test every account before it can be used.</p>
       <div id="senders-wrap"><p class="hint">Loading…</p></div>
     </section>
   </main>

@@ -138,6 +138,7 @@ const IDS = [
   "resume-card", "resume-status", "btn-resume-continue", "btn-resume-dismiss",
   "link-dash", "shell", "sidebar", "stage-wrap",
   "btn-sb-dashboard", "btn-sb-messages", "btn-sb-campaigns", "btn-sb-senders",
+  "campaign-card", "sends-monitor",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
   "campaign-wizard",
@@ -448,6 +449,13 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   await clickOn("approve");
   await tick(); await tick();
   ok(visible("view-campaigns"), "approving the last message opens the scheduler");
+  await tick();
+  ok(els["campaign-card"].hidden !== false, "no campaign card in the demo (no run concept)");
+  const mon = els["sends-monitor"].children.length ? els["sends-monitor"].children[0].innerHTML : "";
+  ok(/Ikeja offices/.test(mon), "Email sends monitor lists the demo send");
+  ok(!/cmp_[0-9a-f]/i.test(mon), "send list hides internal campaign ids");
+  ok(!/:[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(mon), "send list shows human times, never ISO stamps");
+  ok(!/>queued</.test(mon) && /waiting/.test(mon), "recipient states are human (waiting, not queued)");
   await fire(els["btn-back-campaigns"], "click", evt());
   ok(visible("view-drafts"), "scheduler leads back to messages");
 }
@@ -462,12 +470,7 @@ ok(visible("view-status"), "drafts -> status board view");
   const all = cols.map((c) => c.innerHTML).join("\n");
   ok(!/\bsent\b/i.test(all), "no 'sent' concept anywhere on the draft board");
   const campaigns = els["status-board"].children.filter((c) => c.className === "campaigns");
-  ok(campaigns.length === 1, "campaigns monitor section renders on the status board");
-  ok(/Ikeja offices/.test(campaigns[0].innerHTML), "campaigns section lists the demo campaign");
-  ok(!/cmp_[0-9a-f]/i.test(campaigns[0].innerHTML), "campaign list hides internal campaign ids");
-  ok(!/:[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(campaigns[0].innerHTML), "campaign list shows human times, never ISO stamps");
-  ok(!/>queued</.test(campaigns[0].innerHTML) && /waiting/.test(campaigns[0].innerHTML),
-    "recipient states are human (waiting, not queued)");
+  ok(campaigns.length === 0, "the board is pure message states; sends live in Campaigns");
   ok(!/ready to send/i.test(all), "no 'ready to send' copy on the board");
   ok(!/Nothing here\./.test(all), "no dead-end 'Nothing here.' microcopy");
   const followCol = cols.find((c) => /Follow-ups/.test(c.innerHTML));
@@ -476,6 +479,15 @@ ok(visible("view-status"), "drafts -> status board view");
   const occurrences = followCol.innerHTML.split(approvedName).length - 1;
   ok(occurrences === 1, "approved draft appears exactly once as a manual follow-up (saw " + occurrences + ")");
   ok(/manual/i.test(followCol.innerHTML), "follow-ups column is honest that nothing is sent");
+  ok(/data-act="open-draft"/.test(all), "board items are clickable doors to the message detail");
+  // Clicking a board item opens that lead's message in the studio.
+  const draftId = all.match(/data-id="([^"]+)"/)[1];
+  els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "open-draft", id: draftId } } }));
+  await tick(); await tick();
+  ok(visible("view-drafts"), "board item opens the message detail");
+  await fire(els["btn-to-status"], "click", evt());
+  await tick();
+  ok(visible("view-status"), "back on the board for the next pins");
 }
 
 await fire(els["btn-back-drafts"], "click", evt());

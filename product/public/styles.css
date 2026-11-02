@@ -1170,3 +1170,34 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
 .campaign .meta { color: var(--dim); font-size: 0.82rem; margin: 0 0 0.45rem; }
 .campaign ul { list-style: none; margin: 0 0 0.35rem; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
 .campaign li { font-size: 0.9rem; color: var(--muted); }
+
+/* ---- Campaign model alignment (2026-11-02, round 3) ---- */
+
+/* Board items are doors to the message detail: quiet rows, clear affordance. */
+.board-item {
+  background: none; border: 0; padding: 0;
+  font: inherit; font-weight: 600; color: var(--accent-deep);
+  cursor: pointer; text-align: left;
+  min-height: 1.6rem;
+}
+.board-item:hover { text-decoration: underline; }
+
+/* The board breathes: 5 message columns wrap naturally at every width. */
+.board { grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); }
+
+/* Campaigns view: the current campaign card (the run IS the campaign). */
+.campaign-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 1px 2px rgba(11, 18, 32, 0.04);
+  margin-bottom: 1.2rem;
+}
+.campaign-card .kicker { color: var(--accent-deep); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; margin: 0 0 0.2rem; }
+.campaign-card h3 { font-family: var(--font-display); font-size: 1.35rem; margin: 0 0 0.25rem; }
+.campaign-card .meta { color: var(--muted); margin: 0 0 0.4rem; }
+
+/* Section rhythm inside the campaigns view. */
+.sec-h { margin: 1.6rem 0 0.2rem; font-family: var(--font-display); font-size: 1.15rem; }

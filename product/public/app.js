@@ -65,6 +65,8 @@
       assessing: "checking fit against your must-haves right now.",
       drafting: "writing messages for your approval right now.",
       awaiting_approval: "drafts are waiting for your approval.",
+      complete: "research finished. Messages are ready for review.",
+      failed: "stopped early. You can retry it any time."
     }[run.status];
     return name + " — " + (state2 || "is at “" + run.status + "”.");
   }
@@ -1905,13 +1907,13 @@
       }).map(function (d) {
         var p = state.prospects.filter(function (x) { return x.id === d.prospectId; })[0];
         var suffix = c.key === "followups" ? ". Follow up manually (e.g. nudge in 3 days)" : "";
-        return "<li>" + esc(p ? p.name : d.prospectId) + esc(suffix) + "</li>";
+        return "<li><button type=\"button\" class=\"board-item\" data-act=\"open-draft\" data-id=\"" + esc(d.prospectId) + "\">" +
+          esc(p ? p.name : d.prospectId) + "</button>" + esc(suffix) + "</li>";
       });
       if (!names.length) names = [emptyCopy(c.key)];
       div.innerHTML = "<h3>" + esc(c.title) + "</h3><ul>" + names.join("") + "</ul>";
       board.appendChild(div);
     });
-    renderCampaigns(board);
     showView("status");
   }
 
@@ -1942,9 +1944,9 @@
       div.className = "campaigns";
       var list = res.campaigns || [];
       if (!list.length) {
-        div.innerHTML = "<h3>Email campaigns</h3><p class=\"hint\">No campaigns yet. Approve drafts, then schedule a campaign.</p>";
+        div.innerHTML = "<h3>Email sends</h3><p class=\"hint\">No sends yet. Approve messages, then schedule a send.</p>";
       } else {
-        div.innerHTML = "<h3>Email campaigns</h3>" + list.map(function (c) {
+        div.innerHTML = "<h3>Email sends</h3>" + list.map(function (c) {
           var recs = (c.recipients || []).map(function (r) {
             return "<li>" + esc(r.email) + " — " + esc(RECIPIENT_STATE[r.status] || r.status) + "</li>";
           }).join("");
@@ -1964,20 +1966,38 @@
             "<p class=\"meta\">" + when + stats + "</p><ul>" + recs + "</ul>" + cancel + "</div>";
         }).join("");
       }
-      var cta = document.createElement("div");
-      cta.className = "row";
-      cta.innerHTML = "<button type=\"button\" data-act=\"new-campaign\">New campaign</button>";
-      div.appendChild(cta);
       board.appendChild(div);
-    }, function () { /* campaigns best-effort */ });
+    }, function () { /* sends are best-effort */ });
   }
 
   function onBoardClick(e) {
     var t = e.target || {};
     var ds = t.dataset || {};
     if (ds.act === "new-campaign") { renderCampaignView(); return; }
+    if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id); return; }
     if (ds.act !== "cancel-campaign" || !ds.id) return;
     api.cancelCampaign(ds.id).then(function () { renderStatuses(); });
+  }
+
+  // A board item is a door: it opens that lead's message in the studio,
+  // focused on the exact draft (user request 2026-11-02).
+  function openDraftFor(prospectId) {
+    var focus = function () {
+      var st = state.studio;
+      if (st && st.list && st.list.length) {
+        var idx = -1;
+        for (var i = 0; i < st.list.length; i++) {
+          if (st.list[i].prospectId === prospectId) { idx = i; break; }
+        }
+        if (idx >= 0) { st.idx = idx; st.editing = false; st.tab = null; renderStudioInner(); }
+      }
+      showView("drafts");
+    };
+    if (state.drafts.length && state.studio && state.studio.list && state.studio.list.length) {
+      focus(); // the studio is already built this session: no refetch flicker
+      return;
+    }
+    renderDrafts().then(focus, focus);
   }
 
   var sendersReturn = "status";
@@ -2221,29 +2241,91 @@
 
   var senderCache = [];
 
+  // The current campaign card: the run IS the campaign (the owner's model:
+  // it starts the moment the business is described and stays resumable).
+  var currentCampaignRun = null;
+
+  function renderCampaignCard() {
+    var wrap = $("campaign-card");
+    if (!wrap) return Promise.resolve();
+    if (!api.getLatestRun) { wrap.hidden = true; return Promise.resolve(); }
+    return api.getLatestRun().then(function (res) {
+      var run = res && res.run;
+      if (!run) { wrap.hidden = true; return; }
+      currentCampaignRun = run;
+      var midRun = ["discovering", "investigating", "assessing", "drafting"].indexOf(run.status) >= 0;
+      var act = (midRun || run.status === "failed") ? "resume-run" : "open-messages";
+      var label = run.status === "failed" ? "Retry research"
+        : midRun ? "Continue research" : "Open messages";
+      var started = run.started_at ? " · Started " + esc(cleanTime(run.started_at)) : "";
+      wrap.hidden = false;
+      wrap.innerHTML =
+        "<div class=\"campaign-card\">" +
+        "<p class=\"kicker\">Current campaign</p>" +
+        "<h3>" + esc(run.profile_name || "Your business") + "</h3>" +
+        "<p class=\"meta\">" + esc(resumeStatusText(run)) + started + "</p>" +
+        "<div class=\"row\"><button type=\"button\" data-act=\"" + act + "\">" + esc(label) + "</button>" +
+        "<button type=\"button\" class=\"secondary\" data-act=\"go-onboard\">Start another campaign</button></div>" +
+        "</div>";
+    }, function () { /* the card is best-effort; the wizard still renders */ });
+  }
+
+  function onCampaignCardClick(e) {
+    var t = e.target || {};
+    var ds = t.dataset || {};
+    if (!ds.act) return;
+    if (ds.act === "open-messages") {
+      if (currentCampaignRun) {
+        state.runId = currentCampaignRun.id;
+        state.profile = { id: currentCampaignRun.profile_id, name: currentCampaignRun.profile_name || "" };
+      }
+      renderDrafts();
+      return;
+    }
+    if (ds.act === "resume-run") {
+      if (currentCampaignRun) {
+        state.runId = currentCampaignRun.id;
+        state.profile = { id: currentCampaignRun.profile_id, name: currentCampaignRun.profile_name || "" };
+      }
+      showView("progress");
+      pollProgress();
+      return;
+    }
+    if (ds.act === "go-onboard") { showView("onboard"); obFirstPhase(); }
+  }
+
   function renderCampaignView() {
     showView("campaigns");
     var wiz = $("campaign-wizard");
     wiz.innerHTML = "<p class=\"hint\">Loading…</p>";
     wiz.onclick = onWizardClick;
+    renderCampaignCard();
+    var monitor = $("sends-monitor");
+    if (monitor) renderCampaigns(monitor);
     if (!state.runId) {
-      wiz.innerHTML = "<p>No approved drafts yet. Approve drafts first, then build a campaign.</p>";
+      wiz.innerHTML = "<p>No campaign yet. Describe your business to start your first one.</p>" +
+        "<div class=\"row\"><button type=\"button\" data-act=\"go-onboard\">Start a campaign</button></div>";
       return;
     }
-    api.listConnections().then(function (creds) {
-      var conns = (creds.connections || []).filter(function (c) { return c.status === "connected"; });
-      if (!conns.length) {
-        wiz.innerHTML = "<p>No verified sender yet. Connect one first, then come back.</p>" +
-          "<div class=\"row\"><button type=\"button\" data-act=\"go-senders\">Connect a sender</button></div>";
+    // The send scheduler needs approved messages first: say where the work
+    // actually stands instead of a dead end (user report 2026-11-02).
+    api.getDrafts(state.runId).then(function (res) {
+      var drafts = res.drafts || [];
+      var approved = drafts.filter(function (d) { return d.status === "approved"; });
+      if (!approved.length) {
+        var waiting = drafts.length;
+        wiz.innerHTML = waiting
+          ? "<p>This campaign has " + waiting + " message" + (waiting === 1 ? "" : "s") +
+            " waiting for your review. Approve them in Messages, then come back here to schedule a send.</p>" +
+            "<div class=\"row\"><button type=\"button\" data-act=\"go-drafts\">Open messages</button></div>"
+          : "<p>Nothing qualified for messages in this campaign yet.</p>";
         return;
       }
-      return api.getDrafts(state.runId).then(function (res) {
-        // Drafts expose status ("approved" after a decision); there is no
-        // `decision` field — the old filter here matched nothing, so the
-        // schedule-a-campaign flow was unreachable.
-        var approved = (res.drafts || []).filter(function (d) { return d.status === "approved"; });
-        if (!approved.length) {
-          wiz.innerHTML = "<p>No approved drafts yet. Approve drafts first, then build a campaign.</p>";
+      return api.listConnections().then(function (creds) {
+        var conns = (creds.connections || []).filter(function (c) { return c.status === "connected"; });
+        if (!conns.length) {
+          wiz.innerHTML = "<p>No verified email account yet. Connect one first, then come back.</p>" +
+            "<div class=\"row\"><button type=\"button\" data-act=\"go-senders\">Connect an email account</button></div>";
           return;
         }
         return Promise.all(approved.map(function (d) { return api.getProspectDetail(d.prospectId); })).then(function (details) {
@@ -2263,7 +2345,7 @@
             return "<option value=\"" + esc(c.id) + "\">" + esc(c.label) + " (" + esc(c.sender_email) + ")</option>";
           }).join("");
           wiz.innerHTML = "<label>Campaign name <input data-field=\"cmp-name\" value=\"Outreach. Week 1\" /></label>" +
-            "<label>Sender <select data-field=\"cmp-sender\">" + opts + "</select></label>" +
+            "<label>Send from <select data-field=\"cmp-sender\">" + opts + "</select></label>" +
             "<label>Send at <input data-field=\"cmp-when\" type=\"datetime-local\" /></label>" +
             "<h3>Recipients (" + state.campaignRows.length + ")</h3>" +
             state.campaignRows.map(function (r, i) {
@@ -2301,8 +2383,8 @@
       .then(function (cmp) { return api.approveCampaign(cmp.id, { scheduled_at_utc: scheduled }); })
       .then(function (ok) {
         wiz.innerHTML = "<p>Scheduled. " + recipients.length + " message(s), first send " +
-          esc(cleanTime(ok.scheduled_at_utc || scheduled)) + ". Watch it land on your dashboard.</p>" +
-          "<div class=\"row\"><button type=\"button\" data-act=\"go-status\">Go to the dashboard</button>" +
+          esc(cleanTime(ok.scheduled_at_utc || scheduled)) + ". Watch it under Email sends on this page.</p>" +
+          "<div class=\"row\"><button type=\"button\" data-act=\"go-campaigns\">Refresh campaigns</button>" +
           "<button type=\"button\" class=\"secondary\" data-act=\"go-landing\">Describe another business</button></div>";
       }, function (e) {
         wiz.innerHTML = "<p>Could not schedule: " + esc((e && e.message) || e) + "</p>";
@@ -2315,6 +2397,9 @@
     if (ds.act === "create-campaign") submitCampaign();
     if (ds.act === "go-senders") renderSendersView("campaigns");
     if (ds.act === "go-status") renderStatuses();
+    if (ds.act === "go-campaigns") renderCampaignView();
+    if (ds.act === "go-drafts") renderDrafts();
+    if (ds.act === "go-onboard") { showView("onboard"); obFirstPhase(); }
     if (ds.act === "go-landing") restartToLanding();
   }
 
@@ -2494,6 +2579,8 @@
     });
     var landingDashBtn = $("link-dash");
     if (landingDashBtn) landingDashBtn.addEventListener("click", openDashboard);
+    var campCard = $("campaign-card");
+    if (campCard) campCard.addEventListener("click", onCampaignCardClick);
 
     $("btn-ob-back").addEventListener("click", function () { showView("landing"); });
     $("btn-ob-example").addEventListener("click", function () {
