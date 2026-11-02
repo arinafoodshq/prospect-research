@@ -464,6 +464,10 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
   ok(!/cmp_[0-9a-f]/i.test(mon), "send list hides internal campaign ids");
   ok(!/:[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(mon), "send list shows human times, never ISO stamps");
   ok(!/>queued</.test(mon) && /waiting/.test(mon), "recipient states are human (waiting, not queued)");
+  const wizHtml = els["campaign-wizard"].innerHTML;
+  ok(/class="r-name"/.test(wizHtml), "scheduler recipient rows show the lead's name, not placeholders");
+  ok(/<textarea data-field="rcpt-body"[^>]*>[^<]/.test(wizHtml),
+    "the recipient message arrives pre-filled, never an empty box");
   await fire(els["btn-back-campaigns"], "click", evt());
   ok(visible("view-drafts"), "scheduler leads back to messages");
 }

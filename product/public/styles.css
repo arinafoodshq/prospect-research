@@ -1201,3 +1201,19 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
 
 /* Section rhythm inside the campaigns view. */
 .sec-h { margin: 1.6rem 0 0.2rem; font-family: var(--font-display); font-size: 1.15rem; }
+
+/* Campaign scheduler: collapsed recipient rows (tap to open the message),
+   pagination for large recipient lists (user report 2026-11-02). */
+.campaign summary {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 0.6rem; cursor: pointer; list-style: none;
+}
+.campaign summary::-webkit-details-marker { display: none; }
+.campaign[open] summary {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem; margin-bottom: 0.5rem;
+}
+.campaign .r-name { font-weight: 600; }
+.campaign summary .meta { text-align: right; }
+.pager { align-items: center; }
+.pager .meta { color: var(--dim); }

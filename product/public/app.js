@@ -1971,7 +1971,10 @@
   }
 
   function renderCampaigns(board) {
+    var g = loadingHint(board, "Fetching sends…");
     return api.getCampaigns().then(function (res) {
+      g.done();
+      board.innerHTML = "";
       var div = document.createElement("div");
       div.className = "campaigns";
       var list = res.campaigns || [];
@@ -1999,7 +2002,10 @@
         }).join("");
       }
       board.appendChild(div);
-    }, function () { /* sends are best-effort */ });
+    }, function () {
+      g.done();
+      board.innerHTML = "<p class=\"hint\">Could not load sends. Check your connection and try again.</p>";
+    });
   }
 
   function onBoardClick(e) {
@@ -2281,7 +2287,10 @@
     var wrap = $("campaign-card");
     if (!wrap) return Promise.resolve();
     if (!api.getLatestRun) { wrap.hidden = true; return Promise.resolve(); }
+    wrap.hidden = false;
+    var g = loadingHint(wrap, "Fetching your campaign…");
     return api.getLatestRun().then(function (res) {
+      g.done();
       var run = res && res.run;
       if (!run) { wrap.hidden = true; return; }
       currentCampaignRun = run;
@@ -2299,7 +2308,10 @@
         "<div class=\"row\"><button type=\"button\" data-act=\"" + act + "\">" + esc(label) + "</button>" +
         "<button type=\"button\" class=\"secondary\" data-act=\"go-onboard\">Start another campaign</button></div>" +
         "</div>";
-    }, function () { /* the card is best-effort; the wizard still renders */ });
+    }, function () {
+      g.done();
+      wrap.hidden = true; // the card is best-effort; the wizard still renders
+    });
   }
 
   function onCampaignCardClick(e) {
@@ -2341,10 +2353,12 @@
     }
     // The send scheduler needs approved messages first: say where the work
     // actually stands instead of a dead end (user report 2026-11-02).
+    var wizLoad = loadingHint(wiz, "Fetching your messages…");
     api.getDrafts(state.runId).then(function (res) {
       var drafts = res.drafts || [];
       var approved = drafts.filter(function (d) { return d.status === "approved"; });
       if (!approved.length) {
+        wizLoad.done();
         var waiting = drafts.length;
         wiz.innerHTML = waiting
           ? "<p>This campaign has " + waiting + " message" + (waiting === 1 ? "" : "s") +
@@ -2353,72 +2367,158 @@
           : "<p>Nothing qualified for messages in this campaign yet.</p>";
         return;
       }
-      return api.listConnections().then(function (creds) {
-        var conns = (creds.connections || []).filter(function (c) { return c.status === "connected"; });
+      // Connections and per-lead details load in parallel: one slow call must
+      // not stretch the whole page out (user report 2026-11-02).
+      return Promise.all([
+        api.listConnections(),
+        Promise.all(approved.map(function (d) { return api.getProspectDetail(d.prospectId); })),
+      ]).then(function (outs) {
+        wizLoad.done();
+        var conns = (outs[0].connections || []).filter(function (c) { return c.status === "connected"; });
         if (!conns.length) {
           wiz.innerHTML = "<p>No verified email account yet. Connect one first, then come back.</p>" +
             "<div class=\"row\"><button type=\"button\" data-act=\"go-senders\">Connect an email account</button></div>";
           return;
         }
-        return Promise.all(approved.map(function (d) { return api.getProspectDetail(d.prospectId); })).then(function (details) {
-          state.campaignRows = details.map(function (det, i) {
-            var routes = det.routes || det.contact_routes || [];
-            var email = routes.filter(function (r) { return r.channel === "email"; })[0];
-            var draft = (det.draft && (det.draft.subject || det.draft.body)) ? det.draft : (approved[i].draft || {});
-            return {
-              prospectId: det.prospect ? det.prospect.id : approved[i].prospectId,
-              name: det.prospect ? det.prospect.name : approved[i].prospectId,
-              email: email ? email.value : "",
-              subject: draft.subject || "",
-              body: draft.body || ""
-            };
-          });
-          var opts = conns.map(function (c) {
-            return "<option value=\"" + esc(c.id) + "\">" + esc(c.label) + " (" + esc(c.sender_email) + ")</option>";
-          }).join("");
-          wiz.innerHTML = "<label>Campaign name <input data-field=\"cmp-name\" value=\"Outreach. Week 1\" /></label>" +
-            "<label>Send from <select data-field=\"cmp-sender\">" + opts + "</select></label>" +
-            "<label>Send at <input data-field=\"cmp-when\" type=\"datetime-local\" /></label>" +
-            "<h3>Recipients (" + state.campaignRows.length + ")</h3>" +
-            state.campaignRows.map(function (r, i) {
-              return "<div class=\"campaign\"><h4>" + esc(r.name) + "</h4>" +
-                "<label>To <input data-field=\"rcpt-email\" data-idx=\"" + i + "\" value=\"" + esc(r.email) + "\" /></label>" +
-                "<label>Subject <input data-field=\"rcpt-subject\" data-idx=\"" + i + "\" value=\"" + esc(r.subject) + "\" /></label>" +
-                "<label>Message <textarea data-field=\"rcpt-body\" data-idx=\"" + i + "\" rows=\"4\">" + esc(r.body) + "</textarea></label></div>";
-            }).join("") +
-            "<div class=\"row\"><button type=\"button\" data-act=\"create-campaign\">Review &amp; schedule</button></div>";
+        var details = outs[1];
+        state.campaignRows = details.map(function (det, i) {
+          var routes = det.routes || det.contact_routes || [];
+          var email = routes.filter(function (r) { return r.channel === "email"; })[0];
+          var dRow = approved[i];
+          var det2 = det.draft || {};
+          // The email send uses the approved EMAIL variant when the research
+          // wrote one; subject/body fall back through every honest source
+          // (the old code read a non-existent field and rendered empty boxes,
+          // user report 2026-11-02).
+          var vv = variantObject(dRow.variants);
+          if (!Object.keys(vv).length) vv = variantObject(det2.variants);
+          return {
+            prospectId: det.prospect ? det.prospect.id : dRow.prospectId,
+            name: det.prospect ? det.prospect.name : dRow.prospectId,
+            email: email ? email.value : "",
+            subject: det2.subject || dRow.subject || "",
+            body: vv.email || det2.body || dRow.body || ""
+          };
         });
+        state.campaignPage = 0;
+        state.campaignConns = conns;
+        renderWizardForm();
       });
+    }, function () {
+      wizLoad.done();
+      wiz.innerHTML = "<p>Could not load your campaign. Check your connection and try again.</p>" +
+        "<div class=\"row\"><button type=\"button\" data-act=\"go-campaigns\">Try again</button></div>";
     });
   }
 
+  /** Variants may arrive as an object or a JSON string (D1 column). */
+  function variantObject(v) {
+    if (!v) return {};
+    if (typeof v === "string") {
+      try { v = JSON.parse(v); } catch (e) { return {}; }
+    }
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  }
+
+  var WIZ_PAGE_SIZE = 20;
+
+  /** The scheduler form: collapsed recipient rows (name + address first,
+   * full message one tap away) so 200 recipients stay reviewable instead of
+   * one endless wall of textareas (user report 2026-11-02). */
+  function renderWizardForm() {
+    var wiz = $("campaign-wizard");
+    var conns = state.campaignConns || [];
+    var rows = state.campaignRows || [];
+    var page = state.campaignPage || 0;
+    var start = page * WIZ_PAGE_SIZE;
+    var slice = rows.slice(start, start + WIZ_PAGE_SIZE);
+    var opts = conns.map(function (c) {
+      return "<option value=\"" + esc(c.id) + "\">" + esc(c.label) + " (" + esc(c.sender_email) + ")</option>";
+    }).join("");
+    var pages = Math.ceil(rows.length / WIZ_PAGE_SIZE);
+    var pager = pages > 1
+      ? "<div class=\"row pager\"><button type=\"button\" class=\"secondary\" data-act=\"wiz-prev\"" +
+        (page === 0 ? " disabled" : "") + ">&#8592; Previous</button>" +
+        "<span class=\"meta\">Page " + (page + 1) + " of " + pages + " · " + rows.length + " recipients</span>" +
+        "<button type=\"button\" class=\"secondary\" data-act=\"wiz-next\"" +
+        (start + WIZ_PAGE_SIZE >= rows.length ? " disabled" : "") + ">Next &#8594;</button></div>"
+      : "";
+    wiz.innerHTML = "<label>Campaign name <input data-field=\"cmp-name\" value=\"Outreach. Week 1\" /></label>" +
+      "<label>Send from <select data-field=\"cmp-sender\">" + opts + "</select></label>" +
+      "<label>Send at <input data-field=\"cmp-when\" type=\"datetime-local\" /></label>" +
+      "<h3>Recipients (" + rows.length + ")</h3>" +
+      "<p class=\"hint\">Every recipient keeps their own approved message. Tap a row to read or edit it before the send.</p>" +
+      slice.map(function (r, i) {
+        var idx = start + i;
+        return "<details class=\"campaign\"" + (i === 0 ? " open" : "") + "><summary>" +
+          "<span class=\"r-name\">" + esc(r.name) + "</span>" +
+          "<span class=\"meta\">" + esc(r.email || "no email found") + "</span></summary>" +
+          "<label>To <input data-field=\"rcpt-email\" data-idx=\"" + idx + "\" value=\"" + esc(r.email) + "\" /></label>" +
+          "<label>Subject <input data-field=\"rcpt-subject\" data-idx=\"" + idx + "\" value=\"" + esc(r.subject) + "\" /></label>" +
+          "<label>Message <textarea data-field=\"rcpt-body\" data-idx=\"" + idx + "\" rows=\"4\">" + esc(r.body) + "</textarea></label></details>";
+      }).join("") +
+      pager +
+      "<div class=\"row\"><button type=\"button\" data-act=\"create-campaign\">Review &amp; schedule</button></div>";
+  }
+
+  /** Fold the visible page's edits back into state before navigating pages
+   * or scheduling — the DOM only ever holds the current page. */
+  function commitWizardEdits() {
+    var wiz = $("campaign-wizard");
+    var map = { "rcpt-email": "email", "rcpt-subject": "subject", "rcpt-body": "body" };
+    Object.keys(map).forEach(function (f) {
+      var els = wiz.querySelectorAll('[data-field="' + f + '"]');
+      for (var i = 0; i < els.length; i++) {
+        var idx = parseInt(els[i].getAttribute("data-idx"), 10);
+        if (!isNaN(idx) && state.campaignRows[idx]) state.campaignRows[idx][map[f]] = els[i].value;
+      }
+    });
+  }
+
+  /** Visible loading state with an honest slow-network fallback: a spinner
+   * dot first, then a plain "still loading" note instead of a silent hang
+   * (user report 2026-11-02: a minute of bare "Loading…"). */
+  function loadingHint(el, msg) {
+    var g = { stale: false, t: null };
+    el.innerHTML = "<p class=\"hint\"><span class=\"live-dot\" aria-hidden=\"true\"></span> " + esc(msg) + "</p>";
+    g.t = setTimeout(function () {
+      if (!g.stale) el.innerHTML = "<p class=\"hint\">Still loading — if this does not finish, check your connection and reload.</p>";
+    }, 6000);
+    g.done = function () {
+      g.stale = true;
+      if (g.t) { clearTimeout(g.t); g.t = null; }
+    };
+    return g;
+  }
+
   function submitCampaign() {
+    commitWizardEdits(); // fold the visible page's edits in before reading state
     var wiz = $("campaign-wizard");
     var get = function (sel) { var el = wiz.querySelector(sel); return el ? el.value : ""; };
     var name = get('[data-field="cmp-name"]') || "Outreach";
     var connectionId = get('[data-field="cmp-sender"]');
     var when = get('[data-field="cmp-when"]');
     var scheduled = when ? new Date(when).toISOString() : new Date(Date.now() + 60000).toISOString();
-    var emails = wiz.querySelectorAll('[data-field="rcpt-email"]');
-    var subjects = wiz.querySelectorAll('[data-field="rcpt-subject"]');
-    var bodies = wiz.querySelectorAll('[data-field="rcpt-body"]');
-    var recipients = state.campaignRows.map(function (r, i) {
+    var recipients = state.campaignRows.map(function (r) {
       return {
-        email: ((emails[i] && emails[i].value) || "").trim(),
-        subject: (subjects[i] && subjects[i].value) || "",
-        body: (bodies[i] && bodies[i].value) || "",
+        email: ((r.email || "") + "").trim(),
+        subject: r.subject || "",
+        body: r.body || "",
         prospect_id: r.prospectId
       };
     }).filter(function (r) { return r.email; });
     if (!recipients.length) { wiz.innerHTML = "<p>Enter at least one recipient email.</p>"; return; }
+    var sendLoad = loadingHint(wiz, "Scheduling…");
     api.createCampaign({ name: name, connection_id: connectionId, recipients: recipients })
       .then(function (cmp) { return api.approveCampaign(cmp.id, { scheduled_at_utc: scheduled }); })
       .then(function (ok) {
+        sendLoad.done();
         wiz.innerHTML = "<p>Scheduled. " + recipients.length + " message(s), first send " +
           esc(cleanTime(ok.scheduled_at_utc || scheduled)) + ". Watch it under Email sends on this page.</p>" +
           "<div class=\"row\"><button type=\"button\" data-act=\"go-campaigns\">Refresh campaigns</button>" +
           "<button type=\"button\" class=\"secondary\" data-act=\"go-landing\">Describe another business</button></div>";
       }, function (e) {
+        sendLoad.done();
         wiz.innerHTML = "<p>Could not schedule: " + esc((e && e.message) || e) + "</p>";
       });
   }
@@ -2427,6 +2527,13 @@
     var t = e.target || {};
     var ds = t.dataset || {};
     if (ds.act === "create-campaign") submitCampaign();
+    if (ds.act === "wiz-prev" || ds.act === "wiz-next") {
+      commitWizardEdits();
+      var max = Math.ceil((state.campaignRows || []).length / WIZ_PAGE_SIZE) - 1;
+      var next = state.campaignPage + (ds.act === "wiz-next" ? 1 : -1);
+      if (next >= 0 && next <= max) { state.campaignPage = next; renderWizardForm(); }
+      return;
+    }
     if (ds.act === "go-senders") renderSendersView("campaigns");
     if (ds.act === "go-status") renderStatuses();
     if (ds.act === "go-campaigns") renderCampaignView();
