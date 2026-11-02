@@ -1001,6 +1001,9 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
 .route-edit button { background: var(--accent); border: 0; border-radius: var(--radius-pill); color: #fff;
   font: inherit; font-weight: 700; font-size: 13px; min-height: 38px; padding: 0 16px; cursor: pointer; }
 
+.status-chip { display: inline-block; background: var(--accent-soft); color: var(--accent-deep);
+  font-weight: 700; font-size: 13px; border-radius: var(--radius-pill); padding: 4px 12px; margin: 6px 0 0; }
+
 /* Manual send (WhatsApp/email) in the Message studio */
 .send-card { border: 1.5px solid var(--accent); }
 .wa-app-row { margin: 10px 0; }
@@ -1048,3 +1051,25 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .l-typed.typing::after { animation: none; }
 }
+
+/* Dashboard bar: slim chrome for the chromeless mid-flow views (onboard,
+   profile, progress). Landing keeps its own nav; full views keep the header. */
+.dash-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0.6rem var(--app-pad-x);
+  border-bottom: 1px solid var(--border-strong);
+}
+.dash-bar[hidden] { display: none; }
+.db-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.db-actions { display: inline-flex; align-items: center; gap: 0.75rem; }

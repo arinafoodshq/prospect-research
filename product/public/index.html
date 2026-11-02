@@ -25,6 +25,7 @@
     <h1>Prospect Research</h1>
     <p class="tagline">Describe what you sell. We find businesses likely to buy. Every pick backed by evidence, every message approved by you.</p>
     <div class="auth-area" id="auth-area">
+      <button type="button" class="auth-out" id="btn-dash" hidden>Dashboard</button>
       <a class="auth-link" id="hdr-signin" href="/api/auth/start" hidden>Sign in</a>
       <span class="auth-chip" id="hdr-user" hidden></span>
       <button type="button" class="auth-out" id="btn-signout" hidden>Sign out</button>
@@ -36,19 +37,33 @@
         <li data-view="progress">3. Research run</li>
         <li data-view="shortlist">4. Shortlist</li>
         <li data-view="drafts">5. Drafts</li>
-        <li data-view="status">6. Status board</li>
+        <li data-view="status">6. Dashboard</li>
         <li data-view="campaigns">7. Campaigns</li>
         <li data-view="senders">8. Senders</li>
       </ol>
     </nav>
   </header>
 
+  <!-- Dashboard bar: slim chrome for the chromeless mid-flow views (onboard,
+       profile, progress). The landing keeps its own nav; the full views have
+       the whole header. Signed in: Dashboard. Signed out: Sign in. -->
+  <div class="dash-bar" id="dash-bar" hidden>
+    <span class="db-brand"><img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" />Prospect Research</span>
+    <span class="db-actions">
+      <button type="button" class="db-dash" id="btn-dash-mini" hidden>Dashboard</button>
+      <a class="auth-link" id="bar-signin" href="/api/auth/start" hidden>Sign in</a>
+    </span>
+  </div>
+
   <main id="app">
     <!-- View 0: landing (Revamp screen 1). Hero names live only in the SVG illustration. -->
     <section id="view-landing" class="view-landing" aria-label="Welcome">
       <nav class="l-nav" aria-label="Landing">
         <span class="l-brand"><img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" />Prospect Research</span>
-        <a class="l-signin" id="link-signin" href="/api/auth/start" hidden>Sign in</a>
+        <span class="l-nav-right">
+          <button type="button" class="l-signin" id="link-dash" hidden>Dashboard</button>
+          <a class="l-signin" id="link-signin" href="/api/auth/start" hidden>Sign in</a>
+        </span>
       </nav>
       <!-- Run recovery: a research run survives reloads and dead networks on
            the server; this card brings the owner back to it — continue, never
@@ -336,7 +351,7 @@
         <p class="kicker">STATUS</p>
       </div>
       <p class="kicker kicker-dim" id="status-kicker" hidden></p>
-      <h2>Status board</h2>
+      <h2>Your dashboard</h2>
       <div class="board" id="status-board"></div>
       <div class="row">
         <button id="btn-back-drafts" type="button" class="secondary">Back to drafts</button>

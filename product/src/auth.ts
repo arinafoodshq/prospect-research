@@ -184,7 +184,7 @@ export async function googleCallback(req: Request, env: Env): Promise<Response> 
     kind: "auth_event", subject: "signin",
     summary: { email: claims.email, name, created_at: new Date(now).toISOString() },
   });
-  const headers = new Headers({ location: `${origin}/` });
+  const headers = new Headers({ location: `${origin}/?dash=1` });
   headers.append("set-cookie", cookie);
   return new Response(null, { status: 302, headers });
 }

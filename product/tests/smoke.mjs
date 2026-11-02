@@ -136,6 +136,7 @@ const IDS = [
   "auth-area", "hdr-signin", "hdr-user", "btn-signout",
   "view-signin", "btn-google-signin", "signin-view-note", "signin-back",
   "resume-card", "resume-status", "btn-resume-continue", "btn-resume-dismiss",
+  "dash-bar", "btn-dash", "btn-dash-mini", "bar-signin", "link-dash",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
   "campaign-wizard",
@@ -215,6 +216,7 @@ const evt = (extra) => Object.assign({ preventDefault() {}, target: {} }, extra 
 
 /* ---- Walk the flow. */
 ok(visible("view-landing"), "boots on the landing view");
+ok(els["dash-bar"].hidden !== false, "no dashboard bar on the landing (it has its own nav)");
 await fire(els["link-signin"], "click", evt());
 ok(els["signin-note"].hidden === false && /demo needs no account/.test(els["signin-note"].textContent),
   "sign in link explains the demo needs no account");
@@ -300,6 +302,7 @@ let confirmedProfile = null;
 const runDone = fire(els["btn-confirm-profile"], "click", evt());
 await new Promise((r) => setTimeout(r, 1200)); // 3 of 5 mock ticks landed
 await tick(); await tick();
+ok(els["dash-bar"].hidden === false, "dashboard bar rides along on the progress view");
 ok(els["progress-kicker"].textContent === "EXAMPLE DATA", "progress kicker marks the example run");
 ok(els["stat-found"].textContent === "25" && els["stat-opened"].textContent === "14" && els["stat-kept"].textContent === "3",
   "progress stats count found/opened/kept (" + els["stat-found"].textContent + "/" + els["stat-opened"].textContent + "/" + els["stat-kept"].textContent + ")");
@@ -475,6 +478,19 @@ ok(visible("view-drafts"), "status -> back to drafts");
 await fire(els["btn-back-shortlist"], "click", evt());
 await tick();
 ok(visible("view-shortlist"), "drafts -> back to shortlist");
+
+// Dashboard entry point: the header button hydrates from state and opens the
+// board; the rail jumps stage-to-stage (user request 2026-11-02).
+await fire(els["btn-dash"], "click", evt());
+await tick();
+ok(visible("view-status"), "header Dashboard button opens the dashboard");
+ok(els["dash-bar"].hidden !== false, "full header replaces the bar on chrome'd views");
+{
+  const li = { getAttribute: (k) => (k === "data-view" ? "shortlist" : null) };
+  els["step-nav"]._listeners.click.forEach((fn) => fn({ target: { closest: () => li } }));
+  await tick();
+  ok(visible("view-shortlist"), "rail step click jumps to the shortlist");
+}
 
 await fire(els["btn-stop-progress"], "click", evt());
 await tick();

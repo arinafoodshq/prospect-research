@@ -27,10 +27,18 @@
     var hdrUser = $("hdr-user");
     var hdrOut = $("btn-signout");
     var landing = $("link-signin");
+    var hdrDash = $("btn-dash");
+    var barDash = $("btn-dash-mini");
+    var barSignin = $("bar-signin");
+    var landingDash = $("link-dash");
     if (!live) {
       if (hdrSignin) hdrSignin.hidden = true;
       if (hdrUser) hdrUser.hidden = true;
       if (hdrOut) hdrOut.hidden = true;
+      if (hdrDash) hdrDash.hidden = true;
+      if (barDash) barDash.hidden = true;
+      if (barSignin) barSignin.hidden = false;
+      if (landingDash) landingDash.hidden = true;
       if (landing) { landing.hidden = false; landing.setAttribute("href", "#signin"); }
       return;
     }
@@ -38,6 +46,10 @@
     if (hdrSignin) hdrSignin.hidden = signed;
     if (hdrUser) { hdrUser.hidden = !signed; if (signed) hdrUser.textContent = me.name || me.email; }
     if (hdrOut) hdrOut.hidden = !signed;
+    if (hdrDash) hdrDash.hidden = !signed;
+    if (barDash) barDash.hidden = !signed;
+    if (barSignin) barSignin.hidden = signed;
+    if (landingDash) landingDash.hidden = !signed;
     if (landing) landing.hidden = signed;
   }
 
@@ -67,8 +79,8 @@
   }
 
   function checkResumableRun() {
-    if (api.mode !== "live" || !me || state.runId || !api.getLatestRun) return;
-    api.getLatestRun().then(function (res) {
+    if (api.mode !== "live" || !me || state.runId || !api.getLatestRun) return null;
+    return api.getLatestRun().then(function (res) {
       var run = res && res.run;
       if (!run) return;
       var resumable = ["created", "awaiting_brief", "discovering", "investigating", "assessing", "drafting", "awaiting_approval"];
@@ -77,6 +89,10 @@
       var card = $("resume-card");
       if (!card) return;
       $("resume-status").textContent = resumeStatusText(run);
+      // The button names the destination: drafts already written open the
+      // messages, not another lap through the shortlist.
+      var btn = $("btn-resume-continue");
+      if (btn) btn.textContent = run.status === "awaiting_approval" ? "Open my messages \u2192" : "Continue \u2192";
       card.hidden = false;
     }).catch(function () { /* recovery check is best-effort */ });
   }
@@ -103,6 +119,50 @@
     });
   }
 
+  // The Dashboard is the status board hydrated from the latest run: the one
+  // screen that answers "where do my messages stand". Reachable from every
+  // view — header button, mid-flow bar, landing nav (user request 2026-11-02).
+  function adoptPendingRun() {
+    if (!state.runId && pendingRestore) {
+      state.runId = pendingRestore.id;
+      state.profile = { id: pendingRestore.profile_id, name: pendingRestore.profile_name || "" };
+      pendingRestore = null;
+      var card = $("resume-card");
+      if (card) card.hidden = true;
+    }
+  }
+
+  function openDashboard() {
+    adoptPendingRun();
+    var jobs = [];
+    if (state.runId) {
+      if (!state.prospects.length) {
+        jobs.push(api.getShortlist(state.runId).then(function (r) {
+          state.prospects = r.prospects;
+        }, function () { /* the board still renders, empty */ }));
+      }
+      if (!state.drafts.length) {
+        jobs.push(api.getDrafts(state.runId).then(function (r) {
+          state.drafts = r.drafts;
+        }, function () { /* the board still renders, empty */ }));
+      }
+    }
+    Promise.all(jobs).then(function () { renderStatuses(); });
+  }
+
+  // Post-sign-in return lands on the owner's home (the dashboard), not the
+  // marketing page: /api/auth/callback redirects back with ?dash=1.
+  function maybeOpenDashboard(ready) {
+    var q = null;
+    try { q = new URLSearchParams(window.location.search); } catch (e) { return; }
+    if (!q || q.get("dash") !== "1" || api.mode !== "live" || !me) return;
+    try { window.history.replaceState(null, "", window.location.pathname); } catch (e) { /* the param may survive on old browsers */ }
+    (ready || Promise.resolve()).then(function () {
+      if (!state.runId && !pendingRestore) return; // fresh account: nothing to show yet, stay on the landing
+      openDashboard();
+    });
+  }
+
   function $(id) { return document.getElementById(id); }
 
   var CHROMELESS = ["landing", "onboard", "profile", "progress"];
@@ -122,6 +182,10 @@
     if (header) header.hidden = plain;
     var footer = $("site-footer");
     if (footer) footer.hidden = plain;
+    // Dashboard bar: slim chrome for the mid-flow chromeless views. The
+    // landing keeps its own nav; the full views have the whole header.
+    var bar = $("dash-bar");
+    if (bar) bar.hidden = !(name === "onboard" || name === "profile" || name === "progress");
     ["progress-kicker", "shortlist-kicker", "drafts-kicker", "status-kicker",
      "campaigns-kicker", "senders-kicker"].forEach(setDemoKicker);
     var nav = $("step-nav");
@@ -817,6 +881,24 @@
         state.tab = null;
         // The owner may have moved on (stop, preview): never yank them back.
         if ($("view-progress").hidden && $("view-shortlist").hidden) return null;
+        // Live only: a run that finished while the owner was away may already
+        // have messages written. Land in the drafts studio, not on a
+        // shortlist that makes them click "Write my messages" again
+        // (user report 2026-11-02, Duban).
+        if (!isDemo()) {
+          return api.getDrafts(myRun).then(function (dr) {
+            if (myRun !== state.runId) return null;
+            if (dr.drafts && dr.drafts.length) { renderDrafts(); return null; }
+            renderShortlist();
+            showView("shortlist");
+            return null;
+          }, function () {
+            if (myRun !== state.runId) return null;
+            renderShortlist();
+            showView("shortlist");
+            return null;
+          });
+        }
         renderShortlist();
         showView("shortlist");
         return null;
@@ -2315,7 +2397,11 @@
     });
     // Sign-in state: whoAmI on boot (live), then the header reflects it.
     if (api.whoAmI) {
-      api.whoAmI().then(function (user) { me = user; renderAuthUi(); checkResumableRun(); });
+      api.whoAmI().then(function (user) {
+        me = user;
+        renderAuthUi();
+        maybeOpenDashboard(checkResumableRun());
+      });
     }
     renderAuthUi();
     if (api.mode === "live" && typeof window.ApiLayer !== "undefined") {
@@ -2344,6 +2430,21 @@
       me = null;
       renderAuthUi();
       showView("landing");
+    });
+
+    // Dashboard entry points (see openDashboard). The bar's Sign in mirrors
+    // the landing link: in the demo it explains, in live it goes to Google.
+    var hdrDashBtn = $("btn-dash");
+    if (hdrDashBtn) hdrDashBtn.addEventListener("click", openDashboard);
+    var barDashBtn = $("btn-dash-mini");
+    if (barDashBtn) barDashBtn.addEventListener("click", openDashboard);
+    var landingDashBtn = $("link-dash");
+    if (landingDashBtn) landingDashBtn.addEventListener("click", openDashboard);
+    var barSignin = $("bar-signin");
+    if (barSignin) barSignin.addEventListener("click", function (e) {
+      if (api.mode === "live") return;
+      if (e && e.preventDefault) e.preventDefault();
+      goSignin();
     });
 
     $("btn-ob-back").addEventListener("click", function () { showView("landing"); });
