@@ -1869,3 +1869,17 @@ Built (commit 60449e0, deployed 9c27e4c4, migration 0008 applied remote):
   linked chips (Instagram/Facebook/X/LinkedIn/TikTok parsed from the url).
 Verification: tsc clean; 464/464 vitest (one fetchPage shape test updated);
 SMOKE PASS (demo WhatsApp variant asserted); deployed; push.
+
+## 2026-11-02 — Dashboard navigation (user: "how do I navigate to my dashboard")
+
+The shortlist and drafts views were chromeless - no way back to the status
+board, campaigns or senders. Fixed (commit 7d9dd6c, deployed 9648a3e6):
+- The step rail (1. Onboard ... 8. Senders) now shows on shortlist and drafts
+  too, with the current stage highlighted and Sign in/out in the header.
+- Every step is CLICKABLE and jumps to what the app can render right now:
+  Status board / Campaigns / Senders render on demand; Shortlist/Drafts/
+  Progress jump only when their data is loaded; Onboarding restarts only
+  when no run is in flight. Smoke asserts the rail on the shortlist
+  (header stub added to the smoke DOM) and the senders click is wired in the
+  real handler.
+Verification: 464/464 vitest, SMOKE PASS, deployed, push.
