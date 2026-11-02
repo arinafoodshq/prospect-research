@@ -1940,3 +1940,35 @@ Verification: SMOKE PASS with new pins (sidebar hidden on landing, sidebar +
 stage strip on progress/shortlist, sidebar Dashboard opens the board, no stage
 strip on the dashboard, campaigns hide ids/ISO/queued); 464/464 vitest; no
 migration in this batch.
+
+## 2026-11-02 — Campaign model alignment + board detail doors + naming (round 3)
+
+User: "a campaign is the beginning of any new prospect research from describing
+the business... like a word document, resume/follow up, send out messages".
+Also: board column items should open the message detail; "Senders" is jargon;
+review copy/nav per the 10 heuristics; mind mobile. Fixes (commit d31425b,
+deployed ccca4b36):
+
+- Campaigns view rebuilt around the engagement: "Your campaigns" now shows a
+  Current campaign card (name, human status, started date, Open messages /
+  Continue research / Retry + Start another campaign), then "Schedule a send"
+  (the wizard, now drafts-first: N messages waiting for review -> Open
+  messages instead of a dead end), then "Email sends" (the humanized monitor,
+  moved off the dashboard so the board stays pure message states).
+- The run is the campaign: status map gained complete/failed human states;
+  no raw status codes anywhere.
+- Board items (Approved/Pending/Deferred/Rejected/Follow-ups) are buttons
+  that open that lead's message in the studio, focused on the exact draft
+  (openDraftFor; direct focus when the studio is built, refetch on cold boot).
+- Naming sweep: Senders -> "Email accounts" (sidebar + page + copy, Google's
+  "send mail as" convention); "Email campaigns" monitor -> "Email sends";
+  "Schedule a campaign" -> "Schedule a send"; "Start over (new business)" ->
+  "Start a new campaign"; wizard "Sender" -> "Send from"; "Connect a sender"
+  -> "Connect an email account".
+- Responsive: board columns now auto-fit (minmax 13.5rem) so 5 columns wrap
+  naturally at every width; existing 800px/480px breakpoints kept; touch
+  targets preserved.
+
+Verification: SMOKE PASS (board is pure message states + doors pin, sends
+monitor pins moved to the Campaigns view incl. no ids/ISO/queued, campaign
+card hidden in demo), 464/464 vitest; no migration in this batch.
