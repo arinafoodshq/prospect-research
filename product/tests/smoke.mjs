@@ -154,6 +154,7 @@ els["step-nav"].querySelectorAll = () => ["onboard", "profile", "progress", "sho
 }));
 
 const startBtn = new FakeEl("button", "landing-cta");
+const headerEl = new FakeEl("header", "site-header");
 const documentStub = new Proxy({
   getElementById(id) {
     if (!els[id]) fail("getElementById(" + JSON.stringify(id) + ") is outside the known DOM surface");
@@ -163,7 +164,7 @@ const documentStub = new Proxy({
   readyState: "complete",
   addEventListener() {},
   querySelector(sel) {
-    if (sel === ".site-header") return null; // header hidden-toggle is guarded
+    if (sel === ".site-header") return headerEl; // the dashboard rail toggle
     fail("querySelector(" + sel + ") hit unimplemented stub on document");
   },
   querySelectorAll(sel) {
@@ -323,6 +324,8 @@ ok(confirmedProfile && confirmedProfile.fields.some((f) => f.value === "No site 
     "profile offer does not duplicate the buyer (" + offer.slice(0, 80) + ")");
 }
 ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
+ok((sandbox.document.querySelector(".site-header") || {}).hidden === false,
+  "step rail visible on the shortlist (dashboard nav, user request 2026-11-02)");
 ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "2" && els["tab-look-n"].textContent === "2",
   "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent + ")");
 ok(els["shortlist-title"].textContent === "Six buyers worth your time.", "title counts the shortlist");
