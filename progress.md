@@ -2176,3 +2176,25 @@ context to what it knows):
 Verification: 474/474 vitest (route tests rewritten to the new rule: known
 area accepted, unknown token asks exactly once, model re-ask suppressed),
 SMOKE PASS, tsc clean; deployed b93c8cfd (push 7cf86ac).
+## 2026-11-03 (dashboard shows unfinished work)
+
+User: a crashed run left the dashboard with only empty columns - no trace
+of the work in flight ("be able to see unfinished works").
+
+- view-status gains #run-banner, rendered from GET /api/runs/latest on
+  every dashboard render: mid-run -> "Still working - <name> is <stage>"
+  + Continue research (poll); failed -> "Unfinished campaign - stopped
+  early, everything it found is saved" + Continue research (resumeRun to
+  created: the synchronized same-run restart); awaiting_approval ->
+  "Waiting for you" + Open my messages. Complete runs hide the banner.
+- onBoardClick handles resume-run / open-messages; sets state.runId from
+  the banner run before continuing.
+- CSS: .run-banner with state-colored left stripe (accent/marigold/
+  success); smoke IDS registers run-banner.
+- Known limit (flagged): /api/runs/latest is the global latest - runs
+  carry no operator column; fine for the current single-operator demo,
+  must be scoped before true multi-user.
+
+Verification: 474/474 vitest, SMOKE PASS (banner id registered), tsc
+clean; deployed eb2acd03 (push 11b0136). The failed ArinaFoods run will
+now appear on that user's dashboard with a working Continue button.
