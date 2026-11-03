@@ -791,15 +791,18 @@ describe("conversational onboarding", () => {
     expect(badSkip.body.error).toBe("unknown_field_key");
   });
 
-  // Location precision (owner rule 2026-10-30): "I said I grill chicken in
-  // Ikeja" — a one-word place must be expanded by ASKING, never assumed.
+  // Location handling (owner direction 2026-11-03, superseding the
+  // 2026-10-30 ask-first rule): the system USES ITS SENSES — a known area
+  // ("Ikeja" IS Lagos) is completed by the model with world knowledge and
+  // the network geo context, never nagged into a comma form. Only a truly
+  // unknown bare token asks, and exactly once.
   function withMockTurn(fn: (i: unknown) => unknown, run: () => Promise<void>): Promise<void> {
     const g = globalThis as { __onboardMockTurn?: (i: unknown) => unknown };
     g.__onboardMockTurn = fn;
     return run().finally(() => { delete g.__onboardMockTurn; });
   }
 
-  it("asks to expand a bare one-word location instead of running with it", async () => {
+  it("accepts a known area name without asking (Ikeja IS Lagos)", async () => {
     await withMockTurn(
       () => ({ fields: { service_area: { value: "Ikeja", label: "inferred" } }, question: null, done: true }),
       async () => {
@@ -808,17 +811,38 @@ describe("conversational onboarding", () => {
           text: "I grill chicken in Ikeja", fields: {}, followups_used: 0,
         });
         expect(res.status).toBe(200);
-        expect(res.body.done).toBe(false);
-        expect(res.body.question.key).toBe("service_area");
-        expect(res.body.question.prompt).toBe(LOCATION_ASK_PROMPT);
-        expect(res.body.followups_used).toBe(1);
-        // The stated value stays in fields (the owner's truth); the ask expands it.
+        expect(res.body.done).toBe(true);
+        expect(res.body.question).toBeNull();
         expect(res.body.fields.service_area.value).toBe("Ikeja");
       },
     );
   });
 
-  it("keeps the model's own location question (its chips carry the suggestion)", async () => {
+  it("asks to expand a truly unknown one-word place — exactly once", async () => {
+    await withMockTurn(
+      () => ({ fields: { service_area: { value: "Kolada", label: "inferred" } }, question: null, done: true }),
+      async () => {
+        const db = makeMockDb();
+        const first = await call(db, "POST", "/api/onboard/turn", {
+          text: "I sell to boutiques in Kolada", fields: {}, followups_used: 0,
+        });
+        expect(first.status).toBe(200);
+        expect(first.body.question.key).toBe("service_area");
+        expect(first.body.question.prompt).toBe(LOCATION_ASK_PROMPT);
+        expect(first.body.fields.service_area.label).toBe("location-asked");
+        // Second turn carries the marker: the ask never repeats.
+        const second = await call(db, "POST", "/api/onboard/turn", {
+          text: "x",
+          fields: first.body.fields,
+          followups_used: first.body.followups_used,
+        });
+        expect(second.body.question).toBeNull();
+        expect(second.body.done).toBe(true);
+      },
+    );
+  });
+
+  it("ends the turn instead of letting the model re-ask an answered location", async () => {
     await withMockTurn(
       () => ({
         fields: { service_area: { value: "Ikeja", label: "inferred" } },
@@ -828,8 +852,8 @@ describe("conversational onboarding", () => {
       async () => {
         const db = makeMockDb();
         const res = await call(db, "POST", "/api/onboard/turn", { text: "ikeja", fields: {}, followups_used: 0 });
-        expect(res.body.question.prompt).toContain("Lagos");
-        expect(res.body.followups_used).toBe(1);
+        expect(res.body.question).toBeNull();
+        expect(res.body.done).toBe(true);
       },
     );
   });
@@ -876,26 +900,30 @@ describe("conversational onboarding", () => {
   it("bare location ask survives the re-ask guard (one ask, never two)", async () => {
     await withMockTurn(
       () => ({
-        fields: { service_area: { value: "Ikeja", label: "inferred" } },
-        question: { key: "service_area", prompt: "What is your full base location?", chips: [] },
-        done: false,
+        fields: { service_area: { value: "Kolada", label: "inferred" } },
+        question: null,
+        done: true,
       }),
       async () => {
         const db = makeMockDb();
         const res = await call(db, "POST", "/api/onboard/turn", { text: "x", fields: {}, followups_used: 0 });
-        // Dropped model ask, replaced by the deterministic location ask —
-        // exactly one question about location, never a repeat later.
+        // A truly unknown bare place: exactly one deterministic ask.
         expect(res.body.question.key).toBe("service_area");
         expect(res.body.question.prompt).toBe(LOCATION_ASK_PROMPT);
+        expect(res.body.fields.service_area.label).toBe("location-asked");
       },
     );
   });
 
-  it("accepts multi-part locations without asking", async () => {
+  it("accepts multi-part and known places without asking", async () => {
     expect(needsLocationDisambiguation("Ikeja, Lagos, Nigeria")).toBe(false);
     expect(needsLocationDisambiguation("Lagos, Nigeria")).toBe(false);
-    expect(needsLocationDisambiguation("Ikeja")).toBe(true);
-    expect(needsLocationDisambiguation("Ikeja, ")).toBe(true);
+    // The system uses its senses: Ikeja IS Lagos (owner direction 2026-11-03).
+    expect(needsLocationDisambiguation("Ikeja")).toBe(false);
+    expect(needsLocationDisambiguation("Ikeja Lagos")).toBe(false); // no comma, still known
+    expect(needsLocationDisambiguation("Lekki Phase 1")).toBe(false);
+    expect(needsLocationDisambiguation("Ikeja, ")).toBe(false); // known area, stray comma
+    expect(needsLocationDisambiguation("Kolada")).toBe(true); // unknown token: one ask
     expect(needsLocationDisambiguation("")).toBe(false); // absent value: no guard
     // Not rigid: a business may have no base or serve clients globally.
     expect(needsLocationDisambiguation("Worldwide")).toBe(false);

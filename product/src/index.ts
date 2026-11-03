@@ -855,19 +855,42 @@ export const LOCATION_ASK_PROMPT = "Where are you based, and how far do you serv
 /** Answers that already say where the business plays (no base to pin). */
 const GLOBAL_LOCATION_WORDS = /\b(worldwide|global|globally|international|internationally|online|onlineonly|nationwide|remote|virtual|everywhere|anywhere)\b/i;
 
+/** Nigerian states + well-known areas/cities (lowercase). World knowledge a
+ *  local place name carries: "Ikeja" IS Lagos — the owner must not be nagged
+ *  for a comma the model can supply itself (owner direction 2026-11-03). */
+const NIGERIAN_PLACES = new Set([
+  "abia", "adamawa", "akwa", "anambra", "bauchi", "bayelsa", "benue", "borno",
+  "cross", "delta", "ebonyi", "edo", "ekiti", "enugu", "fct", "gombe", "imo",
+  "jigawa", "kaduna", "kano", "katsina", "kebbi", "kogi", "kwara", "lagos",
+  "nasarawa", "niger", "ogun", "ondo", "osun", "oyo", "plateau", "rivers",
+  "sokoto", "taraba", "yobe", "zamfara", "abuja", "ibadan", "port", "harcourt",
+  "benin", "warri", "uyo", "calabar", "onitsha", "aba", "owerri", "jos",
+  "maiduguri", "ikeja", "yaba", "surulere", "maryland", "ogba", "lekki",
+  "victoria", "ajah", "agege", "gbagada", "ketu", "ikorodu", "mushin",
+  "oshodi", "apapa", "festac", "oshapa", "magodo", "opebi", "allen",
+]);
+
+/** Marker label: the location-refine ask already happened once for this
+ *  interview — never again (the loop the owner hit, 2026-11-03). */
+const LOCATION_ASKED = "location-asked";
+
+const commaParts = (v: string): number => v.split(",").map((s) => s.trim()).filter(Boolean).length;
+
 /**
- * Location precision check: a service_area with fewer than two comma-separated
- * parts ("Ikeja") cannot be associated to a city/country downstream (search
- * grounding and the brief's geos both need it). Global/online answers pass —
- * a business may serve worldwide with no fixed base. Owner actions that lock
- * the field skip this check at the call site. Pure function, unit-tested.
+ * Location precision check. Completable by knowledge/context = never ask:
+ * two comma parts ("Ikeja, Lagos"), any word that is a known place
+ * ("Ikeja Lagos", "Lekki Phase 1"), or a global/online reach. A truly bare,
+ * unknown single token ("Kolada") asks ONCE (marker at the call site).
+ * Pure function, unit-tested.
  */
 export function needsLocationDisambiguation(value: string): boolean {
   const v = value.trim();
   if (!v) return false; // nothing stated: nothing to expand
   if (GLOBAL_LOCATION_WORDS.test(v)) return false;
-  const parts = v.split(",").map((s) => s.trim()).filter(Boolean);
-  return parts.length < 2;
+  if (commaParts(v) >= 2) return false;
+  const words = v.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  if (words.some((w) => NIGERIAN_PLACES.has(w))) return false;
+  return true;
 }
 
 interface OnboardFieldState {
@@ -917,6 +940,14 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   if (followupsUsed >= ONBOARD_FOLLOWUP_CAP) {
     return json({ fields, question: null, done: true, followups_used: followupsUsed });
   }
+  // Network context (owner direction 2026-11-03): Cloudflare edge geo rides
+  // free on every request — country/region/city — a silent prior the model
+  // uses to complete bare places without asking ("Ikeja" + NG -> "Ikeja,
+  // Lagos, Nigeria"). Best-effort: absent in tests and internal calls.
+  const cf = (req as unknown as { cf?: { city?: string; region?: string; country?: string } }).cf;
+  const geoContext = cf?.country
+    ? [cf.city, cf.region, cf.country].filter(Boolean).join(", ")
+    : undefined;
   if (!env.MODEL_API_KEY) return err("model_not_configured", 500);
   const meta = createMetaClient({
     apiKey: env.MODEL_API_KEY,
@@ -930,6 +961,7 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
       text,
       known: Object.entries(fields).map(([key, f]) => ({ key, value: f.value, label: f.label })),
       followups_used: followupsUsed,
+      ...(geoContext ? { geo_context: geoContext } : {}),
     });
   } catch {
     return err("model_error", 502);
@@ -939,7 +971,13 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
     let value = fv.value;
     // Cleanup: keep the place, drop the hedging verb ("around Ikeja" made
     // the value read as a location while actually being a hedge).
-    if (key === "service_area") value = value.replace(/^(around|near|in|at)\s+/i, "").trim() || value;
+    if (key === "service_area") {
+      // No-downgrade guard: a fuller or already-refined answer never loses
+      // parts to a bare model re-extraction (loop fuel, 2026-11-03).
+      const cur = fields["service_area"];
+      if (cur && (cur.locked || cur.label === LOCATION_ASKED || commaParts(cur.value) > commaParts(value))) continue;
+      value = value.replace(/^(around|near|in|at)\s+/i, "").trim() || value;
+    }
     fields[key] = { value, label: fv.label, locked: false };
   }
   // Prose capture backstop: "offices in Ikeja" already answers Where. When
@@ -965,19 +1003,21 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
       out.done = true;
     }
   }
-  // Location precision backstop: when the stated service_area is still too
-  // bare to place on a map, ask for the fuller form instead of running with
-  // it. Skipped when the owner locked the value (skip/edit) or the model is
-  // already asking about service_area (its chips carry world knowledge), and
-  // only while follow-up budget remains — the cap below still owns the end.
+  // Location precision backstop — AT MOST ONCE per interview (owner report
+  // 2026-11-03: this ask looped forever). Fires only while the value is
+  // truly unplaceable (no known place word, no comma pair, no network geo
+  // context to complete it); the marker label in the returned fields makes
+  // the next turn accept the answer as-is — the model + context complete it.
   const sa = fields["service_area"];
   const modelAsksLocation = out.question?.key === "service_area";
   if (
-    sa && !sa.locked && needsLocationDisambiguation(sa.value)
+    sa && !sa.locked && sa.label !== LOCATION_ASKED && !geoContext
+    && needsLocationDisambiguation(sa.value)
     && !modelAsksLocation && followupsUsed < ONBOARD_FOLLOWUP_CAP
   ) {
     out.question = { key: "service_area", prompt: LOCATION_ASK_PROMPT, chips: [] };
     out.done = false;
+    fields["service_area"] = { ...sa, label: LOCATION_ASKED };
   }
   const used = out.question ? followupsUsed + 1 : followupsUsed;
   return json({ fields, question: out.question, done: out.done, followups_used: used, name: out.name ?? null });

@@ -137,6 +137,10 @@ export interface OnboardTurnInput {
   text: string;
   known: Array<{ key: string; value: string; label: string }>;
   followups_used: number;
+  /** Silent network context (Cloudflare edge geo, country/region/city):
+   *  lets the model complete bare places ("Ikeja" + NG context) without
+   *  asking — never mentioned to the owner (owner direction 2026-11-03). */
+  geo_context?: string;
 }
 
 export type RewriteTone = "warmer" | "more_direct" | "another";
