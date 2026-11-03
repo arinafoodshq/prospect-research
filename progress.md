@@ -2329,3 +2329,36 @@ The research did not write one"); the shortlist lacked select-all.
 Verification: 478/478 vitest, SMOKE PASS, tsc clean; deployed e367cd19
 (push 68f8f76). Still open from the perf direction: directory explosion,
 parallel queries/fetches, caps raise, per-item live feed beyond counts.
+## 2026-11-03 (volume: directory explosion + parallel sweeps, fail-safe)
+
+User: wakasure.com search found 30, only 3 worth the time; page opens are
+slow (serial fetches); "explode to be able to find 100, 80"; approve the
+ArinaBreeze borrowings, fail-safe, proper error handling.
+
+- Directory explosion (borrowed from ArinaBreeze, Meta-native): fetchPage
+  now harvests anchor href+text pairs; when a search hit is on a known
+  directory host, discover fetches the listing page and saves each
+  PLAUSIBLE member as a candidate (name gate, social/nav-link rejects,
+  domain dedupe) sharing the directory's evidence row. The listing page
+  itself never becomes a candidate. Bounded: <=25 members per directory,
+  <=60 exploded per run; the whole explosion is best-effort (a dead or
+  blocked directory costs one fetch and nothing else).
+- Parallel query bursts in discover: 3 grounded-search bursts at a time;
+  each batch is SLICED to the remaining search budget up front (no
+  overshoot); Promise.allSettled isolates one dead burst; the per-query
+  done-ledger still marks completion.
+- Parallel page opens in investigate: 5 fetches at a time, budget-sliced;
+  per-prospect isolation - an unexpected error still moves the candidate
+  to investigating (fetch-failure contract), never stranded; budget
+  counters hard-clamped after each batch; budget exhaustion returns the
+  honest stopped reasons (searches/fetches) exactly as before.
+- Caps raised: candidates 30 -> 120, fetches 80 (searches 40, rounds 60).
+- Tests: explosion (gated members, page never a candidate, domain dedupe),
+  allSettled query isolation, budget slicing (5 queries / cap 2 -> exactly
+  2 calls then stopped), investigate isolation (one exploding fetch, both
+  candidates still investigated).
+
+Verification: 482/482 vitest, SMOKE PASS, tsc clean; deployed c2956cc0
+(push a7708ab). Note: the client already streams the found-list live
+(per-tick /prospects fetch); Muse token streaming is irrelevant here -
+the workflow reasons server-side and the UI polls results.
