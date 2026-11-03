@@ -2222,3 +2222,40 @@ should have URL paths with per-path auth handling, not a pathless SPA.
 
 Verification: 477/477 vitest, SMOKE PASS, tsc clean, node --check; deployed
 d761b901 (push 9c38b2f).
+## 2026-11-03 (flow fixes + sender authority)
+
+User (with screenshot): Continue/finish auto-jumped to Messages; Messages
+opened straight into "message 1 of 1: your note to CoWorkX"; the shortlist
+rendered flat-empty static markup; and Email accounts showed the owner's
+connected email to EVERY user ("that one I use. That is me personally.
+People should not be able to use that email to send out to everybody").
+
+Flow (owner direction: never auto-go to messages; show the shortlist):
+- pollProgress no longer auto-lands in the drafts studio on run completion
+  (supersedes the 2026-11-02 Duban auto-land) - it lands on the shortlist.
+- Messages opens as an OVERVIEW: every message as a row (lead, decision
+  pill, first-line preview, Open) - clicking a row opens the pager. Board
+  items still jump straight to that lead's message (overview=false).
+- Shortlist deep-link/stage-pill now always fetch-then-render
+  (previewProgress), so the static zero markup can never show.
+- Zero-state explains the picture: "We checked N businesses and set M
+  aside. The Evidence panel shows why."
+
+Sender authority (migration 0009 + code):
+- sender_connection.owner_email (backfilled to samdoxiso@gmail.com - the
+  owner's own accounts; d1_migrations ledger seeded for 0002-0008, which
+  had been applied raw and unrecorded).
+- Session email threaded through dispatchApi into delivery handlers.
+- getConnections lists ONLY the owner's connections; create stamps the
+  owner; verify/disconnect gated; campaign create/patch/approve refuse a
+  connection the caller does not own (403 not_your_connection) - the send
+  authority sits with the connection's owner.
+- Test gate now RESOLVES a session under __PR_SKIP_SIGNIN__ (skip skips
+  the rejection, not the resolution) so ownership is visible in tests.
+- Known follow-up: campaign rows themselves carry no owner column - list
+  scoping for campaigns is next; the send gate is the authority fix asked
+  for today.
+
+Verification: 478/478 vitest (sender-ownership route test), SMOKE PASS
+(new pins: overview-first studio, row opens the pager), tsc clean;
+deployed f014293b (push 07d6b0f).
