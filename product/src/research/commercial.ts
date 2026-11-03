@@ -538,11 +538,20 @@ export function decideVerdict(
   if (score < 3) {
     return { verdict: "needs_research", fit_rating: score, reason: `score ${score} below 3: evidence too thin to qualify` };
   }
-  if (d.readiness <= 1) {
-    return { verdict: "no_signal", fit_rating: score, reason: "suitable account, no dated buying signal" };
-  }
   if (d.reachability <= 1) {
     return { verdict: "needs_research", fit_rating: score, reason: "fit and signal ok, no usable contact route yet" };
+  }
+  if (d.readiness <= 1) {
+    // 504Yard banding (owner 2026-11-03: "out of 43 only 4 kept, that's
+    // weak — keep like 60% at least"): a missing dated trigger is a TIER
+    // question, not a band question. An in-segment account with a usable
+    // route stays ON the list at fit 2 (warm them up); it is never thrown
+    // away for not having published a dated trigger yet.
+    return {
+      verdict: "qualified",
+      fit_rating: clampRating(Math.min(score, 2)),
+      reason: "on the list: no dated buying signal yet — worth a warm-up",
+    };
   }
   return { verdict: "qualified", fit_rating: score, reason: "fit, evidence, signal, and route all meet the bar" };
 }

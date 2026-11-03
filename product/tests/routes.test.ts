@@ -5,7 +5,7 @@
  * against an in-memory mock implementing prepare/bind/first/all/run.
  */
 import { describe, expect, it, vi } from "vitest";
-import app, { LOCATION_ASK_PROMPT, needsLocationDisambiguation } from "../src/index";
+import app, { LOCATION_ASK_PROMPT, needsLocationDisambiguation, extractSiteUrl } from "../src/index";
 import { sha256Hex } from "../src/auth";
 import { dedupeKey } from "../src/db";
 import { sealSecret } from "../src/delivery/crypto";
@@ -258,6 +258,42 @@ function seedRun(db: ReturnType<typeof makeMockDb>, overrides: Row = {}) {
 }
 
 // --- Tests -------------------------------------------------------------------
+
+describe("runs history", () => {
+  it("lists every run, any status, newest first, with found/kept counts", async () => {
+    const db = makeMockDb();
+    seedRun(db, { id: "run_new", status: "running", created_at: "2026-11-03T09:00:00Z" });
+    seedRun(db, { id: "run_old", status: "complete", created_at: "2026-11-01T09:00:00Z" });
+    db.__tables.prospect.push({ id: "pr_1", run_id: "run_new", status: "qualified" });
+    db.__tables.prospect.push({ id: "pr_2", run_id: "run_new", status: "disqualified" });
+    db.__tables.prospect.push({ id: "pr_3", run_id: "run_new", status: "investigating" });
+    db.__tables.prospect.push({ id: "pr_4", run_id: "run_old", status: "disqualified" });
+    const res = await call(db, "GET", "/api/runs?limit=1&offset=0");
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.runs).toHaveLength(1);
+    expect(res.body.runs[0].id).toBe("run_new");
+    expect(res.body.runs[0].found).toBe(3);
+    expect(res.body.runs[0].kept).toBe(2); // qualified + investigating count as kept
+    const page2 = await call(db, "GET", "/api/runs?limit=1&offset=1");
+    expect(page2.body.runs[0].id).toBe("run_old");
+    expect(page2.body.runs[0].found).toBe(1);
+    expect(page2.body.runs[0].kept).toBe(0);
+  });
+});
+
+describe("extractSiteUrl", () => {
+  it("recognises bare domains, www, and prose-wrapped links (owner report 2026-11-03)", () => {
+    expect(extractSiteUrl("see wakasure.com")).toBe("https://wakasure.com");
+    expect(extractSiteUrl("wakasure.com")).toBe("https://wakasure.com");
+    expect(extractSiteUrl("our site is www.wakasure.com thanks")).toBe("https://www.wakasure.com");
+    expect(extractSiteUrl("see https://wakasure.com/about")).toBe("https://wakasure.com/about");
+  });
+
+  it("never mistakes an email address for a website", () => {
+    expect(extractSiteUrl("reach me at sam@wakasure.com")).toBeNull();
+  });
+});
 
 describe("profiles", () => {
   it("creates a draft profile (happy path)", async () => {

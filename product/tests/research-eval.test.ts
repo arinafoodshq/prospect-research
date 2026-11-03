@@ -273,8 +273,13 @@ describe("verdict thresholds", () => {
     expect(decideVerdict({ ...good }, { ok: true }, false).verdict).toBe("needs_research");
   });
 
-  it("reports no_signal when fit is fine but no trigger exists", () => {
-    expect(decideVerdict({ ...good, readiness: 1 }, { ok: true }, true).verdict).toBe("no_signal");
+  it("keeps a no-trigger account ON the list (tier question, not band)", () => {
+    // Owner 2026-11-03: "out of 43 only 4 kept" — real agencies rarely
+    // publish dated triggers; a warm-up tier is honest, discarding is not.
+    const v = decideVerdict({ ...good, readiness: 1 }, { ok: true }, true);
+    expect(v.verdict).toBe("qualified");
+    expect(v.fit_rating).toBe(2);
+    expect(v.reason).toContain("warm-up");
   });
 
   it("never qualifies a score below 3, even with fit and signal", () => {

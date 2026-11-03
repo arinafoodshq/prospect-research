@@ -141,6 +141,8 @@ const IDS = [
   "link-dash", "shell", "sidebar", "stage-wrap",
   "btn-sb-dashboard", "btn-sb-messages", "btn-sb-campaigns", "btn-sb-senders",
   "campaign-card", "sends-monitor",
+  "runs-wrap", "runs-list", "runs-pager", "runs-page-label", "btn-runs-prev", "btn-runs-next",
+  "stage-slot",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
   "campaign-wizard",
@@ -150,7 +152,7 @@ const els = {};
 for (const id of IDS) {
   const tag = id.startsWith("view-") ? "section" : id.startsWith("btn-") || id === "progress-setaside-more" ? "button"
     : id === "onboard-form" ? "form" : id === "profile-fields" ? "dl"
-    : id === "prospect-list" || id === "progress-steps" ? "ol" : "div";
+    : id === "prospect-list" || id === "progress-steps" || id === "runs-list" ? "ol" : "div";
   els[id] = new FakeEl(tag, id);
 }
 els["step-nav"].querySelectorAll = () => ["onboard", "profile", "progress", "shortlist", "drafts", "status"].map((v) => ({
@@ -542,6 +544,19 @@ await tick();
 ok(visible("view-status"), "sidebar Dashboard opens the dashboard");
 ok(els["stage-wrap"].hidden !== false, "no stage strip on the dashboard itself");
 {
+  // All runs, any status, paginated (owner request 2026-11-03): nine demo
+  // runs -> first page of 8, pager on, next reveals the last one.
+  ok(els["runs-list"].innerHTML.split("<li").length - 1 === 8, "runs list paginates to 8 rows, saw " + (els["runs-list"].innerHTML.split("<li").length - 1));
+  ok(/Runs 1\u20138 of 9/.test(els["runs-page-label"].textContent), "pager labels the page (" + els["runs-page-label"].textContent + ")");
+  ok(els["btn-runs-next"].disabled === false && els["btn-runs-prev"].disabled === true, "pager buttons match the page edges");
+  await fire(els["btn-runs-next"], "click", evt());
+  ok(els["runs-list"].innerHTML.indexOf("demo-run-1") >= 0, "next page reveals the oldest run");
+  ok(/Runs 9\u20139 of 9/.test(els["runs-page-label"].textContent), "last page labelled");
+  await fire(els["btn-runs-prev"], "click", evt());
+  await fire(els["btn-sb-dashboard"], "click", evt());
+  await tick();
+}
+{
   const li = { getAttribute: (k) => (k === "data-view" ? "shortlist" : null) };
   els["step-nav"]._listeners.click.forEach((fn) => fn({ target: { closest: () => li } }));
   await tick();
@@ -740,5 +755,14 @@ ok(app.cleanCitations("I saw your hall at Ogunnusi Road, Ogba [source 1]. Would 
   "cleanCitations strips provenance markers from the message a prospect reads");
 ok(app.cleanCitations("no markers here") === "no markers here", "cleanCitations leaves plain text alone");
 
-console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters + wa send stack");
+// Open any run from the history (owner request 2026-11-03): the last
+// assertion group — it adopts the run and lands on its run view, so it
+// must not race the earlier sections.
+await fire(els["btn-sb-dashboard"], "click", evt());
+await tick();
+await fire(els["runs-list"], "click", evt({ target: { getAttribute: (k) => (k === "data-run" ? "demo-run-8" : k === "data-profile" ? "demo-p1" : null) } }));
+await tick();
+ok(visible("view-progress"), "opening a past run lands on its run view");
+
+console.log("SMOKE PASS: landing->chat->confirm->progress->shortlist->drafts->decide->status + back-nav + live adapters + runs history + wa send stack");
 process.exit(0);

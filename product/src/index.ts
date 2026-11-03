@@ -949,6 +949,11 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   const text = parsed.body["text"];
   if (typeof text !== "string" || text.trim() === "") return err("invalid_body", 400);
   if (text.length > ONBOARD_TEXT_CAP) return err("text_too_long", 400);
+  // A site carried from an earlier turn (the client remembers it): the
+  // owner's latest message may no longer contain the domain, but its mined
+  // context still applies to every remaining question.
+  const knownSiteRaw = parsed.body["site_url"];
+  const knownSite = typeof knownSiteRaw === "string" && /^https?:\/\/\S+/i.test(knownSiteRaw) ? knownSiteRaw : null;
   const rawFields = parsed.body["fields"];
   if (!isObj(rawFields)) return err("invalid_body", 400);
   const fields: Record<string, OnboardFieldState> = {};
@@ -1001,14 +1006,16 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   // Owner shared a website (owner direction 2026-11-03: "they gave a
   // website — extract it all, the user only edits"): fetch the page and
   // hand its text to the model to mine before asking anything. Best-effort:
-  // a blocked or slow site never blocks the turn.
+  // a blocked or slow site never blocks the turn. The scheme is OPTIONAL —
+  // "wakasure.com" and "see wakasure.com" count; the owner should never
+  // need to type https:// (owner report 2026-11-03).
   let site: { url: string; text: string } | undefined;
-  const urlMatch = typeof text === "string" ? text.match(/https?:\/\/[^\s,;"']+/i) : null;
-  if (urlMatch && meta.fetchPage) {
+  const siteUrl = extractSiteUrl(text) ?? knownSite;
+  if (siteUrl && meta.fetchPage) {
     try {
-      const page = await meta.fetchPage(urlMatch[0], 12000);
+      const page = await meta.fetchPage(siteUrl, 12000);
       if ("text" in page && page.text && page.text.length > 40) {
-        site = { url: urlMatch[0], text: page.text };
+        site = { url: siteUrl, text: page.text };
       }
     } catch { /* a dead site is the owner's to notice on the summary */ }
   }
@@ -1024,6 +1031,10 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
   } catch {
     return err("model_error", 502);
   }
+  // The detected site rides back so the client can persist it on the
+  // profile (it never typed https://, and website_url is not an interview
+  // field) and re-send it as site_url on later turns.
+  const responseSite = site?.url ?? knownSite ?? null;
   for (const [key, fv] of Object.entries(out.fields)) {
     if (!ONBOARD_KEYS.has(key) || fields[key]?.locked) continue;
     let value = fv.value;
@@ -1078,8 +1089,32 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
     fields["service_area"] = { ...sa, label: LOCATION_ASKED };
   }
   const used = out.question ? followupsUsed + 1 : followupsUsed;
-  return json({ fields, question: out.question, done: out.done, followups_used: used, name: out.name ?? null });
+  return json({ fields, question: out.question, done: out.done, followups_used: used, name: out.name ?? null, site: responseSite });
 };
+
+/**
+ * Pull a website URL out of the owner's words. The scheme is OPTIONAL:
+ * "wakasure.com", "www.wakasure.com" and "see https://wakasure.com" all
+ * count (owner report 2026-11-03: bare domains were missed and the
+ * interview re-asked the offer). Emails are not sites (the @ immediately
+ * before a host marks an address, not a page).
+ */
+export function extractSiteUrl(text: string): string | null {
+  const re = /(?:https?:\/\/)?(?:www\.)?([a-z0-9][a-z0-9-]*\.)+[a-z]{2,}(?::\d{2,5})?(?:\/[^\s,;"'<>]*)?/gi;
+  for (const m of text.matchAll(re)) {
+    const candidate = m[0];
+    const idx = m.index ?? 0;
+    const before = idx > 0 ? text[idx - 1] : "";
+    if (before === "@" || before === ".") continue; // an email address or a file path
+    const normalized = /^https?:\/\//i.test(candidate) ? candidate : "https://" + candidate;
+    try {
+      const u = new URL(normalized);
+      if (!u.hostname.includes(".")) continue;
+      return normalized;
+    } catch { continue; }
+  }
+  return null;
+}
 
 // --- Router ------------------------------------------------------------------
 
@@ -1116,7 +1151,39 @@ const getLatestRun: Handler = async ({ env }) => {
   });
 };
 
+/**
+ * Every run, any status or stage (owner request 2026-11-03: "store all my
+ * runs so far and paginate"). Lean rows + per-run found/kept counts; the
+ * client paginates through them on the dashboard. Sorting/slicing happens
+ * in JS so the shape is identical in production and in tests.
+ */
+  const getRunsList: Handler = async ({ req, env }) => {
+    const url = new URL(req.url);
+    const limit = Math.min(50, Math.max(1, Math.floor(Number(url.searchParams.get("limit") ?? 10) || 10)));
+    const offset = Math.max(0, Math.floor(Number(url.searchParams.get("offset") ?? 0) || 0));
+    const runsRes = await env.DB.prepare("SELECT id, profile_id, status, stop_reason, started_at, finished_at, created_at FROM research_run").bind().all<Record<string, unknown>>();
+    const all = [...(runsRes.results ?? [])];
+    all.sort((a, b) => String(b["created_at"] ?? "").localeCompare(String(a["created_at"] ?? "")));
+    // Per-run counts in one scan (no fancy SQL: the mock and prod agree).
+    const prRes = await env.DB.prepare("SELECT run_id, status FROM prospect").bind().all<{ run_id: string; status: string }>();
+    const counts = new Map<string, { found: number; kept: number }>();
+    for (const p of prRes.results ?? []) {
+      const c = counts.get(p.run_id) ?? { found: 0, kept: 0 };
+      c.found += 1;
+      if (p.status === "qualified" || p.status === "investigating") c.kept += 1;
+      counts.set(p.run_id, c);
+    }
+    const page = all.slice(offset, offset + limit).map((r) => ({
+      id: r["id"], profile_id: r["profile_id"] ?? null, status: r["status"], stop_reason: r["stop_reason"] ?? null,
+      started_at: r["started_at"] ?? null, finished_at: r["finished_at"] ?? null,
+      created_at: r["created_at"] ?? null,
+      ...(counts.get(String(r["id"])) ?? { found: 0, kept: 0 }),
+    }));
+    return json({ runs: page, total: all.length, limit, offset });
+  };
+
 route("GET", "/api/runs/latest", getLatestRun);
+route("GET", "/api/runs", getRunsList);
 route("GET", "/api/runs/:id", getRunById);
 route("POST", "/api/runs/:id/resume", postResume);
 route("POST", "/api/runs/:id/draft-missing", postDraftMissing);

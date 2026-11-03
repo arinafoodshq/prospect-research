@@ -291,14 +291,13 @@
       </div>
     </section>
 
-    <!-- View 3: run progress (PDF screen 3: stats, steps, set-aside) -->
+    <!-- View 3: run progress (stats, steps, set-aside). The brand lives in
+         the sidebar — the page opens with the status, not a logo. -->
     <section id="view-progress" class="view view-plain" hidden aria-label="Research progress">
-      <div class="ob-head">
-        <img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" /><p class="brand">Prospect Research</p>
-        <p class="kicker kicker-dim" id="progress-kicker" hidden></p>
-      </div>
+      <p class="kicker kicker-dim" id="progress-kicker" hidden></p>
       <p class="working" id="progress-eyebrow"><span class="dot" aria-hidden="true"></span>Working now</p>
       <h2 id="progress-title">Finding the buyers that truly fit.</h2>
+      <div class="stage-slot" id="stage-slot"></div>
       <p class="hint" id="progress-note">Research keeps running on the server. Come back any time.</p>
       <div class="trio stats" id="progress-stats">
         <div class="stat-card"><p class="stat-num" id="stat-found">0</p><p class="muted small">businesses found</p></div>
@@ -384,6 +383,16 @@
       <h2>Your dashboard</h2>
       <p class="board-sub">Where every message stands. Nothing sends without your approval.</p>
       <div id="run-banner" hidden></div>
+      <div id="runs-wrap">
+        <h3 class="sec-h">All runs</h3>
+        <p class="hint">Every search you have started, any status — nothing is lost when a newer run begins.</p>
+        <ul id="runs-list" class="runs-list"><li class="hint">Loading…</li></ul>
+        <div class="runs-pager" id="runs-pager" hidden>
+          <button id="btn-runs-prev" type="button" class="secondary">Previous</button>
+          <span class="muted small" id="runs-page-label"></span>
+          <button id="btn-runs-next" type="button" class="secondary">Next</button>
+        </div>
+      </div>
       <div class="board" id="status-board"></div>
       <div class="row">
         <button id="btn-back-drafts" type="button" class="secondary">Back to drafts</button>

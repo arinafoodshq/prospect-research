@@ -752,7 +752,24 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   font-size: 2.6rem; line-height: 1; margin: 0;
 }
 .stats .muted { margin: 0.2rem 0 0; }
-.progress-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1rem; align-items: start; }
+.progress-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 1rem; align-items: start; }
+#found-wrap { grid-column: 1 / -1; }
+/* Set-aside: a quiet secondary card — small heading, tight rows (the old
+   narrow cramped rail read as an afterthought, owner 2026-11-03). */
+#progress-setaside-wrap .kicker { margin-bottom: 0.35rem; }
+#progress-setaside-wrap .hint { display: none; }
+#progress-setaside { display: grid; gap: 0.3rem; }
+#progress-setaside li { padding: 0.35rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.84rem; line-height: 1.35; display: grid; gap: 0.1rem; }
+#progress-setaside li span { color: var(--muted); font-size: 0.8rem; }
+.runs-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
+.run-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.run-row .run-meta { color: var(--muted); font-size: 0.82rem; flex: 1; min-width: 0; }
+.run-status { font-size: 0.76rem; font-weight: 700; padding: 0.16rem 0.55rem; border-radius: var(--radius-pill); background: var(--surface-2, var(--ground)); white-space: nowrap; }
+.run-status.st-running, .run-status.st-assessing { color: var(--accent); background: var(--accent-soft); }
+.run-status.st-awaiting_approval { color: var(--gold, #8a6d1c); background: #f6edd4; }
+.run-status.st-complete { color: var(--success); background: var(--success-soft, #e7f3ec); }
+.run-status.st-failed, .run-status.st-stopped { color: #a33; background: #fbe9e7; }
+.runs-pager { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; }
 .steps-card { padding-top: 0.6rem; padding-bottom: 0.6rem; }
 .checklist { list-style: none; padding: 0; margin: 0; display: grid; }
 .checklist li {
@@ -1132,16 +1149,31 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
 button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
 
 /* This campaign's stages: a contextual trail, not navigation. Shown only
-   while a campaign is in play; clickable to revisit what was done. */
+   while a campaign is in play; clickable to revisit what was done. On the
+   run view it mounts INTO the page flow (stage-slot), compact, under the
+   headline (owner 2026-11-03: the top pill row wasted the best space). */
 .stage-strip {
   max-width: 72rem; margin: 0 auto;
-  padding: 0.95rem var(--app-pad-x) 0;
+  padding: 0.35rem var(--app-pad-x) 0;
   display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
 }
 .stage-label {
   color: var(--dim); font-size: 0.72rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.09em;
 }
+.stage-slot { margin: 0.55rem 0 0; }
+.stage-slot .stage-strip { padding: 0; max-width: none; }
+/* Compact trail: hairline chips, quiet colors, the active stage the only
+   loud one — a map of where you are, not a toolbar. */
+.steps ol { gap: 0.4rem; }
+.steps li {
+  border: 0; background: none; border-radius: var(--radius-pill);
+  padding: 0.22rem 0.6rem; font-size: 0.78rem; color: var(--dim); font-weight: 500;
+  text-decoration: underline; text-decoration-style: dotted;
+  text-decoration-color: var(--border); text-underline-offset: 3px;
+}
+.steps li.active { color: var(--accent); font-weight: 700; text-decoration: none; background: var(--surface-2, var(--surface)); }
+.steps li.done { color: var(--muted); text-decoration-style: solid; }
 
 @media (max-width: 880px) {
   .shell { display: block; }

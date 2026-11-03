@@ -243,6 +243,23 @@
       setAside: stage.dropped.map(function (k) { return OB_DROPPED[k]; })
     });
   };
+  // Demo: nine runs at different statuses so the dashboard's paginated
+  // "All runs" list shows real variety and exercises the pager.
+  MockApi.prototype.getRuns = function (limit, offset) {
+    var all = [
+      { id: "demo-run-9", profile_id: "demo-p1", status: "running", found: 43, kept: 12, created_at: "2026-11-03T09:12:00Z" },
+      { id: "demo-run-8", profile_id: "demo-p1", status: "awaiting_approval", found: 72, kept: 31, created_at: "2026-11-02T15:40:00Z" },
+      { id: "demo-run-7", profile_id: "demo-p0", status: "complete", found: 30, kept: 9, created_at: "2026-11-01T11:05:00Z" },
+      { id: "demo-run-6", profile_id: "demo-p0", status: "stopped", found: 18, kept: 2, created_at: "2026-10-31T11:05:00Z" },
+      { id: "demo-run-5", profile_id: "demo-p0", status: "complete", found: 51, kept: 22, created_at: "2026-10-30T11:05:00Z" },
+      { id: "demo-run-4", profile_id: "demo-p0", status: "failed", found: 4, kept: 0, created_at: "2026-10-29T11:05:00Z" },
+      { id: "demo-run-3", profile_id: "demo-p0", status: "complete", found: 44, kept: 17, created_at: "2026-10-28T11:05:00Z" },
+      { id: "demo-run-2", profile_id: "demo-p0", status: "complete", found: 30, kept: 9, created_at: "2026-10-27T11:05:00Z" },
+      { id: "demo-run-1", profile_id: "demo-p0", status: "complete", found: 30, kept: 9, created_at: "2026-10-26T11:05:00Z" }
+    ];
+    var o = offset || 0, l = limit || 10;
+    return Promise.resolve({ runs: all.slice(o, o + l), total: all.length, limit: l, offset: o });
+  };
   MockApi.prototype.getShortlist = function () {
     // Mid-run previews show only what is kept so far; the landing sample
     // (no run yet) and finished runs show the full demo list.
@@ -413,7 +430,12 @@
     var body = { text: payload.text, fields: payload.fields || {}, followups_used: payload.followups_used || 0 };
     if (payload.skip_key) body.skip_key = payload.skip_key;
     if (payload.edit_key) { body.edit_key = payload.edit_key; body.edit_value = payload.edit_value; }
+    if (payload.site_url) body.site_url = payload.site_url; // a site from an earlier turn still applies
     return this._req("/api/onboard/turn", { method: "POST", body: JSON.stringify(body) });
+  };
+  /** Every run, any status — the dashboard lists and paginates them. */
+  RealApi.prototype.getRuns = function (limit, offset) {
+    return this._req("/api/runs?limit=" + encodeURIComponent(limit || 10) + "&offset=" + encodeURIComponent(offset || 0));
   };
   RealApi.prototype.createProfile = function (input) {
     // Buyers are what the owner said they serve (q5) — NEVER the decision-

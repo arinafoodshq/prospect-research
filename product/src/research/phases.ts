@@ -1050,6 +1050,16 @@ export function plausibleBusinessName(raw: string): boolean {
   if (/\b(powerpoint|presentation|brochure|flyer|catalogue|webinar|slides?)\b/.test(low)) return false;
   // Pagination ghosts ("Prime Waters Properties in 3" = listing page 3).
   if (/\b(?:in|page)\s+\d{1,2}$/.test(low)) return false;
+  // Marketing-claim sentences ("Legrande Properties. The best real estate
+  // development company") and year-guides ("A 2026 Property Buyer's Guide").
+  if (/\b(?:the best|top[- ]rated|leading|award[- ]winning|number one|no\.?\s*1)\b/.test(low)) return false;
+  if (/\b(?:19|20)\d{2}\b/.test(low) && /\bguide\b/.test(low)) return false;
+  if (/\bbuyer'?s? guide\b/.test(low)) return false;
+  // A name whose EVERY word is a generic org/trade word has no brand
+  // ("Real Estate Company").
+  const ORG = new Set(["real", "estate", "company", "companies", "properties", "property", "agency", "agencies", "broker", "brokers", "brokerage", "homes", "home", "house", "houses", "consultant", "consultants", "services", "service", "developers", "developer", "realtor", "realtors", "realty", "team", "solutions"]);
+  const orgWords = low.split(/[^a-z]+/).filter(Boolean);
+  if (orgWords.length >= 2 && orgWords.every((w) => ORG.has(w))) return false;
   return true;
 }
 

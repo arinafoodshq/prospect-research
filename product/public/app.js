@@ -142,6 +142,45 @@
       }
     }
     Promise.all(jobs).then(function () { renderStatuses(); });
+    renderRuns();
+  }
+
+  // Every run, any status or stage (owner request 2026-11-03): the
+  // dashboard lists them all with pagination — nothing is lost because a
+  // newer run started.
+  var RUNS_PAGE_SIZE = 8;
+  function renderRuns() {
+    var list = $("runs-list");
+    if (!list) return;
+    list.innerHTML = '<li class="hint">Loading…</li>';
+    var page = state.runsPage || 0;
+    api.getRuns(RUNS_PAGE_SIZE, page * RUNS_PAGE_SIZE).then(function (res) {
+      var runs = res.runs || [];
+      if (!runs.length) {
+        list.innerHTML = '<li class="hint">No runs yet — every search you start lands here, any status.</li>';
+        $("runs-pager").hidden = true;
+        return;
+      }
+      var STATUS_LABEL = { created: "Preparing", running: "Working now", complete: "Done", failed: "Failed", stopped: "Stopped", awaiting_approval: "Ready to review", assessing: "Scoring" };
+      list.innerHTML = runs.map(function (r) {
+        var label = STATUS_LABEL[r.status] || String(r.status || "").replace(/_/g, " ");
+        var when = r.created_at ? String(r.created_at).slice(0, 10) : "";
+        var counts = (r.found || 0) + " found · " + (r.kept || 0) + " kept";
+        return '<li class="run-row"><span class="run-status st-' + esc(r.status || "unknown") + '">' + esc(label) +
+          '</span><span class="run-meta">' + esc(when) + " · " + esc(counts) + "</span>" +
+          '<button type="button" class="linklike run-open" data-run="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '">Open</button></li>';
+      }).join("");
+      var total = res.total || runs.length;
+      var start = page * RUNS_PAGE_SIZE + 1;
+      var end = start + runs.length - 1;
+      $("runs-page-label").textContent = "Runs " + start + "\u2013" + end + " of " + total;
+      $("runs-pager").hidden = total <= RUNS_PAGE_SIZE;
+      $("btn-runs-prev").disabled = page === 0;
+      $("btn-runs-next").disabled = end >= total;
+    }, function () {
+      list.innerHTML = '<li class="hint">Could not load your runs. Try again in a moment.</li>';
+      $("runs-pager").hidden = true;
+    });
   }
 
   // Post-sign-in return lands on the owner's home (the dashboard), not the
@@ -168,6 +207,10 @@
   var NO_SIDEBAR = ["landing", "signin"];
   var EXTRA_VIEWS = ["signin"];
 
+  /** Holds the stage strip's shell home so it can mount into the run
+   *  view's stage-slot and return there for every other view. */
+  function mountStageTrail() { /* home is stored on the function object */ }
+
   function showView(name) {
     VIEWS.forEach(function (v) {
       var el = $("view-" + v);
@@ -187,6 +230,19 @@
     // The stage strip only makes sense while a campaign is in play.
     var strip = $("stage-wrap");
     if (strip) strip.hidden = STAGES.indexOf(name) < 0;
+    // On the run view the trail lives IN the page flow, compact, under the
+    // headline (owner 2026-11-03: the top-of-page pill row wasted the most
+    // valuable space). The same shell node mounts into a slot inside the
+    // run view and returns to its shell home everywhere else.
+    var slot = $("stage-slot");
+    if (strip && slot) {
+      if (name === "progress") {
+        if (!mountStageTrail.home) mountStageTrail.home = strip.parentElement;
+        if (strip.parentElement !== slot) slot.appendChild(strip);
+      } else if (mountStageTrail.home && strip.parentElement !== mountStageTrail.home) {
+        mountStageTrail.home.appendChild(strip);
+      }
+    }
     ["progress-kicker", "shortlist-kicker", "drafts-kicker", "status-kicker",
      "campaigns-kicker", "senders-kicker"].forEach(setDemoKicker);
     var nav = $("step-nav");
@@ -554,6 +610,7 @@
     var payload = { text: text, fields: ob.fields, followups_used: ob.followupsUsed };
     if (extra.skip_key) payload.skip_key = extra.skip_key;
     if (extra.edit_key) { payload.edit_key = extra.edit_key; payload.edit_value = extra.edit_value; }
+    if (ob.site) payload.site_url = ob.site; // a site from an earlier turn still applies
     return api.onboardTurn(payload).then(function (res) {
       ob.busy = false;
       ob.fields = res.fields || {};
@@ -563,6 +620,10 @@
       // The chat may state the business name — capture it so the summary
       // never has to ask for what the owner already said.
       if (res.name && !ob.businessName) { ob.businessName = res.name; ob.nameAssumed = false; }
+      // The server recognised a website in the owner's words (bare domains
+      // count: "see wakasure.com") — remember it so the profile carries it
+      // and later turns keep the mined context.
+      if (res.site) { ob.site = res.site; }
       setObButtons(false);
       renderObChat();
       return true;
@@ -821,7 +882,7 @@
     if (fv("timeline")) desc += ". Timing: " + fv("timeline");
     if (fv("budget")) desc += ". Budget per order: " + fv("budget");
     var input = {
-      businessName: ob.businessName || "", name_assumed: !!ob.nameAssumed, site: "", description: desc,
+      businessName: ob.businessName || "", name_assumed: !!ob.nameAssumed, site: ob.site || "", description: desc,
       q1: fv("service_area"), q2: fv("order_size"), q3: fv("decision_maker"),
       q4: fv("exclusions"), q5: fv("ideal_customer")
     };
@@ -3055,6 +3116,26 @@
     $("progress-setaside-more").addEventListener("click", function () {
       state.asideExpanded = true; // expansion survives polling re-renders
       if (state.lastProgressSnap) renderProgressAside(state.lastProgressSnap);
+    });
+    $("btn-runs-prev").addEventListener("click", function () {
+      state.runsPage = Math.max(0, (state.runsPage || 0) - 1);
+      renderRuns();
+    });
+    $("btn-runs-next").addEventListener("click", function () {
+      state.runsPage = (state.runsPage || 0) + 1;
+      renderRuns();
+    });
+    $("runs-list").addEventListener("click", function (e) {
+      var t = e.target || {};
+      var runId = t.getAttribute ? t.getAttribute("data-run") : null;
+      if (!runId) return;
+      var profileId = t.getAttribute("data-profile") || "";
+      // Opening any run from the history: adopt it the same way the resume
+      // card does — continue, never restart.
+      state.runId = runId;
+      if (profileId) state.profile = { id: profileId, name: state.profile && state.profile.name || "" };
+      showView("progress");
+      pollProgress();
     });
     $("btn-see-results").addEventListener("click", previewProgress);
     $("btn-stop-progress").addEventListener("click", stopRunAndEdit);
