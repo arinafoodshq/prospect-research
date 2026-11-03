@@ -664,7 +664,7 @@ describe("planMore (QA-loop replan)", () => {
 });
 
 describe("onboard assume-never-ask (owner direction 2026-11-03)", () => {
-  it("strips questions about assumed fields; decision_maker gets its default", () => {
+  it("strips questions about assumed fields; no default leaks into fields", () => {
     const out = validateOnboardTurn({
       fields: {},
       question: { key: "decision_maker", prompt: "Who makes the purchase decision?", chips: [] },
@@ -672,8 +672,9 @@ describe("onboard assume-never-ask (owner direction 2026-11-03)", () => {
     });
     expect(out.question).toBeNull();
     expect(out.done).toBe(true);
-    expect(out.fields["decision_maker"].value).toContain("owner");
-    expect(out.fields["decision_maker"].label).toBe("inferred");
+    // No default value is injected: the assumption lives in the brief phase,
+    // never in the owner's field dict (it once leaked into target_market).
+    expect(out.fields["decision_maker"]).toBeUndefined();
   });
   it("never strips a question about a genuinely askable field", () => {
     const out = validateOnboardTurn({

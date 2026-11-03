@@ -960,6 +960,20 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
     audit: (ev) => auditEvent(env.DB, ev),
   });
   if (!meta.onboardTurn) return err("model_not_configured", 500);
+  // Owner shared a website (owner direction 2026-11-03: "they gave a
+  // website — extract it all, the user only edits"): fetch the page and
+  // hand its text to the model to mine before asking anything. Best-effort:
+  // a blocked or slow site never blocks the turn.
+  let site: { url: string; text: string } | undefined;
+  const urlMatch = typeof text === "string" ? text.match(/https?:\/\/[^\s,;"']+/i) : null;
+  if (urlMatch && meta.fetchPage) {
+    try {
+      const page = await meta.fetchPage(urlMatch[0], 12000);
+      if ("text" in page && page.text && page.text.length > 40) {
+        site = { url: urlMatch[0], text: page.text };
+      }
+    } catch { /* a dead site is the owner's to notice on the summary */ }
+  }
   let out;
   try {
     out = await meta.onboardTurn({
@@ -967,6 +981,7 @@ const postOnboardTurn: Handler = async ({ req, env }) => {
       known: Object.entries(fields).map(([key, f]) => ({ key, value: f.value, label: f.label })),
       followups_used: followupsUsed,
       ...(geoContext ? { geo_context: geoContext } : {}),
+      ...(site ? { site } : {}),
     });
   } catch {
     return err("model_error", 502);

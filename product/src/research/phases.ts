@@ -141,6 +141,11 @@ export interface OnboardTurnInput {
    *  lets the model complete bare places ("Ikeja" + NG context) without
    *  asking — never mentioned to the owner (owner direction 2026-11-03). */
   geo_context?: string;
+  /** The owner shared their website: fetched page text the model must mine
+   *  for every field (name, offer, buyers, area) before asking anything
+   *  (owner direction 2026-11-03: "they gave a website — extract it all,
+   *  the user only edits"). */
+  site?: { url: string; text: string };
 }
 
 export type RewriteTone = "warmer" | "more_direct" | "another";

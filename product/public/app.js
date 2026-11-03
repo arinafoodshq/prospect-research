@@ -665,8 +665,17 @@
     var v = t.getAttribute ? t.getAttribute("data-chip") : null;
     if (!v || !ob || ob.busy || ob.done) return;
     if (/not sure/i.test(v)) { obSkip(); return; }
-    $("ob-answer").value = v;
-    obContinue();
+    // Multi-select chips (owner direction 2026-11-03): a chip ADDS itself to
+    // the answer box instead of advancing — owners usually combine several
+    // ("Small businesses, Startups, ..."). Pressing Continue stays the
+    // owner's move. Duplicates collapse.
+    var input = $("ob-answer");
+    var cur = (input.value || "").trim();
+    var escRe = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp("(^|[,;])\\s*" + escRe + "\\s*([,;]|$)", "i").test(cur)) {
+      input.value = cur ? cur.replace(/[,;\s]+$/, "") + ", " + v : v;
+    }
+    if (input.focus) input.focus();
   }
 
   function renderObChat() {
@@ -1024,7 +1033,15 @@
   }
 
   function shownProspects() {
-    return (state.prospects || []).filter(function (p) { return p.status !== "disqualified"; });
+    // Disqualified never show. A prospect with NO published route and no
+    // verdict to act on is a dead end ("no reachable option...") — it does
+    // not belong on a list of buyers worth your time (2026-11-03). The
+    // zero-state counts them honestly as set aside.
+    return (state.prospects || []).filter(function (p) {
+      if (p.status === "disqualified") return false;
+      if ((p.routes || []).length === 0 && p.status !== "shortlisted" && p.status !== "approved") return false;
+      return true;
+    });
   }
 
   function firstSentence(s) {
@@ -1121,14 +1138,20 @@
     }
 
     if (shown.length === 0) {
-      // Honest empty, with the full picture: how many were checked and set
-      // aside, and where the reasons live (never "No buyers worth your
-      // time." — it reads as an accusation after a wait).
+      // Honest empty, with the full picture: how many were checked, how many
+      // disqualified, how many had no reachable route — and where the
+      // reasons live (never "No buyers worth your time." after a wait).
       var all = state.prospects || [];
       var dq = all.filter(function (p) { return p.status === "disqualified"; }).length;
+      var unreachable = all.filter(function (p) {
+        return p.status !== "disqualified" && (p.routes || []).length === 0;
+      }).length;
+      var aside = dq + unreachable;
       $("shortlist-title").textContent = "Nothing made the cut yet.";
       $("shortlist-sub").textContent = all.length
-        ? "We checked " + all.length + " business" + (all.length === 1 ? "" : "es") + " and set " + dq + " aside. The Evidence panel shows why \u2014 widen the area or run a new search to try again."
+        ? "We checked " + all.length + " business" + (all.length === 1 ? "" : "es") + " and set " + aside + " aside" +
+          (unreachable ? " (" + unreachable + " with no way to reach them yet)" : "") +
+          ". The Evidence panel shows why \u2014 widen the area or run a new search to try again."
         : "The search came back empty. Widen the area or start a new search \u2014 first searches often miss.";
     } else if (midRun) {
       $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer found so far." : " buyers found so far.");

@@ -590,11 +590,10 @@ const ONBOARD_MAX_CHIPS = 3;
 const ONBOARD_KEYS = new Set<string>(ONBOARD_FIELD_KEYS);
 
 /** Assume-never-ask (owner direction 2026-11-03): these fields are inferred
- *  or defaulted by the system, never spent as an interview question. */
+ *  or defaulted by the system, never spent as an interview question. No
+ *  default text is injected into the field dict — assumptions belong to the
+ *  brief phase, where they cannot leak into the owner's stated buyers. */
 const NEVER_ASK_FIELDS: ReadonlySet<string> = new Set(["decision_maker", "order_size", "budget", "timeline"]);
-const ONBOARD_FIELD_DEFAULTS: Record<string, string> = {
-  decision_maker: "the owner decides purchases",
-};
 
 function isOnboardKey(key: unknown): key is OnboardFieldKey {
   return typeof key === "string" && ONBOARD_KEYS.has(key);
@@ -633,11 +632,10 @@ export function validateOnboardTurn(item: unknown): OnboardTurnResult {
   }
   // Deterministic assume-never-ask guard (owner direction 2026-11-03): these
   // fields are the system's job to assume, not the owner's to answer. A
-  // question targeting them is stripped; decision_maker gets its sensible
-  // default so the summary screen shows it as an editable assumption.
+  // question targeting them is simply dropped — no default value is injected
+  // into the field dict, so the assumption can never leak into buyers or the
+  // brief (the brief's strategist rule carries "the owner decides" instead).
   if (question && NEVER_ASK_FIELDS.has(question.key)) {
-    const d = ONBOARD_FIELD_DEFAULTS[question.key];
-    if (d && !fields[question.key]) fields[question.key] = { value: d, label: "inferred" };
     question = null;
   }
   const done = item["done"] === true || question === null;
@@ -1029,10 +1027,13 @@ function extractVisibleText(html: string): string {
     const geo = input.geo_context
       ? ` Network context (from the visitor's own request, use it SILENTLY: complete places they name with it and store the fuller form - "Ikeja" with a "${input.geo_context}" context becomes "Ikeja, Lagos, Nigeria" in service_area; never mention, quote or ask about this context): visitor network appears to be in ${input.geo_context}.`
       : "";
+    const site = input.site
+      ? ` The owner shared their website ${input.site.url}. Its page text says: "${input.site.text.slice(0, 2200)}". MINE IT FIRST: fill the business name ("name"), what they sell (offering), who buys (ideal_customer), where they serve (service_area), and anything else the page answers - label every site-sourced field "inferred". NEVER ask a question the page already answers (asking for the business name or the offer when the site states them is forbidden). Extract even when the owner's reply was short.`
+      : "";
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: brief || "New business onboarding.",
-      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "name": "the business name the owner stated, or empty string", "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Sharp memory - Known plus the owner's words are ONE memory, and the owner volunteers facts no question asked for: "504 yards Grills and Drinks sell grilled chicken to individuals, corporate events" already names the business (504 yards Grills and Drinks), the offer (grilled chicken), AND the buyers (individuals, corporate event organisers) - extract ALL of them in that single turn and ask nothing. Put any stated business name in "name". NEVER ask for the business name when the words contain any name-like phrase ('X Grills', 'Y Services', 'my company Z'); extract it as inferred and let the owner edit on the summary - asking for a stated name is forbidden. When the owner's words state a place the business serves ("offices in Ikeja"), extract it into service_area immediately — asking for a place they just said is forbidden (refining a bare place to its fuller areas is allowed, and shows the noted value). Never spend a question confirming something you can already extract: the owner confirms and edits every field on the summary screen. Each field may be asked about at most once in the whole conversation; a field in Known with a value is ANSWERED, never re-asked, not even to confirm or refine. Only ask about a fact that is still missing AND material, at most one per turn. Think like a sales strategist: read the whole reply before asking anything. ASSUME-NEVER-ASK rule: decision_maker, order_size, budget and timeline are NEVER asked - for any small business the owner decides purchases unless their words say otherwise, so set decision_maker inferred ("the owner decides purchases") and leave the others to the summary screen as editable assumptions; asking about them wastes a turn the owner trusted you with. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area - the country is never worth a follow-up on its own; a street address is fine too ("Kodesoh Street, Ikeja"). Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base. Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}.${geo} Owner's reply: ${JSON.stringify(input.text)}.`,
+      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "name": "the business name the owner stated, or empty string", "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Sharp memory - Known plus the owner's words are ONE memory, and the owner volunteers facts no question asked for: "504 yards Grills and Drinks sell grilled chicken to individuals, corporate events" already names the business (504 yards Grills and Drinks), the offer (grilled chicken), AND the buyers (individuals, corporate event organisers) - extract ALL of them in that single turn and ask nothing. Put any stated business name in "name". NEVER ask for the business name when the words contain any name-like phrase ('X Grills', 'Y Services', 'my company Z'); extract it as inferred and let the owner edit on the summary - asking for a stated name is forbidden. When the owner's words state a place the business serves ("offices in Ikeja"), extract it into service_area immediately — asking for a place they just said is forbidden (refining a bare place to its fuller areas is allowed, and shows the noted value). Never spend a question confirming something you can already extract: the owner confirms and edits every field on the summary screen. Each field may be asked about at most once in the whole conversation; a field in Known with a value is ANSWERED, never re-asked, not even to confirm or refine. Only ask about a fact that is still missing AND material, at most one per turn. Think like a sales strategist: read the whole reply before asking anything. ASSUME-NEVER-ASK rule: decision_maker, order_size, budget and timeline are NEVER asked - for any small business the owner decides purchases unless their words say otherwise, so set decision_maker inferred ("the owner decides purchases") and leave the others to the summary screen as editable assumptions; asking about them wastes a turn the owner trusted you with. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area - the country is never worth a follow-up on its own; a street address is fine too ("Kodesoh Street, Ikeja"). Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base. Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}.${geo}${site} Owner's reply: ${JSON.stringify(input.text)}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);

@@ -56,7 +56,7 @@
       verdict: "needs_research", readiness: 1,
       rationale: "Monthly branch events with outside catering, but branch-level choice is unconfirmed.",
       uncertainties: ["Whether the branch can pick vendors", "Event dates"],
-      routes: [],
+      routes: [{ channel: "website_form", value: "https://northgatebank.ng/branch-events" }],
       evidence: [
         { quote: "Monthly branch events with outside catering.", source: "northgatebank.ng/branch-events", type: "site" },
         { quote: "HR manages an approved vendor list.", source: "web search: Northgate Ikeja vendor list", type: "search" }
@@ -127,7 +127,7 @@
         { key: "Business", value: name, provenance: assumed ? "assumed" : "stated" },
         { key: "Offer", value: input.description, provenance: "stated" },
         { key: "Service area", value: input.q1 || "Ikeja and environs (assumed. Please edit)", provenance: input.q1 ? "stated" : "assumed" },
-        { key: "Buyer", value: input.q3 || "Office admin / HR manager (assumed. Please edit)", provenance: input.q3 ? "stated" : "assumed" },
+        { key: "Buyer", value: input.q5 || "Small businesses and startups (assumed. Please edit)", provenance: input.q5 ? "stated" : "assumed" },
         { key: "Site headline", value: input.site ? "Checked " + input.site + ". Catering page found" : "No site given. Using your description only", provenance: input.site ? "extracted" : "assumed" }
       ]
     };
@@ -183,11 +183,9 @@
       this._obq = null;
     }
     var prompts = {
-      decision_maker: { prompt: "Who usually says yes to an order like this?", chips: ["Office admin", "HR manager", "The owner", "I am not sure"] },
-      order_size: { prompt: "What is a typical order size?", chips: ["Under 20", "20 to 50", "Over 50"] },
-      budget: { prompt: "What budget range should we assume per order?", chips: ["Under 50k", "50k to 200k", "I am not sure"] }
+      exclusions: { prompt: "Anyone we should NOT count as a buyer? Tap a few, or type.", chips: ["Competitors", "Franchises", "I am not sure"] }
     };
-    var next = ["decision_maker", "order_size", "budget"].filter(function (k) {
+    var next = ["exclusions"].filter(function (k) {
       return !fields[k] || (!fields[k].value && !fields[k].locked);
     })[0];
     if (!next) return Promise.resolve({ fields: fields, question: null, done: true, followups_used: used });
@@ -401,7 +399,7 @@
       mk("Buyer", row.target_market, "target_market", "target_market"),
       mk("Order size", cons.order_size, "constraints", "constraints.order_size"),
       mk("Exclusions", cons.exclusions, "constraints", "constraints.exclusions")
-    ];
+    ].filter(function (f) { return f.value !== ""; }); // empty assumptions are noise, not rows (2026-11-03)
   }
 
   RealApi.prototype.onboardTurn = function (payload) {
@@ -411,7 +409,10 @@
     return this._req("/api/onboard/turn", { method: "POST", body: JSON.stringify(body) });
   };
   RealApi.prototype.createProfile = function (input) {
-    var buyer = [input.q3, input.q5].filter(function (s) { return !!s; }).join(" | ");
+    // Buyers are what the owner said they serve (q5) — NEVER the decision-
+    // maker assumption (q3): merging them made assessments pattern-match
+    // prospects against "the owner decides purchases" (TechAssembly, 2026-11-03).
+    var buyer = input.q5 || "";
     var payload = { name: input.businessName || "", description: input.description };
     if (input.name_assumed) payload.name_assumed = true;
     if (input.site) payload.website_url = input.site;
@@ -589,6 +590,14 @@
 
   RealApi.prototype.getShortlist = function (runId) {
     var self = this;
+    // Rationales are clipped at a WORD boundary — a mid-word cut read as
+    // gibberish ("no reachable o...") on the shortlist (2026-11-03).
+    function clipAt(s, n) {
+      s = String(s || "");
+      if (s.length <= n) return s;
+      var cut = s.lastIndexOf(" ", n);
+      return s.slice(0, cut > 40 ? cut : n).replace(/[,;:\s]+$/, "") + "…";
+    }
     return self._req("/api/runs/" + encodeURIComponent(runId) + "/prospects").then(function (res) {
       var list = res.prospects || [];
       return Promise.all(list.map(function (p) { return self.getEvidence(p.id); })).then(function (details) {
@@ -604,11 +613,11 @@
             area: tidyArea(loc.area || loc.note || loc.city || "Area unconfirmed"),
             category: p.category || "unclassified",
             score: rating ? rating * 20 : 0,
-            summary: asmt && asmt.rationale ? String(asmt.rationale).slice(0, 140) : "Not scored yet. Thin evidence.",
+            summary: asmt && asmt.rationale ? clipAt(asmt.rationale, 140) : "Not scored yet. Thin evidence.",
             status: p.status,
             verdict: asmt ? (asmt.verdict || null) : null,
             readiness: typeof dims.readiness === "number" ? dims.readiness : 0,
-            rationale: asmt && asmt.rationale ? String(asmt.rationale) : "",
+            rationale: asmt && asmt.rationale ? clipAt(asmt.rationale, 400) : "",
             uncertainties: open.filter(function (u) { return typeof u === "string" && u; }).slice(0, 3),
             routes: (details[i].routes || []).map(function (r) { return { channel: r.channel, value: r.value, verification: r.verification }; }),
             sourceUrl: firstEv.source || ""

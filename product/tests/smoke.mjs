@@ -240,16 +240,26 @@ await fire(els["onboard-form"], "submit", evt());
 await tick(); await tick();
 ok(els["ob-first"].hidden === true && els["ob-chat"].hidden === false, "submit description -> chat view");
 ok(els["ob-yousaid-text"].textContent === DESCRIPTION, "chat shows the first message back");
-ok(/says yes/.test(els["ob-question"].textContent), "first follow-up asks the decision maker (" + els["ob-question"].textContent + ")");
-ok(/right person/.test(els["ob-sub"].textContent), "helper line matches the live question");
-ok(/office admin/.test(els["ob-answer"].placeholder), "answer box shows a worked example");
-ok(/data-chip="HR manager"/.test(els["ob-chips"].innerHTML), "answer chips render");
+ok(/should NOT count/.test(els["ob-question"].textContent), "first follow-up asks exclusions (decision maker is assumed, never asked)");
+ok(els["ob-answer"].placeholder && els["ob-answer"].placeholder.length > 3, "answer box shows a worked example");
+ok(/data-chip="Competitors"/.test(els["ob-chips"].innerHTML), "answer chips render");
 ok(/Asking you now/.test(els["ob-fields"].innerHTML), "understood panel marks the live question");
 
 await fire(els["btn-ob-edit-first"], "click", evt());
 ok(els["ob-first"].hidden === false && els["f-description"].value === DESCRIPTION, "Edit returns to the first message, text kept");
 await fire(els["onboard-form"], "submit", evt());
 await tick(); await tick();
+
+// Chips APPEND instead of advancing (owner direction 2026-11-03): owners
+// combine several ("Competitors, Franchises"); Continue stays theirs.
+const chip = (v) => ({ target: { getAttribute: (a) => (a === "data-chip" ? v : null) } });
+els["ob-answer"].value = "";
+await fire(els["ob-chips"], "click", chip("Small businesses"));
+ok(els["ob-answer"].value === "Small businesses", "chip one adds itself to the input");
+await fire(els["ob-chips"], "click", chip("Startups"));
+ok(els["ob-answer"].value === "Small businesses, Startups", "chip two appends with a comma");
+await fire(els["ob-chips"], "click", chip("Small businesses"));
+ok(els["ob-answer"].value === "Small businesses, Startups", "tapping a chip twice does not duplicate it");
 
 {
   const MockApi = sandbox.window.ApiLayer.MockApi;
@@ -259,24 +269,19 @@ await tick(); await tick();
     if (!failedOnce) { failedOnce = true; return Promise.reject(new TypeError("Failed to fetch")); }
     return origTurn.call(this, payload);
   };
-  els["ob-answer"].value = "HR manager";
   await fire(els["btn-ob-continue"], "click", evt());
   await tick(); await tick();
   ok(els["ob-error"].textContent === "We could not reach the service. Check your connection and try again.",
     "network failure shows the plain message");
   ok(els["btn-ob-retry"].hidden === false, "network failure offers retry");
-  ok(els["ob-answer"].value === "HR manager", "typed answer survives the failure");
+  ok(els["ob-answer"].value === "Small businesses, Startups", "typed answer survives the failure");
   await fire(els["btn-ob-retry"], "click", evt());
   await tick(); await tick();
-  ok(/budget range/.test(els["ob-question"].textContent), "retry re-sends and advances (" + els["ob-question"].textContent + ")");
-  ok(/HR manager/.test(els["ob-fields"].innerHTML), "answer lands in the understood panel");
+  ok(els["ob-done-wrap"].hidden === false, "retry re-sends and the interview ends (assumptions cover the rest)");
+  ok(/Startups/.test(els["ob-fields"].innerHTML), "answer lands in the understood panel");
   MockApi.prototype.onboardTurn = origTurn;
 }
 
-await fire(els["btn-ob-skip"], "click", evt());
-await tick(); await tick();
-ok(els["ob-done-wrap"].hidden === false, "skip on the last fact ends the chat");
-ok(/Marked as a guess/.test(els["ob-fields"].innerHTML), "skipped field marked as a guess");
 ok(/a guess/.test(els["ob-fields"].innerHTML), "inferred fields labelled a guess");
 
 await fire(els["btn-ob-finish"], "click", evt());
@@ -334,7 +339,8 @@ ok(visible("view-shortlist"), "confirm -> progress -> shortlist view");
 ok(els["stage-wrap"].hidden === false,
   "campaign stage strip on the shortlist (stages are a trail, not nav, user request 2026-11-02)");
 ok(els["tab-ready-n"].textContent === "2" && els["tab-warm-n"].textContent === "2" && els["tab-look-n"].textContent === "2",
-  "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent + ")");
+  "tabs count 2/2/2 (" + els["tab-ready-n"].textContent + "/" + els["tab-warm-n"].textContent + "/" + els["tab-look-n"].textContent +
+  " title=" + els["shortlist-title"].textContent + ")");
 ok(els["shortlist-title"].textContent === "Six buyers worth your time.", "title counts the shortlist");
 ok(els["prospect-list"].children.length === 2, "ready tab lists 2 qualified, saw " + els["prospect-list"].children.length);
 {
@@ -361,7 +367,7 @@ await tick();
 ok(els["prospect-list"].children.length === 2
   && /NEEDS A LOOK/.test(els["prospect-list"].children[0].innerHTML),
   "look tab lists needs-review picks");
-ok(/No published route found yet/.test(els["prospect-list"].children[0].innerHTML), "routeless card stays honest");
+ok(/northgatebank\.ng/.test(els["prospect-list"].children[0].innerHTML), "look card shows the published route (routeless leads never reach this list)");
 ok(/human look/.test(els["shortlist-sub"].textContent), "look tab warns the picks need review");
 await fire(els["shortlist-tabs"], "click", tabTarget("ready"));
 await tick();
