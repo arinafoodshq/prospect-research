@@ -1179,9 +1179,11 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
     width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto;
   }
-  /* Stage trail: one scrollable row on phones, never a multi-row block. */
-  .stage-strip .steps ol { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .stage-strip .steps ol::-webkit-scrollbar { display: none; }
+  /* Stage trail: one scrollable row on phones, never a multi-row block —
+     the scroll container is the nav so the page never overflows. */
+  .stage-strip .steps { display: block; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+  .stage-strip .steps::-webkit-scrollbar { display: none; }
+  .stage-strip .steps ol { flex-wrap: nowrap; width: max-content; min-width: 100%; }
   .stage-strip .steps li { flex: 0 0 auto; padding: 0.26rem 0.65rem; font-size: 0.78rem; }
   #app, .stage-strip { padding-bottom: 0; }
   .sb-content { padding-bottom: 4.3rem; }
