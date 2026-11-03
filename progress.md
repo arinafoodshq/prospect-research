@@ -2362,3 +2362,54 @@ Verification: 482/482 vitest, SMOKE PASS, tsc clean; deployed c2956cc0
 (push a7708ab). Note: the client already streams the found-list live
 (per-tick /prospects fetch); Muse token streaming is irrelevant here -
 the workflow reasons server-side and the UI polls results.
+## 2026-11-03 (classify like 504Yard: the shortlist holds, not discards)
+
+User report on the real-estate run: 72 found but only 5 shortlisted, and the
+set-aside pile was full of real agencies (GidiSteel, Mercy Divine, MaisonHills,
+Thorpe...) plus listing-title junk ("Houses in Estates, Port Harcourt, Rivers",
+"PowerPoint Presentation"). Direction: "5 is too small, that's too strict —
+ideally it should find almost 70 and classify them like C:\dev\504Yard"
+(504Yard bands: A 3 / B 94 / C 107 of 204 — band C is "research further",
+VISIBLE, never discarded).
+
+Root causes found and fixed:
+
+1. Deterministic exclusion gate nuked real agencies: word-stem matching let
+   the modifier "property" (inside "Property portals and listing marketplaces")
+   fire on any agency named "…Properties". Now multi-word exclusion phrases
+   fire on the CATEGORY (the kind field) or >= 2 name words — never one
+   modifier inside a company name — and trailing company-name descriptors
+   ("Properties", "Homes", "Realty", "Estate"...) are stripped before
+   matching, the same rule as "X Enterprise is not an enterprise account".
+   Single-word exclusions ("banks") still fire on name or category.
+2. Mass model set-asides: the assess prompt shared ONE global slice of 30
+   evidence rows across 72 prospects (most prospects judged with their own
+   pages MISSING, then rejected for "no evidence") and instructed "use 1-2
+   freely when evidence is thin". Now every prospect carries its OWN evidence
+   rows in the prompt, and the rubric is 504Yard banding: a real organisation
+   that visibly belongs to the segment is icp_fit 3+ even when thin; 1-2 is
+   for the wrong KIND only (portals, directories, unrelated trades, one
+   unattached person). decideVerdict: icp_fit < 3 with a route or own page is
+   now needs_research (kept for a look, lands on the shortlist) — only unfit
+   AND unreachable AND page-less is disqualified.
+3. Ingest junk classes: listing-inventory titles ("<type> ... in <place>"),
+   generic-org-in-place titles, verb/marketing openings, "your"-copy,
+   document artifacts, pagination ghosts ("... in 3") all rejected at the
+   name gate; nav furniture normalized (", Home" suffix, "About " prefix).
+4. Explosion: a directory hit is ALWAYS consumed by its members (the
+   zero-member fall-through that shipped "Houses in Estates..." is gone);
+   same-host profile paths (/company/<slug>) now explode into members, each
+   with its OWN evidence row so investigate opens the member page, not the
+   directory index.
+5. Run view: set-aside list collapsed to 8 rows + "Show N more set aside"
+   (expansion survives polling), rationales word-boundary-clipped
+   (mid-word "Principal/Fo" cuts gone), budget line reads caps from the
+   run's own budgets (no more hardcoded 30/40).
+
+Tests: exclusion-gate wakasure regression (8 agency names pass, portal kind
+caught), banding verdicts (routed+under-evidenced kept; wrong kind still
+discarded), ingest-gate junk class list, nav normalization, directory
+fall-through (zero members -> no candidate), same-host profile explosion with
+own evidence rows, smoke collapse/show-more journey (9 mock dropped rows).
+Verification: 488/488 vitest, SMOKE PASS, tsc clean; deployed fceee880
+(push a499a81).
