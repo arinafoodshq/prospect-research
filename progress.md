@@ -2150,3 +2150,29 @@ at y=61, stats 3-up at y=200, steps at y=296 (first viewport), brand hidden,
 fixed bottom bar, overflowX false. Known limit: runs started BEFORE this
 deploy have no ledger - a retry re-walks remaining queries with dedupe
 convergence; fresh runs resume true.
+## 2026-11-03 (location loop killed: use its senses + network geo context)
+
+User: the interview asked "Where are you based..." even AFTER answering -
+the location-precision backstop (needsLocationDisambiguation: fewer than
+two comma parts) fired EVERY turn on bare/naturally-phrased answers, and
+the model could overwrite a fuller value with a bare re-extraction.
+
+Fixes (owner direction: "use its senses - Ikeja IS Lagos"; add network
+context to what it knows):
+- needsLocationDisambiguation: any word from a Nigerian states+areas set
+  completes the place ("Ikeja", "Ikeja Lagos" without a comma, "Lekki
+  Phase 1") - no ask. Only a truly unknown bare token asks.
+- The refine ask is capped AT MOST ONCE per interview (marker label
+  "location-asked" rides in the returned fields).
+- Network geo context (free): req.cf city/region/country is passed to the
+  onboard model as silent context - "Ikeja" + a Lagos/Nigeria request
+  becomes "Ikeja, Lagos, Nigeria" in service_area; the model stores the
+  completed form and never mentions the context. Absent in tests.
+- No-downgrade merge: a fuller/already-refined service_area never loses
+  parts to a bare model re-extraction.
+- Model prompt: complete places you can place on a map; "area, city" is a
+  COMPLETE service_area (country never worth a follow-up).
+
+Verification: 474/474 vitest (route tests rewritten to the new rule: known
+area accepted, unknown token asks exactly once, model re-ask suppressed),
+SMOKE PASS, tsc clean; deployed b93c8cfd (push 7cf86ac).
