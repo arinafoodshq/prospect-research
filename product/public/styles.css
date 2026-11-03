@@ -1139,13 +1139,13 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
     order: 3; width: 100%;
     flex-direction: row; flex-wrap: nowrap;
     overflow-x: auto; scrollbar-width: none;
-    gap: 0.3rem; padding-bottom: 2px;
+    gap: 0.25rem; padding-bottom: 2px;
   }
   .sb-nav::-webkit-scrollbar { display: none; }
   .sb-item {
     order: initial; width: auto; min-height: 2.3rem;
-    padding: 0.35rem 0.7rem;
-    font-size: 0.82rem; font-weight: 700; color: var(--text);
+    padding: 0.35rem 0.55rem;
+    font-size: 0.78rem; font-weight: 700; color: var(--text);
     white-space: nowrap; flex: 0 0 auto;
   }
   .auth-link, .auth-out { font-size: 0.9rem; white-space: nowrap; }
