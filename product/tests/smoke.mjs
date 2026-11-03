@@ -128,6 +128,7 @@ const IDS = [
   "progress-setaside", "progress-setaside-empty", "progress-error",
   "btn-preview-progress", "btn-stop-progress",
   "prospect-list", "evidence-body", "evidence-hint", "history-slot", "draft-list", "drafts-note", "status-board",
+  "run-banner",
   "shortlist-kicker", "shortlist-title", "shortlist-sub", "shortlist-tabs", "shortlist-empty",
   "tab-ready", "tab-warm", "tab-look", "tab-ready-n", "tab-warm-n", "tab-look-n",
   "shortlist-count",

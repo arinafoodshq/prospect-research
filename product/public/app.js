@@ -1954,6 +1954,7 @@
   }
 
   function renderStatuses() {
+    renderRunBanner();
     var board = $("status-board");
     board.innerHTML = "";
     var seenFollowups = {};
@@ -2042,11 +2043,60 @@
     });
   }
 
+  /**
+   * Unfinished work is never invisible (owner report 2026-11-03: a crashed
+   * run left the dashboard showing only empty columns). The banner states
+   * the current campaign honestly and offers the continuation: mid-run
+   * resumes the poll, a failed run resumes the SAME run server-side
+   * (synchronized retry), awaiting_approval jumps to the studio.
+   */
+  function renderRunBanner() {
+    var wrap = $("run-banner");
+    if (!wrap) return;
+    if (!api.getLatestRun) { wrap.hidden = true; return; }
+    return api.getLatestRun().then(function (res) {
+      var run = res && res.run;
+      if (!run || run.status === "complete") { wrap.hidden = true; return; }
+      currentCampaignRun = run;
+      state.runStatus = run.status;
+      var name = esc(run.profile_name || "Your business");
+      var status = esc(resumeStatusText(run));
+      var btn = "";
+      if (run.status === "awaiting_approval") {
+        btn = "<button type=\"button\" data-act=\"open-messages\">Open my messages <span aria-hidden=\"true\">-&gt;</span></button>";
+      } else {
+        var label = run.status === "failed" ? "Continue research" : "Continue research";
+        btn = "<button type=\"button\" data-act=\"resume-run\" data-id=\"" + esc(run.id) + "\">" + label + " <span aria-hidden=\"true\">-&gt;</span></button>";
+      }
+      var tone = run.status === "failed" ? "stopped" : run.status === "awaiting_approval" ? "ready" : "working";
+      wrap.hidden = false;
+      wrap.innerHTML = "<div class=\"run-banner " + tone + "\"><div><p class=\"kicker\">" +
+        (tone === "stopped" ? "Unfinished campaign" : tone === "ready" ? "Waiting for you" : "Still working") +
+        "</p><p class=\"meta\">" + status + "</p></div>" + btn + "</div>";
+    }, function () { wrap.hidden = true; });
+  }
+
   function onBoardClick(e) {
     var t = e.target || {};
     var ds = t.dataset || {};
     if (ds.act === "new-campaign") { renderCampaignView(); return; }
     if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id); return; }
+    if (ds.act === "open-messages") { renderDrafts(); return; }
+    if (ds.act === "resume-run") {
+      if (ds.id) {
+        state.runId = ds.id;
+        if (currentCampaignRun) {
+          state.profile = { id: currentCampaignRun.profile_id, name: currentCampaignRun.profile_name || "" };
+        }
+      }
+      showView("progress");
+      var failed = currentCampaignRun && currentCampaignRun.id === state.runId && currentCampaignRun.status === "failed";
+      var kick = (failed && api.resumeRun)
+        ? api.resumeRun(state.runId, { to: "created" }).catch(function () { /* the poll shows the honest state */ })
+        : Promise.resolve();
+      kick.then(function () { pollProgress(); });
+      return;
+    }
     if (ds.act !== "cancel-campaign" || !ds.id) return;
     api.cancelCampaign(ds.id).then(function () { renderStatuses(); });
   }

@@ -1198,6 +1198,20 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
   .ob-head { justify-content: flex-end; }
 }
 
+/* Unfinished-work banner (owner report 2026-11-03): a crashed run must be
+   visible and continuable right on the dashboard, never blank columns. */
+.run-banner {
+  display: flex; align-items: center; gap: 1rem; justify-content: space-between;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px; padding: 0.8rem 1rem; margin: 0 0 1rem;
+}
+.run-banner .kicker { margin: 0 0 0.2rem; }
+.run-banner .meta { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.run-banner button { flex: 0 0 auto; }
+.run-banner.stopped { border-left-color: var(--marigold, var(--accent)); }
+.run-banner.ready { border-left-color: var(--success); }
+
 /* ============================================================
    Dashboard revamp (2026-11-02): the landing's paper theme —
    white cards on the paper ground, one calm accent stripe per
