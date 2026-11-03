@@ -2043,3 +2043,55 @@ deployed 0cdef096):
 Verification: PNG dimensions confirmed from the file headers; SMOKE PASS;
 live checks: og:title/og:image/twitter:card/canonical present in the served
 HTML, /og.png 200 image/png 112831 bytes, /robots.txt 200; pushed.
+## 2026-11-03 (mobile UX + the "0 buyers" root cause + orchestration)
+
+User reports (odidimary407@gmail.com, Kiddies thrift by Arinastores): mobile
+UI poor; "Sign in"/"Sign out" breaking; shortlist flashed "No buyers worth
+your time" then filled; junk names (admin, Lagos Events Calendar, listicles)
+on the board; and the thrift search ended 0.
+
+Root cause (verified in D1 run_e525ec91): all 30 prospects disqualified,
+fit 1. The brief set target industries to "Consumer Households - Parents of
+Young Children" (B2C seller, B2B-shaped prompts), so qualification demanded
+each prospect BE a household; the planner grasped at family venues/pages;
+discovery ingested search-result page TITLES as businesses (no gate); the
+QA replan prompt was a thin ad-hoc goal, so sweep-2 pulled junk. Second live
+run ("Mb declutter") same shape, still mid-flight on old code.
+
+Orchestration (user direction: delegate, QA judges but never searches):
+QA stays a deterministic judge; its report (good/junk counts + first 5 junk
+and good NAMES) now feeds the ORIGINAL buildPlanGoal prompt (complete
+prompt, same family that planned sweep 1) - planMore rebuilt on it.
+investigate/assess remain the crawl+contacts specialists; the ingest gate
+protects their handoff.
+
+- commercial.ts: Consumer-buyers rule (hard) in buildBriefGoal - consumers
+  as buyers means prospects are the organizations that supply/host/reach
+  them, industries never name people; buildPlanGoal + buildSearchGoal carry
+  the same lens + "every result is one namable organization".
+- phases.ts: plausibleBusinessName() ingest gate (listicles, calendars,
+  directories, forms, single generic words) - discover skips non-plausible
+  names, evidence rows kept; runQuality now returns goodNames/junkNames.
+- meta.ts: assess scores prospects as ROUTES (bulk/carry/host/refer); draft
+  frames the ask as partnership for consumer-buyer briefs.
+- app.js: shortlist gate - progress card until a fetch lands; mid-run only
+  the explicitly opened "Preview results so far" peek shows a labeled list;
+  honest zero only for a parked run ("Nothing worth your time yet." +
+  widen/redo guidance); runStatus tracked from snapshot + campaign card.
+- index.html: stage trail unnumbered (Onboard / Confirm profile / ...);
+  mobile ob-head brand pair hidden (top bar already brands).
+- styles.css: mobile ob-head keeps only "Save and exit" right-aligned.
+- tests: plausibleBusinessName suite (real junk names from the run),
+  runQuality name-arrays pin, consumer-rule prompt pin; browsermcp config
+  test updated for OpenCode's new mcp.servers shape.
+
+Verification: 468/468 vitest, SMOKE PASS, tsc clean; deployed f949f7ce
+(push d510c9a). Live 390px: brand + chip (ellipsized) + Sign out on one
+row, all 4 nav items visible, no overflow at 360px, ob-brand hidden, trail
+unnumbered (DOM-verified + one screenshot).
+
+Unresolved: (1) old runs keep pre-deploy logic - a FRESH search is needed
+to see the new behavior; (2) run_ca31bc9f (Mb declutter) still mid-flight
+on old prompts - recommend Retry research once it stops; (3) OpenCode
+global config shape changed on this machine (mcp.servers) - test updated
+to accept both shapes.
