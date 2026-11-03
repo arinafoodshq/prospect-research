@@ -125,7 +125,7 @@ const IDS = [
   "profile-fields", "progress-steps", "progress-budget",
   "progress-kicker", "progress-eyebrow", "progress-title", "progress-note",
   "stat-found", "stat-opened", "stat-kept",
-  "progress-setaside", "progress-setaside-empty", "progress-error",
+  "progress-setaside", "progress-setaside-empty", "progress-setaside-more", "progress-error",
   "btn-preview-progress", "btn-stop-progress",
   "found-wrap", "found-list", "btn-see-results", "btn-select-all",
   "prospect-list", "evidence-body", "evidence-hint", "history-slot", "draft-list", "drafts-note", "status-board",
@@ -148,7 +148,7 @@ const IDS = [
 ];
 const els = {};
 for (const id of IDS) {
-  const tag = id.startsWith("view-") ? "section" : id.startsWith("btn-") ? "button"
+  const tag = id.startsWith("view-") ? "section" : id.startsWith("btn-") || id === "progress-setaside-more" ? "button"
     : id === "onboard-form" ? "form" : id === "profile-fields" ? "dl"
     : id === "prospect-list" || id === "progress-steps" ? "ol" : "div";
   els[id] = new FakeEl(tag, id);
@@ -321,6 +321,10 @@ ok(/Opened each business/.test(els["progress-steps"].innerHTML), "page-open step
 ok(/class="active">Checking fit/.test(els["progress-steps"].innerHTML), "exactly the next step shows active");
 ok(/Greenfield Clinic/.test(els["progress-setaside"].innerHTML), "set-aside panel names the dropped pick");
 ok(/outside your target segment/.test(els["progress-setaside"].innerHTML), "set-aside panel gives the reason");
+ok(els["progress-setaside"].innerHTML.split("<li>").length - 1 === 8, "long set-aside list collapses to 8 rows");
+ok(els["progress-setaside-more"].textContent === "Show 1 more set aside", "show-more button counts the collapsed rows");
+await fire(els["progress-setaside-more"], "click", evt());
+ok(els["progress-setaside"].innerHTML.split("<li>").length - 1 === 9, "show-more reveals every set-aside row");
 await fire(els["btn-preview-progress"], "click", evt());
 await tick(); await tick();
 ok(visible("view-shortlist"), "preview jumps to results so far mid-run");

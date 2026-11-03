@@ -509,7 +509,7 @@ describe("createMetaClient", () => {
     });
     const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
     await client.proposeAssessments!(
-      [{ id: "pr_1" } as any],
+      [{ id: "pr_1", evidence_ids: ["ev_1"] } as any],
       [{ id: "ev_1", claim: "ig page", source_url: "https://instagram.com/shop", source_type: "fetched_page" } as any],
     );
     const sent = JSON.parse((fetchImpl.mock.calls[0] as any[])[1].body as string);

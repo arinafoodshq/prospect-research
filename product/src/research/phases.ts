@@ -418,24 +418,27 @@ export async function discover(
             ? h.location as Record<string, string>
             : (geos.length ? { area: geos.slice(0, 3).join(", "), source: "brief" } : {});
           // Directory explosion (owner direction 2026-11-03, borrowed from
-          // ArinaBreeze): a directory hit becomes its MEMBER businesses —
-          // the listing page itself never becomes a candidate. Runs BEFORE
-          // the name gate: directory titles are exactly what the gate
-          // rejects ("... Directory"). Bounded (≤25 per directory, ≤60 per
-          // run), fail-safe per link.
-          if (h.source_url && isDirectoryHost(h.source_url) && explodedTotal < 60 && meta.fetchPage) {
-            const made = await explodeDirectory(meta, db, budgets, {
-              url: h.source_url, evidenceId: evId, inherited,
-              remaining: 60 - explodedTotal,
-            });
+          // ArinaBreeze): a directory hit is CONSUMED by its member
+          // businesses — always, even when zero members pass the gates (the
+          // listing page itself must never become a candidate; that
+          // fall-through shipped "Houses in Estates, Port Harcourt, Rivers").
+          // Bounded (≤25 per directory, ≤60 per run), fail-safe per link.
+          if (h.source_url && isDirectoryHost(h.source_url) && meta.fetchPage) {
+            const made = explodedTotal < 60
+              ? await explodeDirectory(meta, db, budgets, {
+                url: h.source_url, evidenceId: evId, inherited,
+                remaining: 60 - explodedTotal,
+              })
+              : 0;
             explodedTotal += made;
-            if (made > 0) continue;
+            continue;
           }
-          // Ingest gate: page titles (listicles, calendars, forms, fragments)
-          // never become candidates (owner report 2026-11-03).
+          // Ingest gate: page titles (listicles, calendars, forms, fragments,
+          // listing-inventory titles, marketing phrases) never become
+          // candidates (owner report 2026-11-03).
           if (!plausibleBusinessName(h.name)) continue;
           const r = await saveCandidate(db, {
-            run_id: budgets.run_id, name: h.name, category: h.category,
+            run_id: budgets.run_id, name: normalizeCandName(h.name), category: h.category,
             location: inherited,
             ...(h.domainOrHandle !== undefined ? { domainOrHandle: h.domainOrHandle } : {}),
             evidence_ids: [evId],
@@ -459,11 +462,15 @@ export async function discover(
 
 /**
  * Directory explosion: fetch the listing page, harvest member anchors
- * (name+url), and save each plausible member as a candidate sharing the
- * directory's evidence row. Fail-safe by construction: the whole function
- * swallows its own failures and returns the count made — the caller falls
- * back to treating the directory hit like any other candidate. Bounded:
- * ≤25 members per directory, and the caller caps explosions per run.
+ * (name+url), and save each plausible member as a candidate with its OWN
+ * evidence row (so investigate fetches the member's page, not the directory
+ * index). Members may live off-domain (their own site) or on the directory
+ * itself under a profile path (/company/<slug> — how businesslist hosts
+ * member pages). Fail-safe by construction: the whole function swallows its
+ * own failures and returns the count made — the caller consumes the
+ * directory hit either way, so a dead or blocked directory costs nothing
+ * but one fetch. Bounded: ≤25 members per directory, and the caller caps
+ * explosions per run.
  */
 async function explodeDirectory(
   meta: MetaClient, db: Db, budgets: BudgetState & { run_id: string },
@@ -471,21 +478,38 @@ async function explodeDirectory(
 ): Promise<number> {
   try {
     if (!meta.fetchPage) return 0;
+    if (dir.remaining <= 0) return 0;
     const page = await meta.fetchPage(dir.url, 15000);
     if (!("links" in page) || !page.links || page.links.length === 0) return 0;
+    const dirHost = hostOf(dir.url).replace(/^www\./, "");
     let made = 0;
     for (const l of page.links) {
       if (made >= Math.min(25, dir.remaining)) break;
       if (budgets.consumed.candidates >= budgets.caps.candidates) break;
       try {
-        if (isDirectoryHost(l.url) || isSocialHost(l.url)) continue; // nav links, not members
+        if (isSocialHost(l.url)) continue; // social buttons, not members
         const host = hostOf(l.url);
         if (!host) continue;
-        if (!plausibleBusinessName(l.text)) continue; // "About us", "Contact", fragments
+        const sameHost = host.replace(/^www\./, "") === dirHost;
+        if (!sameHost && isDirectoryHost(l.url)) continue; // another directory's page
+        // Same-domain links must look like a member PROFILE page, not the
+        // directory's own nav or category pages.
+        if (sameHost && !/\/(?:company|business|profile|listing|organizations?|store|shops?)\/[^/]/i.test(new URL(l.url).pathname)) continue;
+        const name = normalizeCandName(l.text);
+        if (!plausibleBusinessName(name)) continue; // "About us", "Contact", fragments
+        // Per-member evidence row: the prospect's OWN url is the member
+        // page, so investigate opens the member (real contacts live there),
+        // never the directory index again.
+        const evId = await saveEvidence(db, {
+          run_id: budgets.run_id, claim: `${name} listed on ${dirHost}`,
+          quote: l.text.slice(0, 200), source_url: l.url, source_type: "search_snippet",
+          retrieved_at: new Date().toISOString(), reliability: "unknown",
+          conflicts_with: null, supersedes: null,
+        });
         const r = await saveCandidate(db, {
-          run_id: budgets.run_id, name: l.text, category: "Directory listing",
-          location: dir.inherited, domainOrHandle: host,
-          evidence_ids: [dir.evidenceId],
+          run_id: budgets.run_id, name, category: "Directory listing",
+          location: dir.inherited, ...(sameHost ? {} : { domainOrHandle: host }),
+          evidence_ids: [evId],
         });
         if (!r.merged) { budgets.consumed.candidates += 1; made += 1; }
       } catch (e) {
@@ -972,8 +996,20 @@ export function isJunkProspect(p: Prospect, evidence: Evidence[]): boolean {
  * search-result PAGE TITLES, not businesses). Pure + unit-tested; discover
  * skips non-plausible names (their evidence rows stay for the trail).
  */
+/**
+ * Candidate-name normalization for names harvested from page chrome: nav
+ * suffixes (", Home", " - Home") and nav prefixes ("About Vala Homes") are
+ * page furniture, not the business name.
+ */
+export function normalizeCandName(raw: string): string {
+  let name = String(raw ?? "").trim();
+  name = name.replace(/\s*[|,\-–»>]\s*home\s*$/i, "").trim();
+  name = name.replace(/^(?:about|meet|welcome to)\s+/i, "").trim();
+  return name;
+}
+
 export function plausibleBusinessName(raw: string): boolean {
-  const name = String(raw ?? "").trim();
+  const name = normalizeCandName(raw);
   if (name.length < 3 || name.length > 80) return false;
   if (!/[a-z]/i.test(name)) return false;
   if (/^\d/.test(name)) return false; // "13 Top ..." — listicles
@@ -997,6 +1033,23 @@ export function plausibleBusinessName(raw: string): boolean {
   const CATS = new Set(["wedding", "weddings", "event", "events", "planners", "planning", "spaces", "space", "workspace", "workspaces", "shared", "coworking", "co", "working", "office", "offices", "meeting", "rooms", "room", "venue", "venues", "services", "service", "centre", "centers", "center", "creative", "let", "lettings", "agency"]);
   const ws = low.split(/[^a-z]+/).filter(Boolean);
   if (ws.length >= 2 && ws.every((w) => CATS.has(w))) return false;
+  // Listing-inventory titles: "<property type> … in <place>" are portal
+  // inventory pages, never organisations ("Houses in Estates, Port
+  // Harcourt, Rivers", "Terraced Duplexes in Wuse, Abuja", "Serviced Shops
+  // in Wuse 2", "Prime Land in Trans Woji Port Harcourt").
+  if (/\b(houses?|flats?|apartments?|duplex(?:es)?|detached|terraced|semi[- ]?detached|bungalows?|penthouses?|lands?|plots?|acres?|shops?|offices?|spaces?|warehouses?|shortlets?|serviced\s+\w+)\b[^,;.]{0,80}\b(?:in|at|near|around)\b/.test(low)) return false;
+  // Generic organisation-in-place titles ("Real Estate Company in Abuja",
+  // "Property Developers in Maitama District, Abuja").
+  if (/\b(?:real\s+estate|property|properties)\s+(?:company|developers?|agents?|agencies|consultants?|firms?|brokers?|experts?)\b/.test(low) && /\bin\b/.test(low)) return false;
+  // Marketing phrases and verb openings ("Own Your Dream Home in Abuja",
+  // "Turning Your Lemons Into Lemonades"): a business name is a noun phrase.
+  if (/^(?:own|buy|rent|sell|find|discover|explore|get|invest(?:ing)?|learn|join|read|see|view|download|welcome|turning|making|building|creating|grow(?:ing)?|crises|crisis)\b/.test(low)) return false;
+  if (/\byour\b/.test(low)) return false; // second-person copy, never a name
+  if (/\bbreeds?\b/.test(low)) return false; // sentence-shaped junk ("Crises Breed Opportunities")
+  // Document artifacts ("PowerPoint Presentation", "…Brochure").
+  if (/\b(powerpoint|presentation|brochure|flyer|catalogue|webinar|slides?)\b/.test(low)) return false;
+  // Pagination ghosts ("Prime Waters Properties in 3" = listing page 3).
+  if (/\b(?:in|page)\s+\d{1,2}$/.test(low)) return false;
   return true;
 }
 

@@ -397,7 +397,23 @@ const NAME_SUFFIXES = new Set([
 ]);
 
 function stripSuffixes(name: string): string {
-  return norm(name).split(" ").filter((w) => !NAME_SUFFIXES.has(w)).join(" ");
+  const words = norm(name).split(" ");
+  // Trailing generic descriptors are company-name furniture, not the trade:
+  // "GidiSteel Properties" is an agency, not "about property" — the same
+  // rule as "X Enterprise is not an enterprise account", one ring wider
+  // (owner report 2026-11-03: real agencies were deterministically excluded
+  // by the word "property" inside a portals exclusion).
+  const TRAILING = new Set([
+    "property", "home", "house", "realty", "estate", "housing",
+    "concept", "concern", "investment", "global", "international",
+    "nigeria", "nigerian", "worldwide",
+  ]);
+  for (;;) {
+    const last = words[words.length - 1];
+    if (words.length <= 1 || last === undefined || !TRAILING.has(last)) break;
+    words.pop();
+  }
+  return words.filter((w) => !NAME_SUFFIXES.has(w)).join(" ");
 }
 
 /**
@@ -411,13 +427,29 @@ export function checkHardConstraints(
   // Exclusions match on name/category only (never location: geo words inside
   // exclusion phrases must not reject the home market; geography is enforced
   // by the inclusion check below).
-  const haystacks = [stripSuffixes(p.name), p.category];
+  const nameHay = stripSuffixes(p.name);
+  const catHay = p.category;
   const geoWords = new Set(icp.hard_inclusions.geos.flatMap((g) => norm(g).split(" ")));
   for (const ex of icp.hard_exclusions.industries) {
     for (const chunk of exclusionChunks(ex)) {
       const words = chunk.filter((w) => !geoWords.has(w));
-      if (words.some((w) => haystacks.some((h) => wordHit(h, w)))) {
-        return { ok: false, reason: `excluded industry: ${p.category || p.name} matches exclusion ${JSON.stringify(ex)}` };
+      if (words.length === 0) continue;
+      const nameHits = words.filter((w) => wordHit(nameHay, w));
+      const catHits = words.filter((w) => wordHit(catHay, w));
+      // Phrase semantics, not word semantics (2026-11-03 shortlist collapse):
+      // "Property portals and listing marketplaces" excludes the PORTAL KIND.
+      // A lone modifier inside a company NAME ("GidiSteel Properties",
+      // "Mercy Divine Properties Ltd") must never exclude — every agency
+      // named "…Properties" was being deterministically nuked by the word
+      // "property". Multi-word phrases fire on the CATEGORY (the kind field:
+      // "Shoprite" against a "supermarket chains" exclusion) or on >= 2 name
+      // words; single-word chunks are kind-words and fire on either.
+      const fires = words.length === 1
+        ? nameHits.length > 0 || catHits.length > 0
+        : catHits.length > 0 || nameHits.length >= 2;
+      if (fires) {
+        const matched = [...catHits, ...nameHits].join(", ");
+        return { ok: false, reason: `excluded industry: ${p.category || p.name} matches exclusion ${JSON.stringify(ex)} (words: ${matched})` };
       }
     }
   }
@@ -480,7 +512,20 @@ export function decideVerdict(
     return { verdict: "disqualified", fit_rating: Math.min(score, 2) as 1 | 2, reason: hard.reason ?? "hard constraint violated" };
   }
   if (d.icp_fit < 3) {
-    return { verdict: "disqualified", fit_rating: clampRating(Math.min(score, 2)), reason: `icp_fit ${d.icp_fit} below threshold 3` };
+    // 504Yard banding (owner 2026-11-03: "5 is too small, that's too strict —
+    // classify them like 504Yard"): an in-segment account with a usable route
+    // or its own fetched page is band C — "research further", kept VISIBLE on
+    // the shortlist — never discarded. Only the wrong KIND (unfit AND no
+    // route AND no own page) leaves the pipeline. In the reference tracker
+    // 107 of 204 rows are band C and still tracked.
+    if (d.reachability >= 2 || primaryEvidence) {
+      return {
+        verdict: "needs_research",
+        fit_rating: clampRating(Math.min(score, 2)),
+        reason: "plausible but under-evidenced: kept for a look, not discarded",
+      };
+    }
+    return { verdict: "disqualified", fit_rating: clampRating(Math.min(score, 2)), reason: `icp_fit ${d.icp_fit} below threshold 3 and no usable route or page` };
   }
   if (!primaryEvidence || d.confidence < 2) {
     return { verdict: "needs_research", fit_rating: score, reason: !primaryEvidence ? "no prospect-owned source yet" : "evidence confidence too low" };

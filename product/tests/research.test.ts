@@ -27,6 +27,7 @@ import {
   rank,
   runQuality,
   plausibleBusinessName,
+  normalizeCandName,
   type BudgetState,
   type Prospect,
 } from "../src/research/phases";
@@ -735,6 +736,92 @@ describe("directory explosion + parallel sweeps", () => {
     expect(out.status).toBe("completed"); // the run continues, isolated
     const statuses = (await listProspects(db, RUN_ID)).map((p) => p.status);
     expect(statuses.every((s) => s === "investigating")).toBe(true);
+  });
+});
+
+describe("ingest gates (2026-11-03 junk classes)", () => {
+  it("rejects listing-inventory titles, marketing phrases, and file artifacts", () => {
+    for (const junk of [
+      "Houses in Estates, Port Harcourt, Rivers",
+      "Terraced Duplexes in Wuse, Abuja",
+      "Residential Land in Estates, Eneka, Port Harcourt, Rivers",
+      "Serviced Shops in Wuse 2, Abuja",
+      "Prime Land in Trans Woji Port Harcourt",
+      "Real Estate Company in Abuja",
+      "Property Developers in Maitama District, Abuja",
+      "Own Your Dream Home in Abuja",
+      "Turning Your Lemons Into Lemonades",
+      "Crises Breed Opportunities",
+      "PowerPoint Presentation",
+      "Prime Waters Properties in 3",
+    ]) {
+      expect(plausibleBusinessName(junk)).toBe(false);
+    }
+  });
+
+  it("normalises nav furniture and keeps real agency names", () => {
+    expect(normalizeCandName("Greater City Development Limited, Home")).toBe("Greater City Development Limited");
+    expect(normalizeCandName("About Vala Homes")).toBe("Vala Homes");
+    for (const real of [
+      "VeeThrill Brands Partners Realty", "Thorpe Real Estate Limited",
+      "Greater City Development Limited", "Vala Homes", "AI Realent Global Resources",
+    ]) {
+      expect(plausibleBusinessName(real)).toBe(true);
+    }
+  });
+
+  it("a directory hit with zero usable members never becomes a candidate itself", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["directory query"]);
+    const hits = [{
+      claim: "Directory of cleaners", quote: "listing",
+      source_url: "https://www.businesslist.com.ng/cleaners",
+      name: "Cleaners in Lagos - Directory", category: "Directory",
+    }];
+    // Links are all same-host nav pages (no /company/ profile paths) and
+    // junk anchors: the explosion yields nothing, and the page itself must
+    // still not become a candidate.
+    const fetchPage = async () => ({
+      text: "listing page",
+      links: [
+        { url: "https://www.businesslist.com.ng/category", text: "All categories" },
+        { url: "https://www.businesslist.com.ng/about", text: "About us" },
+      ],
+    });
+    const out = await discover(BRIEF, db, { search: async () => hits, fetchPage }, budgetsWith());
+    expect(out.status).toBe("stopped"); // honest zero, not a junk candidate
+    expect(await listProspects(db, RUN_ID)).toHaveLength(0);
+  });
+
+  it("explodes same-host directory profile pages into members with their own evidence", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["directory query"]);
+    const hits = [{
+      claim: "Directory of cleaners", quote: "listing",
+      source_url: "https://www.businesslist.com.ng/cleaners",
+      name: "Cleaners in Lagos - Directory", category: "Directory",
+    }];
+    const fetchPage = async () => ({
+      text: "listing page",
+      links: [
+        { url: "https://www.businesslist.com.ng/company/alpha-cleaners", text: "Alpha Cleaners Ltd" },
+        { url: "https://www.businesslist.com.ng/company/beta-facilities", text: "Beta Facilities" },
+        { url: "https://www.businesslist.com.ng/category/cleaning", text: "Cleaning services" },
+      ],
+    });
+    const out = await discover(BRIEF, db, { search: async () => hits, fetchPage }, budgetsWith());
+    expect(out.status).toBe("completed");
+    const prospects = await listProspects(db, RUN_ID);
+    const names = prospects.map((p) => p.name);
+    expect(names).toContain("Alpha Cleaners Ltd");
+    expect(names).toContain("Beta Facilities");
+    expect(names).not.toContain("Cleaning services"); // category pages are not members
+    // Each member carries its OWN evidence url (the profile page), so
+    // investigate opens the member, never the directory index again.
+    const evidence = await listEvidence(db, RUN_ID);
+    const alpha = prospects.find((p) => p.name === "Alpha Cleaners Ltd");
+    const ownEv = evidence.filter((e) => alpha && (alpha.evidence_ids as string[]).includes(e.id));
+    expect(ownEv.some((e) => e.source_url === "https://www.businesslist.com.ng/company/alpha-cleaners")).toBe(true);
   });
 });
 

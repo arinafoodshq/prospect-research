@@ -1047,12 +1047,31 @@
       return "<li class=\"" + cls + "\">" + esc(text) + "</li>";
     }).join("");
     $("progress-budget").textContent = "Budget so far: " + snap.searches + " searches, " +
-      snap.fetches + " page opens (caps 30 / 40)." + (isDemo() ? " Example data." : "");
-    var aside = $("progress-setaside");
-    aside.innerHTML = (snap.setAside || []).map(function (d) {
+      snap.fetches + " page opens (caps " + (snap.capSearches || 40) + " / " + (snap.capFetches || 80) + ")." + (isDemo() ? " Example data." : "");
+    renderProgressAside(snap);
+  }
+
+  // The set-aside list collapsed (owner report 2026-11-03: 60+ wordy rows
+  // made the run view unusable): 8 rows + a show-more button. Expansion
+  // resets only when the list itself changes, so polling never re-collapses
+  // under the reader.
+  function renderProgressAside(snap) {
+    state.lastProgressSnap = snap;
+    var asideRows = snap.setAside || [];
+    if (state.lastAsideCount !== asideRows.length) {
+      state.lastAsideCount = asideRows.length;
+      state.asideExpanded = false;
+    }
+    var shown = state.asideExpanded ? asideRows.length : Math.min(8, asideRows.length);
+    var rowHtml = function (d) {
       return "<li><strong>" + esc(d.name) + "</strong><span>" + esc(d.reason) + "</span></li>";
-    }).join("");
-    $("progress-setaside-empty").hidden = (snap.setAside || []).length > 0;
+    };
+    $("progress-setaside").innerHTML = asideRows.slice(0, shown).map(rowHtml).join("");
+    $("progress-setaside-empty").hidden = asideRows.length > 0;
+    var moreBtn = $("progress-setaside-more");
+    var moreCount = asideRows.length - shown;
+    moreBtn.hidden = moreCount <= 0;
+    moreBtn.textContent = "Show " + moreCount + " more set aside";
   }
 
   function previewProgress() {
@@ -3033,6 +3052,10 @@
     if (banner) banner.addEventListener("click", onBoardClick);
     $("btn-back-onboard").addEventListener("click", function () { showView("onboard"); });
     $("btn-preview-progress").addEventListener("click", previewProgress);
+    $("progress-setaside-more").addEventListener("click", function () {
+      state.asideExpanded = true; // expansion survives polling re-renders
+      if (state.lastProgressSnap) renderProgressAside(state.lastProgressSnap);
+    });
     $("btn-see-results").addEventListener("click", previewProgress);
     $("btn-stop-progress").addEventListener("click", stopRunAndEdit);
     $("btn-confirm-profile").addEventListener("click", confirmBriefAndRun);

@@ -201,14 +201,20 @@
     { status: "created", found: 0, opened: 0, kept: 0, searches: 0, fetches: 0, dropped: [] },
     { status: "discovering", found: 9, opened: 0, kept: 0, searches: 6, fetches: 2, dropped: [] },
     { status: "investigating", found: 18, opened: 6, kept: 0, searches: 15, fetches: 6, dropped: ["list"] },
-    { status: "assessing", found: 25, opened: 14, kept: 3, searches: 24, fetches: 14, dropped: ["list", "clinic"] },
-    { status: "drafting", found: 25, opened: 20, kept: 6, searches: 30, fetches: 20, dropped: ["list", "clinic", "dup"] },
-    { status: "awaiting_approval", found: 25, opened: 25, kept: 9, searches: 30, fetches: 25, dropped: ["list", "clinic", "dup"] }
+    { status: "assessing", found: 25, opened: 14, kept: 3, searches: 24, fetches: 14, dropped: ["list", "clinic", "dup", "portal", "person", "far", "school", "ghost", "page9"] },
+    { status: "drafting", found: 25, opened: 20, kept: 6, searches: 30, fetches: 20, dropped: ["list", "clinic", "dup", "portal", "person", "far", "school", "ghost", "page9"] },
+    { status: "awaiting_approval", found: 25, opened: 25, kept: 9, searches: 30, fetches: 25, dropped: ["list", "clinic", "dup", "portal", "person", "far", "school", "ghost", "page9"] }
   ];
   var OB_DROPPED = {
     list: { name: "Top 10 suppliers in Lagos", reason: "A list page, not a business." },
     clinic: { name: "Greenfield Clinic", reason: "Healthcare, outside your target segment." },
-    dup: { name: "Brightline Logistics, second listing", reason: "Same business as an existing pick, merged." }
+    dup: { name: "Brightline Logistics, second listing", reason: "Same business as an existing pick, merged." },
+    portal: { name: "Lagos Market Hub", reason: "A marketplace site, not a buyer." },
+    person: { name: "Tunde Balogun", reason: "A single person with no organisation behind them." },
+    far: { name: "Kano Block Industries", reason: "Outside the areas you serve." },
+    school: { name: "Crestfield Schools", reason: "Education, outside your target segment." },
+    ghost: { name: "Zenith Concepts", reason: "No working site or route could be verified." },
+    page9: { name: "Suppliers in Lagos, page 9", reason: "A pagination page, not a business." }
   };
   var OB_KEPT_PARTIAL = [0, 0, 0, 2, 4, 6];
 
@@ -232,6 +238,7 @@
       status: stage.status, stop_reason: null,
       found: stage.found, opened: stage.opened, kept: stage.kept,
       searches: stage.searches, fetches: stage.fetches,
+      capSearches: 30, capFetches: 40,
       searchLine: "offices and workplaces in Ikeja",
       setAside: stage.dropped.map(function (k) { return OB_DROPPED[k]; })
     });
@@ -541,7 +548,11 @@
     var t = String(s || "").trim();
     if (!t) return "";
     var head = t.split(/[.?!]\s/)[0].trim() || t;
-    return head.slice(0, 140);
+    if (head.length <= 140) return head;
+    // Word-boundary clip — a mid-word cut read as gibberish ("Agency
+    // Principal/Fo") on the run view (2026-11-03).
+    var cut = head.lastIndexOf(" ", 140);
+    return head.slice(0, cut > 60 ? cut : 140).replace(/[,;:\s]+$/, "") + "…";
   }
 
   /** Inherited brief locations concatenate every geo ("Ikeja, Lagos, Nigeria,
@@ -585,10 +596,14 @@
         // Rationales ride the cached evidence adapter: one fetch per prospect.
         return Promise.all(dropped.map(function (p) { return self.getEvidence(p.id); })).then(function (details) {
           var consumed = run.consumed || {};
+          var budgets = run.budgets || {};
           return {
             status: run.status, stop_reason: run.stop_reason || null,
             found: list.length, opened: opened, kept: kept,
             searches: consumed.searches || 0, fetches: consumed.fetches || 0,
+            // Caps come from the run's OWN budgets — a run created under old
+            // defaults shows its real caps, new runs the raised ones.
+            capSearches: budgets.searches || 40, capFetches: budgets.fetches || 80,
             searchLine: searchLineFromBrief(run.commercial_brief),
             setAside: dropped.map(function (p, i) {
               var asmt = details[i].assessments && details[i].assessments[0];

@@ -219,6 +219,29 @@ describe("hard-constraint gate", () => {
     const r = checkHardConstraints(icp, { name: "Accra Mega Mart", category: "Retail", location: { city: "Accra", country: "Ghana" } });
     expect(r.ok).toBe(false);
   });
+
+  it("never excludes a real agency whose NAME carries a modifier of the exclusion (wakasure regression)", () => {
+    // Live failure 2026-11-03: "Property portals and listing marketplaces"
+    // deterministically excluded every agency named "…Properties".
+    const icp = icpFromBrief(retailBrief());
+    icp.hard_exclusions = { industries: ["Property portals and listing marketplaces"] };
+    const lagos = { city: "Lagos", country: "Nigeria" };
+    for (const name of [
+      "GidiSteel Properties", "Mercy Divine Properties Ltd", "MaisonHills Properties",
+      "GMH Properties", "ALPHA HERO PROPERTIES", "Landdiaries Properties",
+      "Property Point Ltd", "Thorpe Real Estate Limited",
+    ]) {
+      expect(checkHardConstraints(icp, { name, category: "Real estate agency", location: lagos })).toEqual({ ok: true });
+    }
+    // The portal KIND is still caught: category names the kind, or the name
+    // carries two exclusion words.
+    expect(checkHardConstraints(icp, {
+      name: "Lagos Property Portal", category: "Property portal", location: lagos,
+    }).ok).toBe(false);
+    expect(checkHardConstraints(icp, {
+      name: "PlotList Property Portal", category: "unclassified", location: lagos,
+    }).ok).toBe(false);
+  });
 });
 
 describe("verdict thresholds", () => {
@@ -230,8 +253,19 @@ describe("verdict thresholds", () => {
     expect(v.fit_rating).toBeLessThanOrEqual(2);
   });
 
-  it("never qualifies fit below threshold", () => {
+  it("keeps under-evidenced-but-routed accounts for a look (504Yard banding)", () => {
+    // Owner 2026-11-03: "5 is too small, that's too strict — classify like
+    // 504Yard": band C is "research further", visible, never discarded.
     const v = decideVerdict({ ...good, icp_fit: 2 }, { ok: true }, true);
+    expect(v.verdict).toBe("needs_research");
+    expect(v.fit_rating).toBeLessThanOrEqual(2);
+  });
+
+  it("still discards the wrong kind: unfit AND unreachable AND no own page", () => {
+    const v = decideVerdict(
+      { icp_fit: 2, problem: 2, readiness: 1, reachability: 1, confidence: 2 },
+      { ok: true }, false,
+    );
     expect(v.verdict).toBe("disqualified");
   });
 
