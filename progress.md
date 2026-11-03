@@ -2304,3 +2304,28 @@ Verification: 478/478 vitest, SMOKE PASS, tsc clean; deployed 20688517
 (push c7d9e84). Next live check: run a fresh TechAssembly-style campaign -
 the site mining + clean brief should fill the summary from the site and
 qualify real web-dev buyers.
+## 2026-11-03 (run view stays put + drafts never dead-end + select-all)
+
+User: clicking "Research run" yanked them to the shortlist; picking 4
+prospects and hitting "Write my messages" dead-ended ("No draft yet...
+The research did not write one"); the shortlist lacked select-all.
+
+- The run view STAYS PUT: pollProgress(autoLand) — deliberate Continue
+  flows land on the results, but navigating to "Research run" (pill,
+  /progress deep link) never yanks; the run view gains "Everything we
+  found" (name + human status badge + category/area, live-filled from a
+  light /prospects fetch on every tick) + a See-the-shortlist CTA.
+- Drafts for everyone reachable: draft() now targets all non-disqualified
+  prospects that own a contact route (not just rank-shortlisted), with an
+  optional onlyIds scope. New route POST /api/runs/:id/draft-missing runs
+  it on demand while the run is parked; the studio's "No draft yet for..."
+  note now carries a "Write their messages now" button that calls it and
+  re-renders.
+- Select all / Clear on the shortlist sticky bar (ticks visible rows,
+  updates the count, label flips).
+- Smoke: new ids registered; pins updated for the note-as-html (FakeEl
+  keeps textContent/innerHTML independent) and the overview flow.
+
+Verification: 478/478 vitest, SMOKE PASS, tsc clean; deployed e367cd19
+(push 68f8f76). Still open from the perf direction: directory explosion,
+parallel queries/fetches, caps raise, per-item live feed beyond counts.
