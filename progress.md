@@ -2198,3 +2198,27 @@ of the work in flight ("be able to see unfinished works").
 Verification: 474/474 vitest, SMOKE PASS (banner id registered), tsc
 clean; deployed eb2acd03 (push 11b0136). The failed ArinaFoods run will
 now appear on that user's dashboard with a working Continue button.
+## 2026-11-03 (real URL paths + banner click fix)
+
+User: "Continue research" on the dashboard banner did nothing; and the app
+should have URL paths with per-path auth handling, not a pathless SPA.
+
+- Banner bug: the buttons live in #run-banner but onBoardClick was bound
+  only to #status-board - clicks never reached the handler. The banner now
+  has its own listener wired to the same handler.
+- Real paths (owner requirement): /dashboard /messages /campaigns
+  /accounts /progress /shortlist /onboard.
+  Server: each path is a real handler - auth session checked first
+  (unauthenticated -> 302 to /?next=<path>), then the app shell is served.
+  Client: showView pushes the path (history.pushState), popstate re-renders
+  with data (routeToView: dashboard loads board+banner, messages loads the
+  studio or falls back to the dashboard, etc.), boot routes a deep-linked
+  path straight into its view, and ?next lands the post-sign-in visitor on
+  their destination. Demo keeps /demo (no pushes there - a reload must
+  stay in demo).
+- Tests: user_session added to the mock D1 tables; sha256Hex exported from
+  auth for session seeding; three new route tests (redirect with ?next,
+  shell for a session, all seven paths 200).
+
+Verification: 477/477 vitest, SMOKE PASS, tsc clean, node --check; deployed
+d761b901 (push 9c38b2f).
