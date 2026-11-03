@@ -2413,3 +2413,45 @@ fall-through (zero members -> no candidate), same-host profile explosion with
 own evidence rows, smoke collapse/show-more journey (9 mock dropped rows).
 Verification: 488/488 vitest, SMOKE PASS, tsc clean; deployed fceee880
 (push a499a81).
+## 2026-11-03 (keep-rate + runs history + URL recognition + run-view revamp)
+
+User: "out of 43 only 4 kept, that's weak... let keeping be like 60% at
+least" and asked whether the missing WhatsApp numbers were the cause.
+Also: dashboard stored only one run; "wakasure.com" was not recognised as a
+website (only https:// links were); the run view wasted its top on a brand
+block + stage pills and cramped the set-aside rail.
+
+- Not WhatsApp (verified: the keep gate never required a phone route —
+  email/website-form routes qualify; reachability 2+ passes). The real gate
+  was readiness: "no dated buying signal" refused to qualify ANY routed
+  in-segment agency. Fixed (504Yard banding): readiness 1 with a usable
+  route now QUALIFIES at fit 2 (warm-up tier) — a tier question, never a
+  band question. Assess prompt tells the model the same. Expected keep-rate
+  on new runs: most of the found list lands Ready/Warm/Look.
+- Junk gates extended: marketing-claim sentences ("...The best real estate
+  development company"), year-guides ("A 2026 Property Buyer's Guide"),
+  fully-generic org names ("Real Estate Company").
+- Runs history: GET /api/runs (limit/offset, JS-sorted so mock and prod
+  agree) with per-run found/kept counts; the dashboard lists ALL runs any
+  status under "All runs" with a working pager (8/page, edge-aware
+  buttons) and an Open action that adopts the run and lands on its run
+  view. Mock carries 9 demo runs for the pager.
+- Website recognition: extractSiteUrl accepts BARE domains ("wakasure.com",
+  "see wakasure.com", www forms), guards emails (@host), normalises the
+  scheme; the detected site rides back in the turn response, the client
+  remembers it (ob.site) and re-sends it as site_url on later turns (the
+  mined context survives even when the latest message has no domain), and
+  it persists to business_profile.website_url (was always "" before).
+- Run view revamp: the in-page brand block is gone (the sidebar owns the
+  brand); the campaign stage trail MOUNTS into the page flow under the
+  headline (same shell node, single source of truth) styled as quiet
+  hairline chips (~28px row); set-aside panel got a real width
+  (minmax(280px,1fr)), small heading, tight bordered rows; found-list
+  spans full width. Budget line already reads the run's own caps.
+
+Tests: runs-list pagination + counts, extractSiteUrl (bare/www/prose/email
+guards), warm-up verdict; smoke covers the pager (8+1 of 9 demo runs), page
+labels, edge buttons, open-a-past-run adoption. Verification: 491/491
+vitest, SMOKE PASS, tsc clean; deployed 2f87a936 (push bf75540). Note: a
+run already in flight keeps the workflow version it started with — the
+keep-rate change applies to runs started after this deploy.
