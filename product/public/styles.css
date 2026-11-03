@@ -1237,6 +1237,16 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
   .draft-row-open { grid-column: 2; }
 }
 
+/* "Everything we found" (2026-11-03): the run view shows the full search —
+   the owner may want to use it, not just the filtered shortlist. */
+.found-list { list-style: none; padding: 0; margin: 0.4rem 0 0.6rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.found-list li { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.found-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.found-list .tag { flex: 0 0 auto; }
+.found-list .tag.dim { background: var(--paper-soft, #F1EFE9); color: var(--muted); }
+.found-list .tag.good { background: var(--accent-soft); color: var(--accent-deep); }
+.found-meta { color: var(--dim); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+
 /* ============================================================
    Dashboard revamp (2026-11-02): the landing's paper theme —
    white cards on the paper ground, one calm accent stripe per

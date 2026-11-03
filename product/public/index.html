@@ -317,6 +317,12 @@
           <button id="btn-preview-progress" type="button">Preview results so far</button>
           <button id="btn-stop-progress" type="button" class="linklike">Stop and adjust my brief</button>
         </div>
+        <div class="card" id="found-wrap" hidden>
+          <p class="kicker kicker-dim">Everything we found</p>
+          <p class="hint">The full search — the shortlist is the filtered version of this.</p>
+          <ul id="found-list" class="found-list"></ul>
+          <button id="btn-see-results" type="button">See the shortlist <span aria-hidden="true">-&gt;</span></button>
+        </div>
       </div>
       <p class="budget" id="progress-budget"></p>
       <p class="form-error" id="progress-error" hidden></p>
@@ -348,6 +354,7 @@
       </aside>
       <div id="shortlist-bar" role="region" aria-label="Selected prospects">
         <p id="shortlist-count">0 selected · nothing is sent yet</p>
+        <button id="btn-select-all" type="button" class="secondary">Select all</button>
         <button id="btn-to-drafts" type="button">Write my messages <span aria-hidden="true">-&gt;</span></button>
       </div>
     </section>

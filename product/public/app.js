@@ -236,7 +236,7 @@
     if (name === "drafts") { if (state.runId) { renderDrafts(); return true; } openDashboard(); return true; }
     if (name === "campaigns") { renderCampaignView(); return true; }
     if (name === "senders") { renderSendersView("status"); return true; }
-    if (name === "progress") { if (state.runId) { showView("progress"); pollProgress(); return true; } openDashboard(); return true; }
+    if (name === "progress") { if (state.runId) { showView("progress"); pollProgress(false); return true; } openDashboard(); return true; }
     if (name === "shortlist") { previewProgress(); return true; }
     if (name === "onboard") { if (!state.runId) { showView("onboard"); obFirstPhase(); obRestoreDraft(); return true; } openDashboard(); return true; }
     return false;
@@ -898,11 +898,12 @@
   };
   var progressSeq = 0;
 
-  function pollProgress() {
+  function pollProgress(autoLand) {
     // Capture the run this poll belongs to: if the owner starts over (or
     // re-confirms), a finished OLD run must not yank the UI to the NEW run's
     // empty shortlist — stale resolutions are dropped instead.
     var myRun = state.runId;
+    if (autoLand === undefined) autoLand = true; // deliberate "Continue" lands on the results
     $("progress-note").textContent = isDemo()
       ? "Example run. Keep this page open while it works."
       : "Research keeps running on the server. Come back any time.";
@@ -933,12 +934,20 @@
         state.tab = null;
         // The owner may have moved on (stop, preview): never yank them back.
         if ($("view-progress").hidden && $("view-shortlist").hidden) return null;
-        // Land on the RESULTS, never auto-jump into messages (owner direction
-        // 2026-11-03, superseding the 2026-11-02 drafts auto-land: "it should
-        // not auto go to messages — I want to see the shortlist"). The
-        // dashboard banner and the sidebar offer Messages one tap away.
-        renderShortlist();
-        showView("shortlist");
+        // On the RUN VIEW itself, stay put (owner direction 2026-11-03:
+        // clicking "Research run" must show the run — everything that was
+        // found — not jump away). The found list + a See-the-shortlist CTA
+        // take over; only a deliberate "Continue" auto-lands on the results.
+        if (!$("view-progress").hidden) {
+          renderProgressFound();
+          return null;
+        }
+        if (autoLand) {
+          renderShortlist();
+          showView("shortlist");
+        } else {
+          renderShortlist();
+        }
         return null;
       });
     }, function (err) {
@@ -957,8 +966,53 @@
     });
   }
 
+  /**
+   * "Everything we found" on the run view (owner direction 2026-11-03: they
+   * may want to use the full search, not just the filtered shortlist). Rows
+   * carry a human status badge; the shortlist stays the action surface.
+   */
+  var FOUND_STATE = {
+    qualified: "Worth your time", shortlisted: "On your list", approved: "On your list",
+    investigating: "Checked", candidate: "Found", disqualified: "Set aside",
+    contacted: "Messaged", rejected: "Set aside", deferred: "Set aside", closed: "Done"
+  };
+
+  function renderProgressFound() {
+    var wrap = $("found-wrap");
+    var list = $("found-list");
+    if (!wrap || !list) return;
+    var rich = state.prospects || [];
+    var all = rich.length ? rich : (state.prospectsRaw || []);
+    if (!all.length) { wrap.hidden = true; return; }
+    var kept = all.filter(function (p) { return p.status !== "disqualified"; }).length;
+    wrap.hidden = false;
+    list.innerHTML = all.slice(0, 40).map(function (p) {
+      var badge = FOUND_STATE[p.status] || p.status;
+      var cls = p.status === "disqualified" ? "dim" : (p.status === "qualified" || p.status === "shortlisted") ? "good" : "";
+      return "<li><span class=\"found-name\">" + esc(p.name) + "</span>" +
+        "<span class=\"tag " + cls + "\">" + esc(badge) + "</span>" +
+        "<span class=\"found-meta\">" + esc(p.category || "") + (p.area ? " · " + esc(p.area) : "") + "</span></li>";
+    }).join("") + (all.length > 40 ? "<li class=\"muted small\">…and " + (all.length - 40) + " more</li>" : "");
+  }
+
+  /** Live feed for the run view: the full list as the search processes it —
+   *  a light fetch (names + statuses, no per-prospect evidence calls) on
+   *  every tick, so the owner watches it fill one by one (owner 2026-11-03). */
+  function loadFoundList() {
+    if (!state.runId || !api.getRunProspects) return Promise.resolve();
+    return api.getRunProspects(state.runId).then(function (res) {
+      var rows = (res.prospects || []).map(function (p) {
+        var loc = p.location || {};
+        return { name: p.name, status: p.status, category: p.category, area: loc.area || loc.note || loc.city || "" };
+      });
+      if (rows.length && !$("view-progress").hidden) { state.prospectsRaw = rows; renderProgressFound(); }
+      return null;
+    }, function () { return null; });
+  }
+
   function refreshProgressSnapshot() {
     var seq = ++progressSeq;
+    var found = loadFoundList();
     return api.getProgressSnapshot(state.runId).then(function (snap) {
       if (seq !== progressSeq) return; // a newer poll already landed
       renderProgressSnapshot(snap);
@@ -1223,11 +1277,18 @@
   }
 
   function renderShortlistBar() {
-    var n = (state.selectedIds || shownProspects().map(function (p) { return p.id; })).length;
+    var shown = shownProspects();
+    var sel = state.selectedIds || shown.map(function (p) { return p.id; });
+    var n = sel.length;
     $("shortlist-count").textContent = n === 1
       ? "1 selected · nothing is sent yet"
       : n + " selected · nothing is sent yet";
     $("btn-to-drafts").disabled = n === 0;
+    var sa = $("btn-select-all");
+    if (sa) {
+      var allPicked = shown.length > 0 && shown.every(function (p) { return sel.indexOf(p.id) >= 0; });
+      sa.textContent = allPicked ? "Clear" : "Select all";
+    }
   }
 
   function switchTab(t) {
@@ -1604,8 +1665,14 @@
         var p = state.prospects.filter(function (x) { return x.id === id; })[0];
         return p ? p.name : id;
       });
-      if (missing.length) notes.push("No draft yet for " + missing.join(", ") + ". The research did not write one.");
-      $("drafts-note").textContent = notes.join(" ");
+      if (missing.length) {
+        notes.push("No draft yet for " + missing.join(", ") + ".");
+        if (api.draftMissing) {
+          notes.push('<button type="button" class="linklike" data-act="write-missing" data-ids="' +
+            esc(missing.join(",")) + '">Write their messages now</button>');
+        }
+      }
+      $("drafts-note").innerHTML = notes.join(" ");
       var wrap = $("draft-list");
       wrap.innerHTML = "";
       state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {}, busy: false,
@@ -2941,7 +3008,7 @@
         if (v === "senders") { renderSendersView("status"); return; }
         if (v === "drafts") { if (state.runId) renderDrafts(); return; }
         if (v === "shortlist") { previewProgress(); return; }
-        if (v === "progress") { if (state.runId) { showView("progress"); pollProgress(); } return; }
+        if (v === "progress") { if (state.runId) { showView("progress"); pollProgress(false); } return; }
         if (v === "profile") { if (state.profile) { showView("profile"); return; } }
         if (v === "onboard") { if (!state.runId) { showView("onboard"); obFirstPhase(); } return; }
         if (v === "landing") showView("landing");
@@ -2966,6 +3033,7 @@
     if (banner) banner.addEventListener("click", onBoardClick);
     $("btn-back-onboard").addEventListener("click", function () { showView("onboard"); });
     $("btn-preview-progress").addEventListener("click", previewProgress);
+    $("btn-see-results").addEventListener("click", previewProgress);
     $("btn-stop-progress").addEventListener("click", stopRunAndEdit);
     $("btn-confirm-profile").addEventListener("click", confirmBriefAndRun);
     $("shortlist-tabs").addEventListener("click", function (e) {
@@ -2984,8 +3052,35 @@
     $("btn-back-campaigns").addEventListener("click", function () { showView("drafts"); });
     $("btn-restart").addEventListener("click", restart);
     $("btn-restart-progress").addEventListener("click", restart);
-    $("btn-retry-progress").addEventListener("click", function () {
-      // Retry on a failed run = synchronized resume of the SAME run (never
+    // Select all / clear (owner request 2026-11-03).
+    $("btn-select-all").addEventListener("click", function () {
+      var shown = shownProspects().map(function (p) { return p.id; });
+      var sel = state.selectedIds || [];
+      var allPicked = shown.length > 0 && shown.every(function (id) { return sel.indexOf(id) >= 0; });
+      state.selectedIds = allPicked ? [] : shown;
+      renderShortlistBar();
+      Array.prototype.forEach.call(document.querySelectorAll("#prospect-list input[data-sel]"), function (c) {
+        c.checked = !allPicked;
+      });
+    });
+    // The studio note's "Write their messages now": on-demand drafting for
+    // the picked prospects the first burst skipped (owner 2026-11-03).
+    $("drafts-note").addEventListener("click", function (e) {
+      var t = e.target || {};
+      var ds = t.dataset || {};
+      if (ds.act !== "write-missing" || !state.runId || !api.draftMissing) return;
+      var ids = (ds.ids || "").split(",").filter(Boolean);
+      var note = $("drafts-note");
+      var g = loadingHint(note, "Writing their messages…");
+      api.draftMissing(state.runId, ids).then(function () {
+        g.done();
+        renderDrafts();
+      }, function () {
+        g.done();
+        note.innerHTML = "Could not write them just now. Check your connection and try again.";
+      });
+    });
+    $("btn-retry-progress").addEventListener("click", function () {      // Retry on a failed run = synchronized resume of the SAME run (never
       // from zero); on other states it just re-opens the live poll.
       var failed = currentCampaignRun && currentCampaignRun.id === state.runId
         && currentCampaignRun.status === "failed";

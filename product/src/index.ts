@@ -25,7 +25,8 @@ import * as auth from "./auth";
 import { auditEvent } from "./audit";
 import { DEFAULT_CAPS } from "./research/budgets";
 import { createMetaClient } from "./meta";
-import { ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
+import { draft, ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
+import { loadRunConsumed } from "./orchestrator";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
 import { openSecret } from "./delivery/crypto";
@@ -403,6 +404,43 @@ const postResume: Handler = async ({ req, env, params }) => {
   // Live runs (parked at a gate): the in-place signal remains best-effort.
   await sendWorkflowEvent(env, row.workflow_instance_id, "resume", { run_id: row.id, to });
   return json(serializeRun((await getRun(env, row.id)) as RunRow));
+};
+
+/**
+ * On-demand drafting (owner report 2026-11-03: picks on the shortlist
+ * dead-ended with "No draft yet"). Runs the draft phase over the requested
+ * prospects (or every reachable one) while the run is parked at
+ * awaiting_approval — same grounded rules, same audit, idempotent per
+ * prospect because the studio filters existing drafts client-side.
+ */
+const postDraftMissing: Handler = async ({ req, env, params }) => {
+  const run = await getRun(env, params["id"] as string);
+  if (!run) return err("run_not_found", 404);
+  if (run.status !== "awaiting_approval" && run.status !== "complete") {
+    return err("run_not_ready", 409, "the research is still working — messages are written when it finishes");
+  }
+  const parsed = await readJson(req);
+  const body = parsed.ok && isObj(parsed.body) ? parsed.body : {};
+  const onlyIds = Array.isArray(body["prospect_ids"])
+    ? (body["prospect_ids"] as unknown[]).filter((x): x is string => typeof x === "string")
+    : undefined;
+  if (!env.MODEL_API_KEY) return err("model_not_configured", 500);
+  const meta = createMetaClient({
+    apiKey: env.MODEL_API_KEY,
+    ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
+    audit: (ev) => auditEvent(env.DB, ev),
+  });
+  const consumed = await loadRunConsumed(env.DB, run.id as string);
+  const outcome = await draft(
+    { id: String(run.profile_id), status: "confirmed", excerpt: "" },
+    env.DB as unknown as Db, meta,
+    { caps: { ...DEFAULT_CAPS }, consumed, run_id: run.id as string },
+    onlyIds,
+  );
+  if (outcome.status === "stopped") {
+    return err("draft_failed", 502, outcome.stop_reason ?? "the draft burst failed");
+  }
+  return json({ ok: true, note: (outcome as { detail?: string }).detail ?? "" });
 };
 
 const getProspects: Handler = async ({ env, params }) => {
@@ -1081,6 +1119,7 @@ const getLatestRun: Handler = async ({ env }) => {
 route("GET", "/api/runs/latest", getLatestRun);
 route("GET", "/api/runs/:id", getRunById);
 route("POST", "/api/runs/:id/resume", postResume);
+route("POST", "/api/runs/:id/draft-missing", postDraftMissing);
 route("GET", "/api/runs/:id/prospects", getProspects);
 route("GET", "/api/runs/:id/evidence", getEvidence);
 route("GET", "/api/runs/:id/drafts", getDrafts);

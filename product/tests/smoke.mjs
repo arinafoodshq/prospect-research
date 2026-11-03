@@ -127,6 +127,7 @@ const IDS = [
   "stat-found", "stat-opened", "stat-kept",
   "progress-setaside", "progress-setaside-empty", "progress-error",
   "btn-preview-progress", "btn-stop-progress",
+  "found-wrap", "found-list", "btn-see-results", "btn-select-all",
   "prospect-list", "evidence-body", "evidence-hint", "history-slot", "draft-list", "drafts-note", "status-board",
   "run-banner",
   "shortlist-kicker", "shortlist-title", "shortlist-sub", "shortlist-tabs", "shortlist-empty",
@@ -425,8 +426,9 @@ ok(els["draft-list"].children.length === 1, "studio shows one surface at a time"
   ok(/Approve and schedule/.test(html) && /Skip this one/.test(html), "studio has approve + skip actions");
   ok(/words\. (Short enough|Room for context)/.test(html), "studio counts words with guidance");
 }
-ok(/5 selected picks/.test(els["drafts-note"].textContent), "drafts note explains the filter");
-ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-note"].textContent),
+ok(/selected picks/.test(els["drafts-note"].innerHTML), "drafts note explains the filter (note: " + JSON.stringify(els["drafts-note"].innerHTML.slice(0, 120)) +
+  " list=" + els["draft-list"].children.length + ")");
+ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-note"].innerHTML),
   "drafts note names selected picks without drafts");
 
 {

@@ -443,6 +443,14 @@
       body: JSON.stringify({ to: (opts && opts.to) || "created" })
     });
   };
+  // On-demand drafting: the picked prospects were reachable but the run's
+  // first burst skipped them — write their messages now (owner 2026-11-03).
+  RealApi.prototype.draftMissing = function (runId, prospectIds) {
+    return this._req("/api/runs/" + encodeURIComponent(runId) + "/draft-missing", {
+      method: "POST",
+      body: JSON.stringify({ prospect_ids: prospectIds || [] })
+    });
+  };
   RealApi.prototype.confirmBrief = function (profile) {
     var self = this;
     var answers = {};
@@ -561,6 +569,10 @@
   /** Run recovery: the operator's most recent run, whatever its state. */
   RealApi.prototype.getLatestRun = function () {
     return this._req("/api/runs/latest");
+  };
+
+  RealApi.prototype.getRunProspects = function (runId) {
+    return this._req("/api/runs/" + encodeURIComponent(runId) + "/prospects");
   };
 
   RealApi.prototype.getProgressSnapshot = function (runId) {    var self = this;

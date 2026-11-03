@@ -1120,13 +1120,23 @@ export async function rank(
  * outreach_draft rows + contact_route rows (public_listing only).
  */
 export async function draft(
-  brief: Brief, db: Db, meta: MetaClient, budgets: BudgetState & { run_id: string },
+  brief: Brief, db: Db, meta: MetaClient,
+  budgets: BudgetState & { run_id: string },
+  onlyIds?: string[],
 ): Promise<PhaseOutcome> {
   void brief;
   const breach = firstBreach(budgets.consumed, budgets.caps);
   if (breach) return stopped(breach, "budget breached before draft");
   const prospects = await listProspects(db, budgets.run_id);
-  const targets = prospects.filter((p) => p.status === "shortlisted");
+  // Everyone reachable gets a message draft (owner report 2026-11-03: picks
+  // on the shortlist dead-ended with "no draft yet") — not just the
+  // rank-shortlisted elite. Reachable = owns a contact route, or was
+  // rank-shortlisted. onlyIds scopes an on-demand top-up from the studio.
+  const routeRows = await db.prepare("SELECT prospect_id FROM contact_route").all<{ prospect_id: string }>();
+  const routeIds = new Set((routeRows.results ?? []).map((r) => String(r["prospect_id"])));
+  let targets = prospects.filter((p) =>
+    p.status !== "disqualified" && (routeIds.has(p.id) || p.status === "shortlisted"));
+  if (onlyIds && onlyIds.length > 0) targets = targets.filter((t) => onlyIds.indexOf(t.id) >= 0);
   // Honest empty: nothing shortlisted (rank already logged why). Park at
   // awaiting_approval like the normal path so the run completes visibly
   // instead of freezing mid-flight on the Workflow path.
