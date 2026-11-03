@@ -1151,3 +1151,35 @@ describe("app paths (real URLs with per-path auth)", () => {
     }
   });
 });
+
+describe("sender ownership (send authority, owner directive 2026-11-03)", () => {
+  function seedConn(db: ReturnType<typeof makeMockDb>, id: string, owner: string | null): void {
+    db.__tables.sender_connection.push({
+      id, provider: "mock", label: id, sender_email: id + "@x.com", sender_name: null,
+      status: "connected", secret_blob: "{}", metadata_json: "{}", last_verified_at: null,
+      last_error: null, created_at: "t", updated_at: "t", owner_email: owner,
+    });
+  }
+  async function sessioned(db: ReturnType<typeof makeMockDb>, email: string): Promise<string> {
+    const token = "tok-" + email;
+    db.__tables.user_session.push({
+      token_hash: await sha256Hex(token), email, name: email,
+      created_at: new Date().toISOString(), expires_at: Date.now() + 60_000,
+    });
+    return token;
+  }
+
+  it("lists only the session user's connections", async () => {
+    const db = makeMockDb();
+    seedConn(db, "conn_a", "a@x.com");
+    seedConn(db, "conn_b", "b@x.com");
+    seedConn(db, "conn_none", null);
+    const token = await sessioned(db, "a@x.com");
+    const res = await (app as any).fetch(
+      new Request("https://test.local/api/connections", { headers: { cookie: `pr_sess=${token}` } }),
+      { DB: db, MODEL_API_KEY: "test" }, {});
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.connections.map((c: { id: string }) => c.id)).toEqual(["conn_a"]);
+  });
+});

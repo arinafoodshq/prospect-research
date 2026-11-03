@@ -65,7 +65,12 @@ export interface QueueBatch {
   messages: QueueMessageWire[];
 }
 
-type Ctx = { req: Request; env: Env; params: Record<string, string> };
+type Ctx = {
+  req: Request; env: Env; params: Record<string, string>;
+  /** Signed-in operator (set by the /api gate; public routes omit it).
+   *  Ownership checks (whose sender connection, whose campaigns) read it. */
+  sess?: { email: string; name: string } | null;
+};
 type Handler = (c: Ctx) => Promise<Response>;
 
 function json(data: unknown, status = 200): Response {
@@ -1074,18 +1079,18 @@ route("POST", "/api/prospects/:id/contact-person", postContactPerson);
 route("POST", "/api/runs/:id/start", postStart);
 route("GET", "/api/runs/:id/statuses", getStatuses);
 route("GET", "/api/runs/:id/follow-ups", getFollowUps);
-route("POST", "/api/connections", (c) => delivery.postConnection(c.req, c.env));
-route("GET", "/api/connections", (c) => delivery.getConnections(c.req, c.env));
+route("POST", "/api/connections", (c) => delivery.postConnection(c.req, c.env, c.sess?.email ?? null));
+route("GET", "/api/connections", (c) => delivery.getConnections(c.req, c.env, c.sess?.email ?? null));
 route("GET", "/api/connections/gmail/auth-url", (c) => delivery.getGmailAuthUrl(c.req, c.env));
-route("GET", "/api/connections/gmail/callback", (c) => delivery.getGmailCallback(c.req, c.env));
-route("POST", "/api/connections/:id/verify", (c) => delivery.postVerifyConnection(c.req, c.env, c.params));
+route("GET", "/api/connections/gmail/callback", (c) => delivery.getGmailCallback(c.req, c.env, c.sess?.email ?? null));
+route("POST", "/api/connections/:id/verify", (c) => delivery.postVerifyConnection(c.req, c.env, c.params, c.sess?.email ?? null));
 route("GET", "/api/relay-health", (c) => delivery.getRelayHealth(c.req, c.env));
-route("POST", "/api/connections/:id/disconnect", (c) => delivery.postDisconnect(c.req, c.env, c.params));
-route("POST", "/api/campaigns", (c) => delivery.postCampaign(c.req, c.env));
+route("POST", "/api/connections/:id/disconnect", (c) => delivery.postDisconnect(c.req, c.env, c.params, c.sess?.email ?? null));
+route("POST", "/api/campaigns", (c) => delivery.postCampaign(c.req, c.env, c.sess?.email ?? null));
 route("GET", "/api/campaigns", (c) => delivery.getCampaigns(c.req, c.env));
 route("GET", "/api/campaigns/:id", (c) => delivery.getCampaignById(c.req, c.env, c.params));
-route("PATCH", "/api/campaigns/:id", (c) => delivery.patchCampaign(c.req, c.env, c.params));
-route("POST", "/api/campaigns/:id/approve", (c) => delivery.postApproveCampaign(c.req, c.env, c.params));
+route("PATCH", "/api/campaigns/:id", (c) => delivery.patchCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
+route("POST", "/api/campaigns/:id/approve", (c) => delivery.postApproveCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
 route("POST", "/api/campaigns/:id/cancel", (c) => delivery.postCancelCampaign(c.req, c.env, c.params));
 route("POST", "/api/campaigns/:id/pause", (c) => delivery.postPauseCampaign(c.req, c.env, c.params));
 route("POST", "/api/campaigns/:id/resume", (c) => delivery.postResumeCampaign(c.req, c.env, c.params));
@@ -1108,7 +1113,7 @@ route("GET", "/api/me", (c) => auth.getSession(c.env, c.req).then((s) => json({ 
 
 /** Match + run a route from the table; 404 when nothing matches.
  * Split out of fetch so the audit wrapper can time and observe every call. */
-async function dispatchApi(req: Request, env: Env, url: URL): Promise<Response> {
+async function dispatchApi(req: Request, env: Env, url: URL, sess?: { email: string; name: string } | null): Promise<Response> {
   for (const r of table) {
     if (r.method !== req.method) continue;
     const m = r.pattern.exec(url.pathname);
@@ -1118,7 +1123,7 @@ async function dispatchApi(req: Request, env: Env, url: URL): Promise<Response> 
       params[k] = decodeURIComponent(m[i + 1] as string);
     });
     try {
-      return await r.handler({ req, env, params });
+      return await r.handler({ req, env, params, ...(sess ? { sess } : {}) });
     } catch (e) {
       if (e instanceof DbValidationError) return err("validation", 400, e.message);
       throw e;
@@ -1175,6 +1180,11 @@ export default {
             });
             return err("signin_required", 401);
           }
+        } else {
+          // Direct-route tests: the REJECTION is skipped, but a session is
+          // still resolved when a valid cookie is present — ownership-aware
+          // handlers (sender authority) must see the caller.
+          sess = await auth.getSession(env, req).catch(() => null);
         }
       }
       // Audit trail: one row per API request — who, what, input, output.
@@ -1184,7 +1194,7 @@ export default {
         : "";
       let res: Response;
       try {
-        res = await dispatchApi(req, env, url);
+        res = await dispatchApi(req, env, url, sess);
       } catch (e) {
         await auditEvent(env.DB, {
           kind: "api_request", subject: `${req.method} ${p}`,

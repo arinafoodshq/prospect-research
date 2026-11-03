@@ -237,7 +237,7 @@
     if (name === "campaigns") { renderCampaignView(); return true; }
     if (name === "senders") { renderSendersView("status"); return true; }
     if (name === "progress") { if (state.runId) { showView("progress"); pollProgress(); return true; } openDashboard(); return true; }
-    if (name === "shortlist") { if (state.prospects.length) { renderShortlist(); showView("shortlist"); return true; } openDashboard(); return true; }
+    if (name === "shortlist") { previewProgress(); return true; }
     if (name === "onboard") { if (!state.runId) { showView("onboard"); obFirstPhase(); obRestoreDraft(); return true; } openDashboard(); return true; }
     return false;
   }
@@ -924,24 +924,10 @@
         state.tab = null;
         // The owner may have moved on (stop, preview): never yank them back.
         if ($("view-progress").hidden && $("view-shortlist").hidden) return null;
-        // Live only: a run that finished while the owner was away may already
-        // have messages written. Land in the drafts studio, not on a
-        // shortlist that makes them click "Write my messages" again
-        // (user report 2026-11-02, Duban).
-        if (!isDemo()) {
-          return api.getDrafts(myRun).then(function (dr) {
-            if (myRun !== state.runId) return null;
-            if (dr.drafts && dr.drafts.length) { renderDrafts(); return null; }
-            renderShortlist();
-            showView("shortlist");
-            return null;
-          }, function () {
-            if (myRun !== state.runId) return null;
-            renderShortlist();
-            showView("shortlist");
-            return null;
-          });
-        }
+        // Land on the RESULTS, never auto-jump into messages (owner direction
+        // 2026-11-03, superseding the 2026-11-02 drafts auto-land: "it should
+        // not auto go to messages — I want to see the shortlist"). The
+        // dashboard banner and the sidebar offer Messages one tap away.
         renderShortlist();
         showView("shortlist");
         return null;
@@ -1135,10 +1121,15 @@
     }
 
     if (shown.length === 0) {
-      // Honest empty, with a way forward (never "No buyers worth your time." —
-      // it reads as an accusation after a wait).
-      $("shortlist-title").textContent = "Nothing worth your time yet.";
-      $("shortlist-sub").textContent = "The search came back empty. Widen the area or start a new search \u2014 first searches often miss.";
+      // Honest empty, with the full picture: how many were checked and set
+      // aside, and where the reasons live (never "No buyers worth your
+      // time." — it reads as an accusation after a wait).
+      var all = state.prospects || [];
+      var dq = all.filter(function (p) { return p.status === "disqualified"; }).length;
+      $("shortlist-title").textContent = "Nothing made the cut yet.";
+      $("shortlist-sub").textContent = all.length
+        ? "We checked " + all.length + " business" + (all.length === 1 ? "" : "es") + " and set " + dq + " aside. The Evidence panel shows why \u2014 widen the area or run a new search to try again."
+        : "The search came back empty. Widen the area or start a new search \u2014 first searches often miss.";
     } else if (midRun) {
       $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer found so far." : " buyers found so far.");
       $("shortlist-sub").textContent = "Still running \u2014 this is a peek. The checked list lands here when the search finishes.";
@@ -1594,7 +1585,10 @@
       $("drafts-note").textContent = notes.join(" ");
       var wrap = $("draft-list");
       wrap.innerHTML = "";
-      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {}, busy: false };
+      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {}, busy: false,
+        // Overview first (owner report 2026-11-03): Messages opens showing
+        // ALL the messages, never straight into "message 1 of 1".
+        overview: true };
       if (!drafts.length) {
         wrap.innerHTML = "<p class=\"hint\">No drafts for your selected picks yet. The research may still be writing, or nothing qualified.</p>";
         showView("drafts");
@@ -1613,6 +1607,32 @@
         showView("drafts");
       });
     });
+  }
+
+  /** Overview: all messages at a glance (owner report 2026-11-03 — "I want
+   *  to see the shortlist", not one note). A row opens that message. */
+  function renderStudioOverview() {
+    var st = state.studio;
+    var stEl = st.el;
+    if (!stEl) return;
+    var rows = st.list.map(function (d, i) {
+      var p = studioProspect(d);
+      var pname = p ? p.name : d.prospectId;
+      var dec = decisionOf(d);
+      var preview = (d.variants && (d.variants.whatsapp || d.variants.email)) || d.body || "";
+      var first = firstSentence(preview) || "(no message text yet)";
+      var decLabel = { approved: "Approved", pending: "Waiting for you", deferred: "Deferred", rejected: "Rejected" }[dec] || "Waiting for you";
+      return "<li><button type=\"button\" class=\"draft-row\" data-act=\"studio-open\" data-id=\"" + i + "\">" +
+        "<span class=\"draft-row-name\">" + esc(pname) + "</span>" +
+        "<span class=\"draft-row-dec " + esc(dec) + "\">" + esc(decLabel) + "</span>" +
+        "<span class=\"draft-row-preview\">" + esc(first) + "</span>" +
+        "<span class=\"draft-row-open\">Open <span aria-hidden=\"true\">-&gt;</span></span></button></li>";
+    }).join("");
+    stEl.innerHTML =
+      "<div class=\"studio-overview\"><p class=\"kicker\">All messages</p>" +
+      "<h3>" + st.list.length + " message" + (st.list.length === 1 ? "" : "s") + " for your picks</h3>" +
+      "<p class=\"hint\">Nothing sends without your approval. Open one to read and decide.</p>" +
+      "<ul class=\"draft-rows\">" + rows + "</ul></div>";
   }
 
   function studioDraft() {
@@ -1721,9 +1741,17 @@
   }
 
   function onStudioClick(e) {
-    var ds = e.target && e.target.dataset ? e.target.dataset : {};
+    var t = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+    var ds = (t && t.dataset) || (e.target && e.target.dataset ? e.target.dataset : {});
     var act = ds.act;
     if (!act || !state.studio || !state.studio.el) return;
+    var st = state.studio;
+    if (act === "studio-open") {
+      // From the overview list: open that message (index rides data-id).
+      var i = parseInt(ds.id, 10);
+      if (st.list[i]) { st.idx = i; st.overview = false; st.tab = null; st.editing = false; renderStudioInner(); }
+      return;
+    }
     var d = studioDraft();
     var st = state.studio;
     if (act === "wa-open") {
@@ -1832,6 +1860,7 @@
 
   function renderStudioInner() {
     var st = state.studio;
+    if (st.overview) { renderStudioOverview(); return; }
     var d = studioDraft();
     var p = studioProspect(d);
     var pname = p ? p.name : d.prospectId;
@@ -2144,7 +2173,7 @@
         for (var i = 0; i < st.list.length; i++) {
           if (st.list[i].prospectId === prospectId) { idx = i; break; }
         }
-        if (idx >= 0) { st.idx = idx; st.editing = false; st.tab = null; renderStudioInner(); }
+        if (idx >= 0) { st.idx = idx; st.overview = false; st.editing = false; st.tab = null; renderStudioInner(); }
       }
       showView("drafts");
     };
@@ -2888,7 +2917,7 @@
         if (v === "campaigns") { renderCampaignView(); return; }
         if (v === "senders") { renderSendersView("status"); return; }
         if (v === "drafts") { if (state.runId) renderDrafts(); return; }
-        if (v === "shortlist") { if (state.prospects.length) showView("shortlist"); return; }
+        if (v === "shortlist") { previewProgress(); return; }
         if (v === "progress") { if (state.runId) { showView("progress"); pollProgress(); } return; }
         if (v === "profile") { if (state.profile) { showView("profile"); return; } }
         if (v === "onboard") { if (!state.runId) { showView("onboard"); obFirstPhase(); } return; }

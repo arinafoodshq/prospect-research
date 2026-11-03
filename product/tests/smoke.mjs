@@ -397,7 +397,20 @@ await fire(els["btn-to-drafts"], "click", evt());
 await tick(); await tick(); await tick();
 ok(visible("view-drafts"), "shortlist -> drafts view");
 ok(els["drafts-kicker"].textContent === "EXAMPLE DATA", "drafts kicker marks the example run");
-ok(els["draft-list"].children.length === 1, "studio shows one message at a time");
+ok(els["draft-list"].children.length === 1, "studio shows one surface at a time");
+{
+  const html = els["draft-list"].children[0].innerHTML;
+  ok(/3 messages for your picks/.test(html), "studio opens as an overview list, never straight into message 1 of 1 (owner 2026-11-03)");
+  ok(/Kingsway Tech Hub/.test(html), "overview names the leads");
+  ok(/Open/.test(html), "overview rows open their message");
+}
+{
+  // Open the first message from the overview -> the pager takes over.
+  const div = els["draft-list"].children[0];
+  const fns = div._listeners.click || [];
+  for (const fn of fns) await fn.call(div, { target: { dataset: { act: "studio-open", id: "0" } } });
+  await tick(); await tick();
+}
 {
   const html = els["draft-list"].children[0].innerHTML;
   ok(/MESSAGE 1 OF 3/.test(html), "studio pager counts the selected drafts");

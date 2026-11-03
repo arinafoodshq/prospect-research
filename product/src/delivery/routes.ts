@@ -12,6 +12,26 @@ import {
 } from "./providers";
 import type { Container } from "@cloudflare/containers";
 
+/**
+ * Send-authority gate (owner directive 2026-11-03: "that email is me
+ * personally — people should not be able to use it to send to everybody").
+ * A sender connection may only be listed, verified, disconnected, or used
+ * to send by its owner (sender_connection.owner_email). Tests without a
+ * session pass owner=null and keep the old behavior.
+ */
+export async function connectionOwnedBy(
+  env: DeliveryEnv, id: string, owner?: string | null,
+): Promise<boolean> {
+  if (!owner) return true;
+  const row = await env.DB.prepare("SELECT owner_email FROM sender_connection WHERE id = ?")
+    .bind(id).first<{ owner_email: string | null }>();
+  return (row?.owner_email ?? null) === owner;
+}
+
+function notYourConnection(): Response {
+  return err("not_your_connection", 403, "This email account belongs to another user. Connect your own in Email accounts.");
+}
+
 export interface DeliveryEnv {
   DB: Db;
   CRED_KEY?: string;
@@ -89,7 +109,7 @@ function needCredKey(env: DeliveryEnv): Response | null {
 
 // --- sender connections -------------------------------------------------------
 
-export async function postConnection(req: Request, env: DeliveryEnv): Promise<Response> {
+export async function postConnection(req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
   const keyErr = needCredKey(env);
   if (keyErr) return keyErr;
   const parsed = await readJson(req);
@@ -121,25 +141,29 @@ export async function postConnection(req: Request, env: DeliveryEnv): Promise<Re
   const id = makeId("conn");
   const now = nowIso();
   await env.DB.prepare(
-    `INSERT INTO sender_connection (id, provider, label, sender_email, sender_name, status, secret_blob, metadata_json, last_verified_at, last_error, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO sender_connection (id, provider, label, sender_email, sender_name, status, secret_blob, metadata_json, last_verified_at, last_error, created_at, updated_at, owner_email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(id, provider, (label as string).trim(), (sender_email as string).trim().toLowerCase(),
-    typeof sender_name === "string" ? sender_name : null, "pending", JSON.stringify(blob), "{}", null, null, now, now).run();
+    typeof sender_name === "string" ? sender_name : null, "pending", JSON.stringify(blob), "{}", null, null, now, now,
+    owner ?? null).run();
   const row = await env.DB.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(id).first<Record<string, unknown>>();
   return json(publicConn((row ?? {}) as Record<string, unknown>), 201);
 }
 
-export async function getConnections(_req: Request, env: DeliveryEnv): Promise<Response> {
-  const out = await env.DB.prepare("SELECT * FROM sender_connection").all<Record<string, unknown>>();
+export async function getConnections(_req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
+  const out = owner
+    ? await env.DB.prepare("SELECT * FROM sender_connection WHERE owner_email = ?").bind(owner).all<Record<string, unknown>>()
+    : await env.DB.prepare("SELECT * FROM sender_connection").all<Record<string, unknown>>();
   return json({ connections: (out.results ?? []).map(publicConn) });
 }
 
-export async function postVerifyConnection(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postVerifyConnection(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
   const keyErr = needCredKey(env);
   if (keyErr) return keyErr;
   const row = await env.DB.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(params["id"])
     .first<Record<string, unknown>>();
   if (!row) return err("connection_not_found", 404);
+  if (!(await connectionOwnedBy(env, String(row["id"]), owner))) return notYourConnection();
   const providerId = row["provider"] as ProviderId;
   let provider;
   try {
@@ -168,9 +192,11 @@ export async function postVerifyConnection(_req: Request, env: DeliveryEnv, para
   return json(publicConn((updated ?? {}) as Record<string, unknown>), res.ok ? 200 : 400);
 }
 
-export async function postDisconnect(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
-  const row = await env.DB.prepare("SELECT id FROM sender_connection WHERE id = ?").bind(params["id"]).first<{ id: string }>();
+export async function postDisconnect(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  const row = await env.DB.prepare("SELECT id, owner_email FROM sender_connection WHERE id = ?")
+    .bind(params["id"]).first<{ id: string; owner_email: string | null }>();
   if (!row) return err("connection_not_found", 404);
+  if (owner && (row.owner_email ?? null) !== owner) return notYourConnection();
   await env.DB.prepare("UPDATE sender_connection SET status = ?, secret_blob = ?, updated_at = ? WHERE id = ?")
     .bind("revoked", null, nowIso(), params["id"]).run();
   return json({ id: params["id"], status: "revoked" });
@@ -207,7 +233,7 @@ export async function getGmailAuthUrl(req: Request, env: DeliveryEnv): Promise<R
   return json({ url });
 }
 
-export async function getGmailCallback(req: Request, env: DeliveryEnv): Promise<Response> {
+export async function getGmailCallback(req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
   const keyErr = needCredKey(env);
   if (keyErr) return keyErr;
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
@@ -247,10 +273,10 @@ export async function getGmailCallback(req: Request, env: DeliveryEnv): Promise<
   const id = makeId("conn");
   const now = nowIso();
   await env.DB.prepare(
-    `INSERT INTO sender_connection (id, provider, label, sender_email, sender_name, status, secret_blob, metadata_json, last_verified_at, last_error, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO sender_connection (id, provider, label, sender_email, sender_name, status, secret_blob, metadata_json, last_verified_at, last_error, created_at, updated_at, owner_email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(id, "gmail", decoded.label || "Gmail", decoded.sender_email || "", null, "connected",
-    JSON.stringify(blob), "{}", now, null, now, now).run();
+    JSON.stringify(blob), "{}", now, null, now, now, owner ?? null).run();
   const row = await env.DB.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(id).first<Record<string, unknown>>();
   return json(publicConn((row ?? {}) as Record<string, unknown>), 201);
 }
@@ -301,7 +327,7 @@ async function insertRecipients(db: Db, campaignId: string, list: RecipientInput
   return null;
 }
 
-export async function postCampaign(req: Request, env: DeliveryEnv): Promise<Response> {
+export async function postCampaign(req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -314,6 +340,7 @@ export async function postCampaign(req: Request, env: DeliveryEnv): Promise<Resp
     if (!run) return err("run_not_found", 400);
   }
   if (connection_id !== undefined) {
+    if (!(await connectionOwnedBy(env, String(connection_id), owner))) return notYourConnection();
     const conn = await env.DB.prepare("SELECT id FROM sender_connection WHERE id = ?").bind(connection_id).first<{ id: string }>();
     if (!conn) return err("connection_not_found", 400);
   }
@@ -363,7 +390,7 @@ export async function getCampaignById(_req: Request, env: DeliveryEnv, params: P
   return json(detail);
 }
 
-export async function patchCampaign(req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function patchCampaign(req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
   const row = await env.DB.prepare("SELECT * FROM campaign WHERE id = ?").bind(params["id"]).first<Record<string, unknown>>();
   if (!row) return err("campaign_not_found", 404);
   if (row["status"] !== "draft") return err("campaign_locked", 409, "only draft campaigns can be edited; cancel and recreate to change an approved campaign");
@@ -376,6 +403,7 @@ export async function patchCampaign(req: Request, env: DeliveryEnv, params: Para
     await env.DB.prepare("UPDATE campaign SET name = ?, updated_at = ? WHERE id = ?").bind(name.trim(), nowIso(), row["id"]).run();
   }
   if (connection_id !== undefined) {
+    if (!(await connectionOwnedBy(env, String(connection_id), owner))) return notYourConnection();
     const conn = await env.DB.prepare("SELECT id FROM sender_connection WHERE id = ?").bind(connection_id).first<{ id: string }>();
     if (!conn) return err("connection_not_found", 400);
     await env.DB.prepare("UPDATE campaign SET connection_id = ?, updated_at = ? WHERE id = ?").bind(connection_id, nowIso(), row["id"]).run();
@@ -400,7 +428,7 @@ export async function patchCampaign(req: Request, env: DeliveryEnv, params: Para
   return json(await campaignDetail(env.DB, row["id"] as string));
 }
 
-export async function postApproveCampaign(req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postApproveCampaign(req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
   const row = await env.DB.prepare("SELECT * FROM campaign WHERE id = ?").bind(params["id"]).first<Record<string, unknown>>();
   if (!row) return err("campaign_not_found", 404);
   if (row["status"] !== "draft") return err("campaign_locked", 409, "only draft campaigns can be approved");
@@ -409,6 +437,7 @@ export async function postApproveCampaign(req: Request, env: DeliveryEnv, params
   const body = isObj(parsed.body) ? parsed.body : {};
   const connectionId = typeof body["connection_id"] === "string" ? body["connection_id"] : (row["connection_id"] as string | null);
   if (!connectionId) return err("missing_sender", 400, "choose a connected sender before approving");
+  if (!(await connectionOwnedBy(env, connectionId, owner))) return notYourConnection();
   const conn = await env.DB.prepare("SELECT * FROM sender_connection WHERE id = ?").bind(connectionId).first<Record<string, unknown>>();
   if (!conn) return err("connection_not_found", 400);
   if (conn["status"] !== "connected") return err("sender_not_connected", 400, "verify the sender connection before approving");

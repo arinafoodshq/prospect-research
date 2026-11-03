@@ -1212,6 +1212,31 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
 .run-banner.stopped { border-left-color: var(--marigold, var(--accent)); }
 .run-banner.ready { border-left-color: var(--success); }
 
+/* Studio overview (2026-11-03): Messages opens as a list of every message,
+   never straight inside "message 1 of 1". */
+.studio-overview { display: flex; flex-direction: column; gap: 0.5rem; }
+.studio-overview h3 { margin: 0; }
+.draft-rows { list-style: none; padding: 0; margin: 0.4rem 0 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.draft-row {
+  display: grid; grid-template-columns: 1.1fr auto 2fr auto; align-items: center;
+  gap: 0.8rem; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0.65rem 0.85rem; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.draft-row:hover { border-color: var(--border-strong); background: var(--surface-deep); }
+.draft-row-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-row-dec { font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: var(--radius-pill); background: var(--paper-soft, #F1EFE9); color: var(--muted); white-space: nowrap; }
+.draft-row-dec.approved { background: var(--accent-soft); color: var(--accent-deep); }
+.draft-row-dec.rejected { background: #F6E4E0; color: #8A3A2B; }
+.draft-row-preview { color: var(--muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-row-open { color: var(--accent-deep); font-weight: 700; white-space: nowrap; }
+@media (max-width: 800px) {
+  .draft-row { grid-template-columns: 1fr auto; }
+  .draft-row-preview { display: none; }
+  .draft-row-open { grid-column: 2; }
+}
+
 /* ============================================================
    Dashboard revamp (2026-11-02): the landing's paper theme —
    white cards on the paper ground, one calm accent stripe per
