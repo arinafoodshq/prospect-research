@@ -276,6 +276,13 @@ export function renderBriefPrompt(b: CommercialBrief): string {
     `NEVER target (hard exclusions): ${seg.exclusions.join(", ")}.`,
     `Customer pains: ${b.pains.map((p) => `${p.job} / blocked by ${p.obstacle}${p.workaround ? ` / today: ${p.workaround}` : ""}`).join(" | ")}.`,
     `Buyers: ${b.buyer_roles.map((r) => r.role).join(", ")}.`,
+    // Circumstance memory: the owner's own verified words ride with the brief
+    // so assessors and drafters quote the owner's truth, never paraphrase it.
+    ...(
+      b.statements.filter((s) => s.provenance === "user_fact" || s.provenance === "source_verified").slice(0, 3).length > 0
+        ? [`Owner's own words (ground truth; echo them in drafts): ${b.statements.filter((s) => s.provenance === "user_fact" || s.provenance === "source_verified").slice(0, 3).map((s) => `"${s.text.slice(0, 120)}"`).join(" | ")}.`]
+        : []
+    ),
   ];
   if (b.directive) {
     lines.push(

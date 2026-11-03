@@ -919,7 +919,7 @@
       $("progress-title").textContent = "Research stopped before it finished.";
       var perr = $("progress-error");
       perr.textContent = isNetworkError(err) ? NETWORK_MSG
-        : "Research stopped before it finished. Your progress is saved. Retry, or start over below.";
+        : "Research stopped before it finished. Your progress is saved \u2014 Retry continues from where it stopped.";
       perr.hidden = false;
       var retry = $("btn-retry-progress");
       if (retry) retry.hidden = false;
@@ -2367,7 +2367,13 @@
         state.profile = { id: currentCampaignRun.profile_id, name: currentCampaignRun.profile_name || "" };
       }
       showView("progress");
-      pollProgress();
+      // Synchronized retry: a failed run restarts the SAME run's workflow —
+      // plan, searches, candidates and assessments all carry over (never
+      // from zero, owner directive 2026-11-03).
+      var kick = (currentCampaignRun && currentCampaignRun.status === "failed" && api.resumeRun)
+        ? api.resumeRun(currentCampaignRun.id, { to: "created" }).catch(function () { /* the poll shows the honest state */ })
+        : Promise.resolve();
+      kick.then(function () { pollProgress(); });
       return;
     }
     if (ds.act === "go-onboard") { showView("onboard"); obFirstPhase(); }
@@ -2818,7 +2824,39 @@
     $("btn-back-campaigns").addEventListener("click", function () { showView("drafts"); });
     $("btn-restart").addEventListener("click", restart);
     $("btn-restart-progress").addEventListener("click", restart);
-    $("btn-retry-progress").addEventListener("click", pollProgress);
+    $("btn-retry-progress").addEventListener("click", function () {
+      // Retry on a failed run = synchronized resume of the SAME run (never
+      // from zero); on other states it just re-opens the live poll.
+      var failed = currentCampaignRun && currentCampaignRun.id === state.runId
+        && currentCampaignRun.status === "failed";
+      var kick = (failed && api.resumeRun)
+        ? api.resumeRun(state.runId, { to: "created" }).catch(function () { /* the poll shows the honest state */ })
+        : Promise.resolve();
+      kick.then(function () { pollProgress(); });
+    });
+    // Network resilience (owner directive 2026-11-03): the run lives on the
+    // server; the client says so honestly when the device drops, and resyncs
+    // the moment the connection returns. A 10s heartbeat keeps the rich
+    // counters (searches, found, kept) fresh even if the progress poll stalls.
+    var ACTIVE_RUN = { created: 1, awaiting_brief: 1, discovering: 1, investigating: 1, assessing: 1, drafting: 1 };
+    try {
+      window.addEventListener("offline", function () {
+        var b = $("net-banner");
+        if (b) b.hidden = false;
+      });
+      window.addEventListener("online", function () {
+        var b = $("net-banner");
+        if (b) b.hidden = true;
+        if (state.runId && !$("view-progress").hidden && state.runStatus && ACTIVE_RUN[state.runStatus]) pollProgress();
+      });
+    } catch (e) { /* minimal harnesses have no window events */ }
+    setInterval(function () {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (!state.runId || $("view-progress").hidden) return;
+      var s = state.runStatus;
+      if (!s || !ACTIVE_RUN[s]) return;
+      refreshProgressSnapshot();
+    }, 10000);
   }
 
   if (typeof module !== "undefined" && module.exports) {

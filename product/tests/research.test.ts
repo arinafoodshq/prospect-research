@@ -564,6 +564,60 @@ describe("run quality (agentic QA loop)", () => {
 
 // --- ingest gate ---------------------------------------------------------------
 
+describe("discover synchronized resume + search memory", () => {
+  it("continues at the first unsearched query — done queries never re-search", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["alpha query", "beta query"]);
+    tables["research_run"][0].plan = JSON.stringify({
+      queries: ["alpha query", "beta query"],
+      all_queries: ["alpha query", "beta query"],
+      done_queries: ["alpha query"], // the run already searched this one
+    });
+    const searched: string[] = [];
+    const out = await discover(
+      BRIEF,
+      db,
+      { search: async (q: string) => {
+        searched.push(q);
+        return q === "beta query"
+          ? [{ claim: "Beta Ltd exists", quote: "Beta quoted", source_url: "https://beta.example.com", name: "Beta Ltd", category: "services" }]
+          : [];
+      } },
+      budgetsWith(),
+    );
+    expect(out.status).toBe("completed");
+    expect(searched).toEqual(["beta query"]); // the ledger skipped alpha
+    const plan = JSON.parse(tables["research_run"][0].plan as string);
+    expect(plan.done_queries.sort()).toEqual(["alpha query", "beta query"]);
+  });
+
+  it("search bursts receive the run's found names as memory (steer to NEW)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["gamma query"]);
+    await seedViaDiscover(db, ["Alpha Ltd"]);
+    // A fresh (not-yet-searched) query for the next sweep:
+    tables["research_run"][0].plan = JSON.stringify({
+      queries: ["delta query"],
+      all_queries: ["gamma query", "delta query"],
+      done_queries: [],
+    });
+    const seenKnown: Array<string[] | undefined> = [];
+    await discover(
+      BRIEF,
+      db,
+      { search: async (_q: string, known?: string[]) => {
+        seenKnown.push(known);
+        return [];
+      } },
+      budgetsWith(),
+    );
+    expect(seenKnown[0] !== undefined).toBe(true);
+    expect(seenKnown[0]!.includes("Alpha Ltd")).toBe(true);
+  });
+});
+
+// --- ingest gate ---------------------------------------------------------------
+
 describe("plausibleBusinessName (discover ingest gate)", () => {
   it("rejects the junk shapes that reached a real shortlist", () => {
     // All five are real names from run_e525ec91 (thrift seller, 2026-11-03).
@@ -575,6 +629,19 @@ describe("plausibleBusinessName (discover ingest gate)", () => {
     expect(plausibleBusinessName("admin")).toBe(false);
     expect(plausibleBusinessName("Play")).toBe(false);
     expect(plausibleBusinessName("Halls")).toBe(false);
+  });
+  it("rejects the ArinaFoods leak shapes (run_dc346818, 2026-11-03)", () => {
+    expect(plausibleBusinessName("The big list of co-working Spaces")).toBe(false);
+    expect(plausibleBusinessName("Alternatives and detailed information of tech-hubs")).toBe(false);
+    expect(plausibleBusinessName("Radar from TechCabal")).toBe(false);
+    expect(plausibleBusinessName("techpoint.africa")).toBe(false);
+    expect(plausibleBusinessName("WEDDING PLANNERS")).toBe(false);
+    expect(plausibleBusinessName("Meeting Room")).toBe(false);
+    expect(plausibleBusinessName("Shared Workspace")).toBe(false);
+    expect(plausibleBusinessName("Pebnic Ventures Limited Reviews")).toBe(false);
+    expect(plausibleBusinessName("Office Spaces in Oregun")).toBe(false);
+    expect(plausibleBusinessName("Coworking spaces in Ikeja and environs")).toBe(false);
+    expect(plausibleBusinessName("Unfurnished Short Let Office Spaces")).toBe(false);
   });
   it("keeps real organizations, including ones the assessor may still reject", () => {
     expect(plausibleBusinessName("Providha Fun City")).toBe(true);

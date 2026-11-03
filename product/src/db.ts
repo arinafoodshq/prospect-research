@@ -116,7 +116,11 @@ const RUN_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   drafting: ["complete", "awaiting_brief", "awaiting_approval", "stopped", "failed"],
   awaiting_brief: ["created", "discovering", "investigating", "assessing", "drafting", "stopped", "failed"],
   awaiting_approval: ["drafting", "complete", "stopped", "failed"],
-  complete: [], stopped: [], failed: [],
+  complete: [], stopped: ["created"], failed: ["created"],
+  // stopped/failed -> created: retry restarts the SAME run with a fresh
+  // workflow instance; plan, consumed counters, candidates, evidence and
+  // assessments all persist, so the work continues — never from zero
+  // (owner directive 2026-11-03: synchronized retry).
 };
 
 const PROSPECT_TRANSITIONS: Record<ProspectStatus, ProspectStatus[]> = {

@@ -258,6 +258,8 @@ export interface MetaClientDeps {
   briefExcerpt?: string;
   endpoint?: string;
   fetchImpl?: typeof fetch;
+  /** Transient-retry backoff for model calls (tests inject tiny delays). */
+  retryDelays?: number[];
   /** Audit trail hook (user requirement 2026-10-31): every model burst logs
    * phase, goal head, usage, duration, and output head. Best-effort. */
   audit?: (ev: import("./audit").AuditEvent) => Promise<void>;
@@ -587,6 +589,13 @@ const ONBOARD_CHIP_CAP = 40;
 const ONBOARD_MAX_CHIPS = 3;
 const ONBOARD_KEYS = new Set<string>(ONBOARD_FIELD_KEYS);
 
+/** Assume-never-ask (owner direction 2026-11-03): these fields are inferred
+ *  or defaulted by the system, never spent as an interview question. */
+const NEVER_ASK_FIELDS: ReadonlySet<string> = new Set(["decision_maker", "order_size", "budget", "timeline"]);
+const ONBOARD_FIELD_DEFAULTS: Record<string, string> = {
+  decision_maker: "the owner decides purchases",
+};
+
 function isOnboardKey(key: unknown): key is OnboardFieldKey {
   return typeof key === "string" && ONBOARD_KEYS.has(key);
 }
@@ -621,6 +630,15 @@ export function validateOnboardTurn(item: unknown): OnboardTurnResult {
         .map((c) => c.slice(0, ONBOARD_CHIP_CAP))
       : [];
     question = { key: rawQ["key"], prompt: rawQ["prompt"].slice(0, ONBOARD_PROMPT_CAP), chips };
+  }
+  // Deterministic assume-never-ask guard (owner direction 2026-11-03): these
+  // fields are the system's job to assume, not the owner's to answer. A
+  // question targeting them is stripped; decision_maker gets its sensible
+  // default so the summary screen shows it as an editable assumption.
+  if (question && NEVER_ASK_FIELDS.has(question.key)) {
+    const d = ONBOARD_FIELD_DEFAULTS[question.key];
+    if (d && !fields[question.key]) fields[question.key] = { value: d, label: "inferred" };
+    question = null;
   }
   const done = item["done"] === true || question === null;
   // The business name rides beside the fields: the owner's words may name it
@@ -666,52 +684,72 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
   const brief = deps.briefExcerpt ?? "";
 
   async function callResponses(req: ResponsesRequest): Promise<ParsedResponse> {
-    const started = Date.now();
-    try {
-      const wire: Record<string, unknown> = { ...req, model };
-      delete wire["phase"]; // audit-only label, never sent to the API
-      const res = await fetchImpl(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json", "Authorization": "Bearer " + deps.apiKey },
-        body: JSON.stringify(wire),
-        signal: AbortSignal.timeout(META_CALL_TIMEOUT_MS),
-      });
-      if (!res.ok) throw new Error(`meta_http_${res.status}`);
-      const parsed = parseResponsesResponse(await res.json());
-      if (deps.audit) {
-        const lastInput = req.input[req.input.length - 1];
-        const goal = lastInput ? lastInput.content : "";
-        await deps.audit({
-          kind: "model_call",
-          subject: `${req.phase} ${model}`,
-          summary: {
-            phase: req.phase, model, duration_ms: Date.now() - started,
-            input_tokens: parsed.usage?.input_tokens, output_tokens: parsed.usage?.output_tokens,
-            tools: req.tools.map((t) => t["name"] ?? t["type"]).slice(0, 5),
-            goal_head: goal.slice(0, 800),
-            output_head: (parsed.outputText || "").slice(0, 1200),
-          },
-        }).catch(() => { /* audit never breaks a model call */ });
+    // Transient model failures (429/5xx/timeout) ride out IN-CALL: the
+    // Workflow step retry is the outer belt, this is the inner suspenders —
+    // one flaky burst must not cost a full step re-run (run_dc346818 died on
+    // a single meta_http_504 with 29 assessed prospects, 2026-11-03).
+    const DELAYS = deps.retryDelays ?? [2000, 8000];
+    const firstStarted = Date.now();
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= DELAYS.length; attempt += 1) {
+      const started = Date.now();
+      try {
+        const wire: Record<string, unknown> = { ...req, model };
+        delete wire["phase"]; // audit-only label, never sent to the API
+        const res = await fetchImpl(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json", "Authorization": "Bearer " + deps.apiKey },
+          body: JSON.stringify(wire),
+          signal: AbortSignal.timeout(META_CALL_TIMEOUT_MS),
+        });
+        if (!res.ok) throw new Error(`meta_http_${res.status}`);
+        const parsed = parseResponsesResponse(await res.json());
+        if (deps.audit) {
+          const lastInput = req.input[req.input.length - 1];
+          const goal = lastInput ? lastInput.content : "";
+          await deps.audit({
+            kind: "model_call",
+            subject: `${req.phase} ${model}`,
+            summary: {
+              phase: req.phase, model, duration_ms: Date.now() - started,
+              input_tokens: parsed.usage?.input_tokens, output_tokens: parsed.usage?.output_tokens,
+              tools: req.tools.map((t) => t["name"] ?? t["type"]).slice(0, 5),
+              goal_head: goal.slice(0, 800),
+              output_head: (parsed.outputText || "").slice(0, 1200),
+            },
+          }).catch(() => { /* audit never breaks a model call */ });
+        }
+        return parsed;
+      } catch (e) {
+        lastErr = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        const transient = /meta_http_(429|5\d\d)/.test(msg)
+          || /timeout|fetch failed|network/i.test(msg);
+        if (!transient || attempt === DELAYS.length) break;
+        await new Promise((r) => setTimeout(r, DELAYS[attempt]));
       }
-      return parsed;
-    } catch (e) {
-      if (deps.audit) {
-        await deps.audit({
-          kind: "model_error",
-          subject: `${req.phase} ${model}`,
-          summary: { phase: req.phase, model, duration_ms: Date.now() - started, error: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300) },
-        }).catch(() => { /* ignore */ });
-      }
-      throw e;
     }
+    if (deps.audit) {
+      await deps.audit({
+        kind: "model_error",
+        subject: `${req.phase} ${model}`,
+        summary: { phase: req.phase, model, duration_ms: Date.now() - firstStarted, error: lastErr instanceof Error ? lastErr.message.slice(0, 300) : String(lastErr).slice(0, 300) },
+      }).catch(() => { /* ignore */ });
+    }
+    throw lastErr;
   }
 
-  async function search(query: string): Promise<SearchHit[]> {
+  async function search(query: string, knownNames?: string[]): Promise<SearchHit[]> {
     const area = activeBrief ? serviceAreaFromGeos(activeBrief.primary_segment.geos) : undefined;
+    // Circumstance memory: a burst that knows the run's found businesses
+    // steers toward NEW organizations (bounded list, only when non-empty).
+    const known = Array.isArray(knownNames) && knownNames.length > 0
+      ? ` Already reported by earlier queries in this run (do NOT repeat them; find organizations NOT in this list): ${knownNames.slice(0, 15).join("; ")}.`
+      : "";
     const req = buildPhaseRequest({
       phase: "discover",
       briefExcerpt: brief,
-      phaseGoal: activeBrief ? buildSearchGoal(activeBrief, query) : `Find businesses that match: ${query}. Wanted: buying businesses (offices, schools, clinics, hubs, venues). Never list caterers, food vendors, or recipe/blog pages. Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words, e.g. Logistics", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}]. Example: [{"name": "Brightline Logistics", "category": "Logistics", "fact": "Runs a weekday lunch rota for 45 staff", "url": "https://brightline.ng/about"}]`,
+      phaseGoal: (activeBrief ? buildSearchGoal(activeBrief, query) : `Find businesses that match: ${query}. Wanted: buying businesses (offices, schools, clinics, hubs, venues). Never list caterers, food vendors, or recipe/blog pages. Reply ONLY a JSON array, one object per distinct business, no other text: [{"name": "real business name, max 8 words", "category": "1-3 words, e.g. Logistics", "fact": "one short evidence sentence about why they might buy", "url": "the result page url"}]. Example: [{"name": "Brightline Logistics", "category": "Logistics", "fact": "Runs a weekday lunch rota for 45 staff", "url": "https://brightline.ng/about"}]`) + known,
       searchContextSize: "low",
       maxToolCalls: 4,
       ...(area ? { serviceArea: area } : {}),
@@ -991,7 +1029,7 @@ function extractVisibleText(html: string): string {
     const req = buildPhaseRequest({
       phase: "plan",
       briefExcerpt: brief || "New business onboarding.",
-      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "name": "the business name the owner stated, or empty string", "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Sharp memory - Known plus the owner's words are ONE memory, and the owner volunteers facts no question asked for: "504 yards Grills and Drinks sell grilled chicken to individuals, corporate events" already names the business (504 yards Grills and Drinks), the offer (grilled chicken), AND the buyers (individuals, corporate event organisers) - extract ALL of them in that single turn and ask nothing. Put any stated business name in "name". NEVER ask for the business name when the words contain any name-like phrase ('X Grills', 'Y Services', 'my company Z'); extract it as inferred and let the owner edit on the summary - asking for a stated name is forbidden. When the owner's words state a place the business serves ("offices in Ikeja"), extract it into service_area immediately — asking for a place they just said is forbidden (refining a bare place to its fuller areas is allowed, and shows the noted value). Never spend a question confirming something you can already extract: the owner confirms and edits every field on the summary screen. Each field may be asked about at most once in the whole conversation; a field in Known with a value is ANSWERED, never re-asked, not even to confirm or refine. Only ask about a fact that is still missing AND material, at most one per turn. Think like a sales strategist: read the whole reply before asking anything. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area - the country is never worth a follow-up on its own; a street address is fine too ("Kodesoh Street, Ikeja"). Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base. Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
+      phaseGoal: `Extract facts about the owner's business from their reply. Reply ONLY a JSON object: {"fields": {key: {"value": "...", "label": "inferred"}}, "name": "the business name the owner stated, or empty string", "question": {"key": "...", "prompt": "...", "chips": ["a", "b"]} | null, "done": true|false}. Rules: use ONLY these keys: ${ONBOARD_FIELD_KEYS.join(", ")}. Extract only facts stated or clearly implied by the owner; never invent values. Label every extracted field "inferred". Sharp memory - Known plus the owner's words are ONE memory, and the owner volunteers facts no question asked for: "504 yards Grills and Drinks sell grilled chicken to individuals, corporate events" already names the business (504 yards Grills and Drinks), the offer (grilled chicken), AND the buyers (individuals, corporate event organisers) - extract ALL of them in that single turn and ask nothing. Put any stated business name in "name". NEVER ask for the business name when the words contain any name-like phrase ('X Grills', 'Y Services', 'my company Z'); extract it as inferred and let the owner edit on the summary - asking for a stated name is forbidden. When the owner's words state a place the business serves ("offices in Ikeja"), extract it into service_area immediately — asking for a place they just said is forbidden (refining a bare place to its fuller areas is allowed, and shows the noted value). Never spend a question confirming something you can already extract: the owner confirms and edits every field on the summary screen. Each field may be asked about at most once in the whole conversation; a field in Known with a value is ANSWERED, never re-asked, not even to confirm or refine. Only ask about a fact that is still missing AND material, at most one per turn. Think like a sales strategist: read the whole reply before asking anything. ASSUME-NEVER-ASK rule: decision_maker, order_size, budget and timeline are NEVER asked - for any small business the owner decides purchases unless their words say otherwise, so set decision_maker inferred ("the owner decides purchases") and leave the others to the summary screen as editable assumptions; asking about them wastes a turn the owner trusted you with. Location rule: "area, city" or "city, state" (e.g. "Ikeja, Lagos") is a COMPLETE service_area - the country is never worth a follow-up on its own; a street address is fine too ("Kodesoh Street, Ikeja"). Some businesses are purely online or serve nationwide/worldwide: record what the owner says ("Worldwide"/"Online" are valid values), plus stated reach alongside a base. Never invent a base or a reach. Ask AT MOST ONE follow-up question about the most important missing fact (${input.followups_used} of 3 used); set "done": true with "question": null when nothing material is missing. Keep prompts plain and short. Known so far: ${known || "nothing"}. Owner's reply: ${JSON.stringify(input.text)}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
     const parsed = await callResponses(req);

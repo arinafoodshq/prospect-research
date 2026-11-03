@@ -136,6 +136,9 @@
   MockApi.prototype.stopRun = function () {
     return Promise.resolve({ status: "stopped" });
   };
+  MockApi.prototype.resumeRun = function () {
+    return Promise.resolve({ id: "demo-run-1", status: "discovering" });
+  };
   MockApi.prototype.confirmBrief = function () {
     return Promise.resolve({ briefId: "demo-brief-1", runId: "demo-run-1" });
   };
@@ -430,6 +433,15 @@
       body: JSON.stringify({ to: "stopped", stop_reason: "Stopped by the owner from the progress view." })
     });
   };
+  // Synchronized retry (owner directive 2026-11-03): resume a stopped or
+  // failed run in place — a fresh workflow instance continues the SAME run
+  // from its persisted state (stored plan, done-query ledger, counters).
+  RealApi.prototype.resumeRun = function (runId, opts) {
+    return this._req("/api/runs/" + encodeURIComponent(runId) + "/resume", {
+      method: "POST",
+      body: JSON.stringify({ to: (opts && opts.to) || "created" })
+    });
+  };
   RealApi.prototype.confirmBrief = function (profile) {
     var self = this;
     var answers = {};
@@ -477,26 +489,42 @@
     var self = this;
     return new Promise(function (resolve, reject) {
       var timer = null;
-      var misses = 0; // transient poll failures: one dropped request must not
-      var poll = function () { // kill the progress view (600+ polls per run).
+      // Network resilience (owner directive 2026-11-03): a dropped request
+      // must not kill the progress view — the run keeps working server-side.
+      // Polls back off 1.5s -> 3s -> 6s -> 12s -> 15s while the network is
+      // down and reset on the first success; only ~2 minutes of continuous
+      // failure surfaces an error so the retry affordances can take over.
+      var delay = 1500;
+      var deadFor = 0;
+      var halted = false;
+      var poll = function () {
+        if (halted) return;
         self._req("/api/runs/" + encodeURIComponent(runId)).then(function (run) {
-          misses = 0;
+          if (halted) return;
+          delay = 1500; deadFor = 0; // healthy again
           var done = PROGRESS_DONE[run.status] == null ? 0 : PROGRESS_DONE[run.status];
           onTick({ done: done, total: PROGRESS_STEPS.length, steps: PROGRESS_STEPS, live: true });
           if (PROGRESS_TERMINAL[run.status]) {
-            if (timer) clearInterval(timer);
+            halted = true;
+            if (timer) clearTimeout(timer);
             if (run.status === "failed") reject(new Error(run.stop_reason || "research failed"));
             else resolve({ runId: run.id, status: run.status });
+            return;
           }
-        }, function (err) {
-          misses += 1;
-          if (misses < 4) return; // keep polling; a later tick usually lands
-          if (timer) clearInterval(timer);
-          reject(err);
+          timer = setTimeout(poll, delay);
+        }, function () {
+          if (halted) return;
+          deadFor += delay;
+          delay = Math.min(15000, delay * 2);
+          if (deadFor > 120000) {
+            halted = true;
+            reject(new Error("network"));
+            return;
+          }
+          timer = setTimeout(poll, delay);
         });
       };
       poll();
-      timer = setInterval(poll, 1500);
     });
   };
 

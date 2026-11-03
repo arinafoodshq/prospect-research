@@ -52,10 +52,10 @@
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <span class="sb-brand"><img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" />Prospect Research</span>
       <nav class="sb-nav">
-        <button type="button" class="sb-item" id="btn-sb-dashboard">Dashboard</button>
-        <button type="button" class="sb-item" id="btn-sb-messages">Messages</button>
-        <button type="button" class="sb-item" id="btn-sb-campaigns">Campaigns</button>
-        <button type="button" class="sb-item" id="btn-sb-senders">Email accounts</button>
+        <button type="button" class="sb-item" id="btn-sb-dashboard"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Dashboard</span></button>
+        <button type="button" class="sb-item" id="btn-sb-messages"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span>Messages</span></button>
+        <button type="button" class="sb-item" id="btn-sb-campaigns"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg><span>Campaigns</span></button>
+        <button type="button" class="sb-item" id="btn-sb-senders"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 006 0v-1a10 10 0 10-3.92 7.94"/></svg><span>Email accounts</span></button>
       </nav>
       <div class="sb-account" id="auth-area">
         <a class="auth-link" id="hdr-signin" href="/api/auth/start" hidden>Sign in</a>
@@ -64,6 +64,7 @@
       </div>
     </aside>
     <div class="sb-content" id="sb-content">
+      <div class="net-banner" id="net-banner" hidden>You're offline. Your research keeps running on the server &mdash; it syncs the moment you're back.</div>
       <div class="stage-strip" id="stage-wrap" hidden>
         <span class="stage-label">This campaign</span>
         <nav class="steps" aria-label="Campaign stages">

@@ -69,9 +69,12 @@ export const RETRY_POLICY = {
   backoffMs: [1000, 4000, 15000],
 } as const;
 
-/** Per-step retry config (Workflow step options; retries cover 429/5xx/fetch failures). */
+/** Per-step retry config (Workflow step options; retries cover 429/5xx/fetch
+ *  failures). limit 5 x exponential 20s keeps a long model-side 504 burst
+ *  (run_dc346818 died on one) from killing a run that holds 20+ minutes of
+ *  persisted work. */
 export const STEP_RETRIES = {
-  retries: { limit: RETRY_POLICY.maxAttempts, delay: "5 second", backoff: "exponential" },
+  retries: { limit: 5, delay: "20 second", backoff: "exponential" },
 } as const;
 
 /**
@@ -198,12 +201,19 @@ export class ResearchWorkflow {
   }
 
   async run(): Promise<void> {
+    if (!this.deps) throw new Error("run requires injected deps");
     // Brief gate first: runs are created only from confirmed briefs, so this
     // is normally a no-op; an unconfirmed brief waits instead of planning.
     if (!this.deps || briefGateDecision(this.deps.brief).wait) {
       await this.gate("brief_confirmed", "run cannot plan until the brief is confirmed");
     }
-    await this.phase("plan", () => this.plan());
+    // Synchronized retry: a restarted run keeps its stored plan (and every
+    // other persisted artifact) — only a run with NO plan yet plans.
+    if (!(await this.hasStoredPlan())) {
+      await this.phase("plan", () => this.plan());
+    } else {
+      this.runtime.log("plan skipped: stored plan carries over (synchronized retry)");
+    }
     // Agentic QA loop (owner direction 2026-10-30): research one sweep, then
     // JUDGE it — enough good buyers, or loop back with freshly planned
     // queries. Budget and a 3-sweep cap bound the loop; Workflow steps keep
@@ -259,6 +269,16 @@ export class ResearchWorkflow {
     await this.phase("close", () => this.close());
   }
 
+  /** A stored plan with queries means planning already happened: a retried
+   *  run continues from the ledger instead of generating fresh (possibly
+   *  worse) queries. */
+  private async hasStoredPlan(): Promise<boolean> {
+    if (!this.deps) return false;
+    const row = await getRun(this.deps.db, this.deps.run_id);
+    const plan = (row?.plan ?? {}) as { queries?: string[] };
+    return Array.isArray(plan.queries) && plan.queries.length > 0;
+  }
+
   /** Count of undecided drafts scoped to this run's prospects. */
   private async undecidedDrafts(): Promise<number> {
     if (!this.deps) throw new Error("gate check requires injected deps");
@@ -283,8 +303,11 @@ export class ResearchWorkflow {
    */
   async runPhases(): Promise<PhaseOutcome> {
     if (!this.deps) throw new Error("runPhases requires injected deps");
-    const first = await this.runPhasesPhase("plan");
-    if (first) return first;
+    // Same synchronized-retry rule as the Workflow path: keep the stored plan.
+    if (!(await this.hasStoredPlan())) {
+      const first = await this.runPhasesPhase("plan");
+      if (first) return first;
+    }
     // Agentic QA loop, dev flavor: same sweep/quality/replan logic as run().
     const TARGET_GOOD = 4;
     const MAX_SWEEPS = 3;

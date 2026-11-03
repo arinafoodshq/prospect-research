@@ -572,8 +572,9 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .ob-said p { margin: 0.2rem 0; }
 .ob-said .link-gold { flex: 0 0 auto; }
 #view-onboard #ob-question {
-  font-family: var(--font-display); font-weight: 700;
-  font-size: 2.6rem; line-height: 1.08; letter-spacing: var(--tracking-display);
+  font-weight: 800;
+  font-size: 1.35rem; line-height: 1.25;
+  letter-spacing: normal;
   margin: 0 0 0.4rem;
 }
 #ob-sub { margin: 0 0 0.6rem; }
@@ -614,8 +615,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 #ob-first h2 {
   font-family: var(--font-display); font-weight: 700;
   letter-spacing: var(--tracking-display);
-  font-size: clamp(2.2rem, 5.5vw + 1rem, 3.4rem);
-  line-height: 1.06; margin: 0 0 0.6rem;
+  font-size: clamp(1.5rem, 2.2vw + 0.9rem, 2rem);
+  line-height: 1.14; margin: 0 0 0.6rem;
 }
 #ob-first .hint { font-size: 1.05rem; margin: 0 0 1.6rem; }
 .ob-box {
@@ -792,8 +793,16 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .budget { color: var(--dim); font-size: 0.9rem; margin: 1rem 0 0; }
 
 @media (max-width: 800px) {
-  .trio.stats { grid-template-columns: 1fr; }
-  .progress-grid { grid-template-columns: 1fr; }
+  /* Stats stay 3-up inline on phones (stacked cards pushed the live step
+     list below the fold — owner report 2026-11-03: "I have to scroll down
+     to notice what's happening"). */
+  .trio.stats { grid-template-columns: repeat(3, 1fr); gap: 0.45rem; margin: 0.7rem 0; }
+  .stat-card { padding: 0.45rem 0.5rem; }
+  .stat-num { font-size: 1.3rem; margin: 0; }
+  .stats .muted { font-size: 0.68rem; }
+  .progress-grid { grid-template-columns: 1fr; gap: 0.7rem; }
+  .view h2 { font-size: 1.45rem; line-height: 1.2; }
+  .progress-grid { margin-top: 0.6rem; }
   .pick-cols { grid-template-columns: 1fr; gap: 0.8rem; }
   .pick-sub, .pick-cols, .pick-open { margin-left: 0; }
   .pick-top { flex-wrap: wrap; }
@@ -1082,9 +1091,22 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
   font-family: var(--font-display); font-weight: 700; font-size: 1.02rem;
   padding: 0 0.5rem; white-space: nowrap;
 }
+/* Inline nav icons (stroke style, inherit the item's color). */
+.sb-ico {
+  width: 0.95rem; height: 0.95rem; fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto;
+}
+/* Quiet reconnect strip: shown while the device is offline; the run keeps
+   working server-side (owner directive 2026-11-03: network resilience). */
+.net-banner {
+  background: var(--marigold-soft, #FFF4DC); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: 0.82rem; font-weight: 600;
+  padding: 0.45rem 0.75rem; margin: 0 0 0.4rem;
+}
 .sb-nav { display: flex; flex-direction: column; gap: 0.2rem; }
 .sb-item {
-  display: block; width: 100%; text-align: left;
+  display: inline-flex; align-items: center; gap: 0.45rem; width: 100%; text-align: left;
   background: none; border: 0; border-radius: 10px;
   padding: 0.55rem 0.75rem;
   font: inherit; font-weight: 600; color: var(--muted);
@@ -1135,19 +1157,37 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
   }
   .sb-brand { order: 1; font-size: 1rem; }
   .sb-account { order: 2; margin: 0 0 0 auto; flex-direction: row; align-items: center; gap: 0.6rem; border-top: 0; padding: 0; }
+  /* Bottom tab bar with icons: the modern mobile pattern — the four sections
+     live in a fixed thumb-reach bar, text never shifts the screen. */
   .sb-nav {
-    order: 3; width: 100%;
-    flex-direction: row; flex-wrap: nowrap;
-    overflow-x: auto; scrollbar-width: none;
-    gap: 0.25rem; padding-bottom: 2px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    order: initial; width: auto; overflow: visible;
+    background: var(--ground); border-top: 1px solid var(--border);
+    display: flex; flex-direction: row; flex-wrap: nowrap;
+    justify-content: space-around; align-items: stretch;
+    padding: 0.3rem 0.4rem calc(0.3rem + env(safe-area-inset-bottom, 0px));
   }
-  .sb-nav::-webkit-scrollbar { display: none; }
   .sb-item {
-    order: initial; width: auto; min-height: 2.3rem;
-    padding: 0.35rem 0.55rem;
-    font-size: 0.78rem; font-weight: 700; color: var(--text);
-    white-space: nowrap; flex: 0 0 auto;
+    order: initial; width: auto; min-height: 2.7rem;
+    flex: 1 1 0; display: inline-flex; flex-direction: column; align-items: center;
+    gap: 0.12rem; padding: 0.32rem 0.3rem;
+    font-size: 0.62rem; font-weight: 700; color: var(--muted);
+    white-space: nowrap; text-align: center;
   }
+  .sb-item.active { color: var(--accent-deep); background: none; }
+  .sb-ico {
+    width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto;
+  }
+  /* Stage trail: one scrollable row on phones, never a multi-row block. */
+  .stage-strip .steps ol { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .stage-strip .steps ol::-webkit-scrollbar { display: none; }
+  .stage-strip .steps li { flex: 0 0 auto; padding: 0.26rem 0.65rem; font-size: 0.78rem; }
+  #app, .stage-strip { padding-bottom: 0; }
+  .sb-content { padding-bottom: 4.3rem; }
+  /* The shortlist's sticky action bar sits above the tab bar. */
+  #shortlist-bar { bottom: 3.95rem; }
+  #evidence-panel { padding-bottom: 140px; }
   .auth-link, .auth-out { font-size: 0.9rem; white-space: nowrap; }
   .auth-chip { max-width: 7.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
   /* The onboard header repeats the brand the top bar already shows — drop

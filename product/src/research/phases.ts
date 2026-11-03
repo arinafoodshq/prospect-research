@@ -158,7 +158,7 @@ export interface MetaClient {
   planQueries?: (briefExcerpt: string) => Promise<string[]>;
   /** QA-loop replan: fresh queries after a sweep fell short (absent = no loop). */
   planMore?: (input: { previousQueries: string[]; whyNot: string }) => Promise<string[]>;
-  search?: (query: string) => Promise<SearchHit[]>;
+  search?: (query: string, knownNames?: string[]) => Promise<SearchHit[]>;
   proposeAssessments?: (prospects: Prospect[], evidence: Evidence[]) => Promise<AssessProposal[]>;
   proposeDrafts?: (prospects: Prospect[], evidence?: Evidence[]) => Promise<DraftProposal[]>;
   fetchPage?: (url: string, timeoutMs: number) => Promise<{ text: string } | { failure: "blocked" | "empty" | "timeout"; detail: string }>;
@@ -327,25 +327,36 @@ export async function discover(
 ): Promise<PhaseOutcome> {
   void brief;
   const run = await getRun(db, budgets.run_id);
-  const queries: string[] = (run?.plan as { queries?: string[] } | null)?.queries ?? [];
+  const plan = (run?.plan ?? {}) as { queries?: string[]; all_queries?: string[]; done_queries?: string[] };
+  const queries: string[] = plan.queries ?? [];
   if (queries.length === 0) return stopped("no_plan", "discover needs a stored plan");
   if (!meta.search) return stopped("no_candidates", "no search client; honest empty shortlist");
+  // Synchronized retry (owner directive 2026-11-03): the per-query ledger in
+  // the run's plan JSON marks completed searches. A retried run continues at
+  // the first UNSEARCHED query — never from the absolute beginning — and the
+  // at-least-once re-run of an interrupted query converges via the run's
+  // evidence-url + candidate dedupe.
+  const done = new Set(plan.done_queries ?? []);
+  const todo = queries.filter((q) => !done.has(q));
   // Candidate locations inherit the stored brief's area (queries are
   // locale-scoped; hits themselves carry no geo).
   let geos: string[] = [];
   if (run?.commercial_brief) {
     try { geos = validateBrief(JSON.parse(run.commercial_brief)).primary_segment.geos; } catch { geos = []; }
   }
+  // Search-burst memory: bursts that know what is already found steer toward
+  // NEW organizations instead of re-suggesting the same ones (bounded).
+  const knownNames = (await listProspects(db, budgets.run_id)).map((p) => p.name).slice(0, 15);
   let searched = 0;
   let skipped = 0;
-  for (const q of queries) {
+  for (const q of todo) {
     if (budgets.consumed.candidates >= budgets.caps.candidates) break;
     if (budgets.consumed.searches + 1 > budgets.caps.searches) {
       return stopped(budgetReason("searches"), "search budget exhausted mid-discover");
     }
     let hits: SearchHit[];
     try {
-      hits = await meta.search(q);
+      hits = await meta.search(q, knownNames);
     } catch {
       skipped += 1;
       continue;
@@ -353,7 +364,12 @@ export async function discover(
     budgets.consumed.searches += 1;
     budgets.consumed.tool_rounds += 1;
     searched += 1;
-    if (!hits || hits.length === 0) continue; // zero-result outcome; may rephrase once — here: move on
+    if (!hits || hits.length === 0) {
+      // Zero-result outcome: mark the query done (retrying it would just
+      // repeat the miss), then move on.
+      await markQueryDone(db, budgets.run_id, plan, q);
+      continue;
+    }
     for (const h of hits) {
       if (budgets.consumed.candidates >= budgets.caps.candidates) break;
       try {
@@ -392,13 +408,27 @@ export async function discover(
         throw e;
       }
     }
+    await markQueryDone(db, budgets.run_id, plan, q);
   }
   void skipped;
   const prospects = await listProspects(db, budgets.run_id);
   if (prospects.length === 0) {
     return stopped("no_candidates", `zero candidates after ${searched} searches; honest empty shortlist`);
   }
-  return completed(`${prospects.length} candidates from ${searched} searches`);
+  return completed(`${prospects.length} candidates from ${searched} searches (${done.size + searched}/${queries.length} queries done)`);
+}
+
+/** Persist one query into the run's done_queries ledger (best-effort: a
+ *  failed write only costs a re-search on retry, never a crash). */
+async function markQueryDone(
+  db: Db, run_id: string, plan: { all_queries?: string[]; done_queries?: string[] }, q: string,
+): Promise<void> {
+  try {
+    const ledger = [...new Set([...(plan.done_queries ?? []), q])];
+    plan.done_queries = ledger;
+    await db.prepare("UPDATE research_run SET plan = ? WHERE id = ?")
+      .bind(JSON.stringify({ queries: plan.all_queries ?? [], all_queries: plan.all_queries ?? [], done_queries: ledger }), run_id).run();
+  } catch { /* ledger is an optimization, never a failure */ }
 }
 
 // --- investigate --------------------------------------------------------------
@@ -835,13 +865,25 @@ export function plausibleBusinessName(raw: string): boolean {
   if (!/[a-z]/i.test(name)) return false;
   if (/^\d/.test(name)) return false; // "13 Top ..." — listicles
   const low = name.toLowerCase();
-  if (/\b(calendar|directory|listings?|wikipedia|jotform|admin|login|sign in|sign up|blog|news|jobs|vacanc\w*|careers|about us|contact us|home page|events? in|activities in|things to do|places (for|to)|most reviewed|guide to)\b/.test(low)) return false;
+  if (/\b(calendar|directory|listings?|wikipedia|jotform|admin|login|sign in|sign up|blog|news|jobs|vacanc\w*|careers|about us|contact us|home page|events? in|activities in|things to do|places (for|to)|most reviewed|guide to|list of|big list|detailed information|alternatives? (and|for|to)|radar from|worldwide sites|reviews?|short let|available)\b/.test(low)) return false;
   if (/\b(terms|privacy|cookies?)\b/.test(low)) return false;
   if (/\btop\s+\d+\b/.test(low) || /\bbest\s+\d+\b/.test(low)) return false;
+  if (/\(\s*\d*\s*(available|reviews)\s*\)/i.test(name)) return false; // "(10 available)"
+  // A bare dotted string with no space is a domain, not a business name
+  // ("techpoint.africa").
+  if (!/\s/.test(name) && /\.[a-z]{2,}$/i.test(name)) return false;
+  // Listing-shaped names: a generic plural category followed by "in <place>"
+  // ("Office Spaces in Oregun", "Coworking spaces in Ikeja and environs").
+  if (/\b(spaces?|workspaces?|offices?|rooms?|venues?|centres?|centers?|halls?)\b[^,;.]*\bin\b/.test(low)) return false;
   // One generic word is a page fragment, not a business ("Play", "Halls").
   const words = low.split(/[^a-z0-9&']+/).filter(Boolean);
   const GENERIC = new Set(["play", "hall", "halls", "event", "events", "fun", "conference", "venue", "venues", "place", "centre", "center", "home", "about", "contact", "admin", "page"]);
   if (words.length === 1 && GENERIC.has(String(words[0]))) return false;
+  // A name whose EVERY word is a generic category word is a category page,
+  // not a business ("WEDDING PLANNERS", "Meeting Room", "Shared Workspace").
+  const CATS = new Set(["wedding", "weddings", "event", "events", "planners", "planning", "spaces", "space", "workspace", "workspaces", "shared", "coworking", "co", "working", "office", "offices", "meeting", "rooms", "room", "venue", "venues", "services", "service", "centre", "centers", "center", "creative", "let", "lettings", "agency"]);
+  const ws = low.split(/[^a-z]+/).filter(Boolean);
+  if (ws.length >= 2 && ws.every((w) => CATS.has(w))) return false;
   return true;
 }
 

@@ -445,7 +445,7 @@ describe("createMetaClient", () => {
 
   it("search surfaces HTTP errors with status, never silent []", async () => {
     const fetchImpl = stubFetch({ error: "slow down" }, 429);
-    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any });
+    const client = createMetaClient({ apiKey: "k", fetchImpl: fetchImpl as any, retryDelays: [0, 0] });
     await expect(client.search!("q")).rejects.toThrow("429");
   });
 
@@ -625,7 +625,7 @@ describe("createMetaClient", () => {
   it("onboardTurn parses one burst and sends a tool-free structured request", async () => {
     const burst = {
       fields: { offering: { value: "pastries", label: "inferred" } },
-      question: { key: "order_size", prompt: "Typical order size?", chips: ["20-50", "50-200"] },
+      question: { key: "ideal_customer", prompt: "Who buys most often?", chips: ["Parents", "Schools"] },
       done: false,
     };
     const fetchImpl = stubFetch({
@@ -663,6 +663,29 @@ describe("planMore (QA-loop replan)", () => {
   });
 });
 
+describe("onboard assume-never-ask (owner direction 2026-11-03)", () => {
+  it("strips questions about assumed fields; decision_maker gets its default", () => {
+    const out = validateOnboardTurn({
+      fields: {},
+      question: { key: "decision_maker", prompt: "Who makes the purchase decision?", chips: [] },
+      done: false,
+    });
+    expect(out.question).toBeNull();
+    expect(out.done).toBe(true);
+    expect(out.fields["decision_maker"].value).toContain("owner");
+    expect(out.fields["decision_maker"].label).toBe("inferred");
+  });
+  it("never strips a question about a genuinely askable field", () => {
+    const out = validateOnboardTurn({
+      fields: {},
+      question: { key: "ideal_customer", prompt: "Who buys most often?", chips: ["Parents", "Schools"] },
+      done: false,
+    });
+    expect(out.question).not.toBeNull();
+    expect(out.done).toBe(false);
+  });
+});
+
 describe("validateOnboardTurn", () => {
   it("drops unknown keys, forces inferred labels, caps chips", () => {
     const out = validateOnboardTurn({
@@ -671,12 +694,12 @@ describe("validateOnboardTurn", () => {
         favourite_colour: { value: "blue", label: "inferred" },
         budget: { value: "", label: "inferred" },
       },
-      question: { key: "order_size", prompt: "Size?", chips: ["a", "b", "c", "d", 42] },
+      question: { key: "ideal_customer", prompt: "Who buys?", chips: ["a", "b", "c", "d", 42] },
       done: false,
     });
     // Model-claimed user-provided is coerced; invented keys and empties go.
     expect(out.fields).toEqual({ offering: { value: "pastries", label: "inferred" } });
-    expect(out.question).toEqual({ key: "order_size", prompt: "Size?", chips: ["a", "b", "c"] });
+    expect(out.question).toEqual({ key: "ideal_customer", prompt: "Who buys?", chips: ["a", "b", "c"] });
     expect(out.done).toBe(false);
   });
 

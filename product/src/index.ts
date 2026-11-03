@@ -376,8 +376,26 @@ const postResume: Handler = async ({ req, env, params }) => {
   const reason = typeof parsed.body["stop_reason"] === "string" ? (parsed.body["stop_reason"] as string) : null;
   await env.DB.prepare("UPDATE research_run SET status = ?, stop_reason = COALESCE(?, stop_reason), finished_at = ? WHERE id = ?")
     .bind(to, reason, terminal ? nowIso() : row.finished_at, row.id).run();
-  // NOTE: no waiter consumes "resume" yet (the run loop waits on
-  // brief_confirmed/drafts_decided). Kept as a best-effort signal only.
+  // Synchronized retry (owner directive 2026-11-03): a stopped/failed run's
+  // workflow instance is dead — no waiter consumes events. Resume = a FRESH
+  // instance over the SAME persisted state (stored plan skips planning;
+  // discover continues from the done-queries ledger; consumed counters,
+  // candidates, evidence and assessments all carry over). The orchestrator
+  // is replay-safe by construction, so nothing starts from zero.
+  if ((row.status === "failed" || row.status === "stopped") && env.ENVIRONMENT === "production") {
+    const create = env.RESEARCH_WORKFLOW?.create?.bind(env.RESEARCH_WORKFLOW);
+    if (!create) return err("workflow_start_failed", 502);
+    const wfId = `wf_${row.id}_${crypto.randomUUID().slice(0, 8)}`;
+    const started = await bestEffort(() => create({ id: wfId, params: { run_id: row.id } }));
+    if (!started) {
+      await env.DB.prepare("UPDATE research_run SET status = ? WHERE id = ?")
+        .bind(row.status, row.id).run(); // roll the status back: honest failed state
+      return err("workflow_start_failed", 502);
+    }
+    await env.DB.prepare("UPDATE research_run SET workflow_instance_id = ? WHERE id = ?")
+      .bind(wfId, row.id).run();
+  }
+  // Live runs (parked at a gate): the in-place signal remains best-effort.
   await sendWorkflowEvent(env, row.workflow_instance_id, "resume", { run_id: row.id, to });
   return json(serializeRun((await getRun(env, row.id)) as RunRow));
 };
