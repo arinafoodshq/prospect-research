@@ -47,7 +47,9 @@ function cookieGet(req: Request, name: string): string | null {
   return null;
 }
 
-async function sha256Hex(s: string): Promise<string> {
+/** SHA-256 hex of a string — session tokens are stored hashed (never raw).
+ *  Exported for tests that seed sessions directly. */
+export async function sha256Hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

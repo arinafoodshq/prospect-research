@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import app, { LOCATION_ASK_PROMPT, needsLocationDisambiguation } from "../src/index";
+import { sha256Hex } from "../src/auth";
 import { dedupeKey } from "../src/db";
 import { sealSecret } from "../src/delivery/crypto";
 import { mockOutbox, resetMockOutbox } from "../src/delivery/providers";
@@ -81,6 +82,7 @@ function makeMockDb(seed: Record<string, Row[]> = {}) {
     outreach_draft: [],
     activity: [],
     sender_connection: [],
+    user_session: [],
     ...Object.fromEntries(Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
   };
 
@@ -1102,5 +1104,50 @@ describe("/demo path", () => {
       new Request("https://test.local/demo"),
       { DB: db, MODEL_API_KEY: "test" }, {});
     expect(res.status).toBe(404);
+  });
+});
+
+describe("app paths (real URLs with per-path auth)", () => {
+  const shell = { fetch: async () => new Response("<html>shell</html>", { headers: { "content-type": "text/html" } }) };
+
+  it("redirects an unauthenticated visitor to the landing with a ?next handoff", async () => {
+    const db = makeMockDb();
+    const res = await (app as any).fetch(
+      new Request("https://test.local/dashboard"), { DB: db, MODEL_API_KEY: "test" }, {});
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/?next=%2Fdashboard");
+  });
+
+  it("serves the shell for a signed-in session", async () => {
+    const db = makeMockDb();
+    const token = "sess-token-1";
+    db.__tables.user_session.push({
+      token_hash: await sha256Hex(token),
+      email: "owner@example.com",
+      name: "Owner",
+      created_at: new Date().toISOString(),
+      expires_at: Date.now() + 60_000,
+    });
+    const res = await (app as any).fetch(
+      new Request("https://test.local/messages", { headers: { cookie: `pr_sess=${token}` } }),
+      { DB: db, MODEL_API_KEY: "test", ASSETS: shell }, {});
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>shell</html>");
+  });
+
+  it("serves every known app path for a session (dashboard, messages, campaigns, accounts, progress, shortlist, onboard)", async () => {
+    const db = makeMockDb();
+    const token = "sess-token-2";
+    db.__tables.user_session.push({
+      token_hash: await sha256Hex(token),
+      email: "owner@example.com", name: "Owner",
+      created_at: new Date().toISOString(), expires_at: Date.now() + 60_000,
+    });
+    for (const p of ["/dashboard", "/messages", "/campaigns", "/accounts", "/progress", "/shortlist", "/onboard"]) {
+      const res = await (app as any).fetch(
+        new Request(`https://test.local${p}`, { headers: { cookie: `pr_sess=${token}` } }),
+        { DB: db, MODEL_API_KEY: "test", ASSETS: shell }, {});
+      expect(res.status, p).toBe(200);
+    }
   });
 });

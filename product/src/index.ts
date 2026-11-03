@@ -1137,6 +1137,21 @@ export default {
       if (!env.ASSETS) return err("not_found", 404);
       return env.ASSETS.fetch(new Request(new URL("/index.html", url.origin), req));
     }
+    // App paths are REAL paths (owner requirement 2026-11-03): each has its
+    // own handler that checks authentication and serves the app shell; the
+    // client boots into that path's view and loads its data. Unauthenticated
+    // visitors are redirected to the landing with a ?next handoff.
+    const APP_PATHS = new Set(["/dashboard", "/messages", "/campaigns", "/accounts", "/progress", "/shortlist", "/onboard"]);
+    if (APP_PATHS.has(url.pathname)) {
+      // Auth first: the redirect must work even without an assets binding.
+      const sess = await auth.getSession(env, req);
+      if (!sess) {
+        const next = encodeURIComponent(url.pathname + url.search);
+        return Response.redirect(new URL(`/?next=${next}`, url.origin).toString(), 302);
+      }
+      if (!env.ASSETS) return err("not_found", 404);
+      return env.ASSETS.fetch(new Request(new URL("/index.html", url.origin), req));
+    }
     if (url.pathname.startsWith("/api/")) {
       // Sign-in gate: the product sends email and WhatsApp messages, so every
       // live API call needs a signed-in session — except the auth flow itself,

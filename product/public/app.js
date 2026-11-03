@@ -206,7 +206,40 @@
       var el = $(id);
       if (el) el.classList.toggle("active", sbMap[name] === id);
     });
+    syncPath(name);
     try { window.scrollTo(0, 0); } catch (e) { /* noop */ }
+  }
+
+  // Real URL paths (owner requirement 2026-11-03): every app view owns a
+  // path; the server checks auth per path and serves the shell; the client
+  // pushes history on navigation and re-renders on back/forward. Demo keeps
+  // its own path (pushing app paths there would break a /demo reload).
+  var VIEW_PATH = { status: "/dashboard", drafts: "/messages", campaigns: "/campaigns",
+    senders: "/accounts", onboard: "/onboard", progress: "/progress", shortlist: "/shortlist" };
+  var PATH_VIEW = {};
+  Object.keys(VIEW_PATH).forEach(function (k) { PATH_VIEW[VIEW_PATH[k]] = k; });
+  var syncDepth = 0; // >0 while rendering from history: never re-push
+
+  function syncPath(name) {
+    if (isDemo()) return;
+    var p = VIEW_PATH[name];
+    if (!p || syncDepth > 0) return;
+    try {
+      if (window.location.pathname !== p) window.history.pushState(null, "", p);
+    } catch (e) { /* history unavailable in minimal harnesses */ }
+  }
+
+  /** Render a view for its path, loading the data that view needs. */
+  function routeToView(name) {
+    if (!name) return false;
+    if (name === "status") { openDashboard(); return true; }
+    if (name === "drafts") { if (state.runId) { renderDrafts(); return true; } openDashboard(); return true; }
+    if (name === "campaigns") { renderCampaignView(); return true; }
+    if (name === "senders") { renderSendersView("status"); return true; }
+    if (name === "progress") { if (state.runId) { showView("progress"); pollProgress(); return true; } openDashboard(); return true; }
+    if (name === "shortlist") { if (state.prospects.length) { renderShortlist(); showView("shortlist"); return true; } openDashboard(); return true; }
+    if (name === "onboard") { if (!state.runId) { showView("onboard"); obFirstPhase(); obRestoreDraft(); return true; } openDashboard(); return true; }
+    return false;
   }
 
   function esc(s) {
@@ -2754,9 +2787,31 @@
       api.whoAmI().then(function (user) {
         me = user;
         renderAuthUi();
+        // Deep links: an app path boots straight into that view (the server
+        // already checked auth); ?next carries a post-sign-in destination.
+        var bootAt = PATH_VIEW[window.location.pathname] || null;
+        try {
+          var next = new URLSearchParams(window.location.search).get("next");
+          if (me && next && PATH_VIEW[decodeURIComponent(next)]) {
+            var target = decodeURIComponent(next);
+            window.history.replaceState(null, "", target);
+            bootAt = PATH_VIEW[target];
+          }
+        } catch (e) { /* searchParams unavailable */ }
+        if (me && bootAt && routeToView(bootAt)) return;
         maybeOpenDashboard(checkResumableRun());
       });
     }
+    // Back/forward: re-render the view the history entry owns.
+    try {
+      window.addEventListener("popstate", function () {
+        syncDepth += 1;
+        try {
+          var v = PATH_VIEW[window.location.pathname];
+          if (v) routeToView(v);
+        } finally { syncDepth -= 1; }
+      });
+    } catch (e) { /* minimal harnesses have no window events */ }
     renderAuthUi();
     if (api.mode === "live" && typeof window.ApiLayer !== "undefined") {
       window.ApiLayer.onAuthRequired = function () {
@@ -2854,6 +2909,9 @@
     $("btn-ob-edit-first").addEventListener("click", obEditFirst);
     $("evidence-body").addEventListener("click", onEvidenceClick);
     $("status-board").addEventListener("click", onBoardClick);
+    // The run banner sits beside the board; its buttons share the handler.
+    var banner = $("run-banner");
+    if (banner) banner.addEventListener("click", onBoardClick);
     $("btn-back-onboard").addEventListener("click", function () { showView("onboard"); });
     $("btn-preview-progress").addEventListener("click", previewProgress);
     $("btn-stop-progress").addEventListener("click", stopRunAndEdit);
