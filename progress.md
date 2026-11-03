@@ -2022,3 +2022,24 @@ pressed (manual send by design); the approve path contains no window.open.
 Verification: tsc clean; SMOKE PASS with new pins (recipient rows show real
 names; message arrives pre-filled, never empty); 464/464 vitest; no
 migration in this batch.
+
+## 2026-11-03 — SEO + social sharing preview (user: WhatsApp/social link cards, icons, copies)
+
+User: fix SEO, meta tags and the link preview when sharing on WhatsApp and
+social media; proper icons, images and copies. Shipped (commit f69e761,
+deployed 0cdef096):
+
+- Branded OG image (public/og.png, 1200x630 PNG, 113KB) built in the landing
+  design language: paper ground, gold mark, Fraunces headline "Know who will
+  buy before you say hello." with the ultramarine "buy", sub copy and three
+  promise chips. Rendered from HTML via headless Chromium and verified.
+- Full head meta set: description, canonical, OG (type/site_name/url/title/
+  description/image + width/height/alt/locale en_GB), Twitter
+  summary_large_image card, apple-touch-icon.png (180x180), theme-color.
+  All preview URLs absolute (WhatsApp cannot resolve relative or SVG).
+- robots.txt (allow all, /api/ disallowed) + sitemap.xml with the canonical
+  URL + JSON-LD WebApplication structured data.
+
+Verification: PNG dimensions confirmed from the file headers; SMOKE PASS;
+live checks: og:title/og:image/twitter:card/canonical present in the served
+HTML, /og.png 200 image/png 112831 bytes, /robots.txt 200; pushed.
