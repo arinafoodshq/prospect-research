@@ -40,9 +40,13 @@ describe("@browsermcp/mcp wiring", () => {
     "opencode global config wires browsermcp on @latest",
     () => {
       const cfg = JSON.parse(readFileSync(globalCfgPath, "utf8")) as {
-        mcp?: Record<string, { type?: string; enabled?: boolean; command?: string[] }>;
+        mcp?: Record<string, unknown>;
       };
-      const entry = cfg.mcp?.browsermcp;
+      // OpenCode moved servers under mcp.servers (2026-11 config shape);
+      // accept both shapes so the pin survives editor updates.
+      const mcp = cfg.mcp ?? {};
+      const entry = (mcp.browsermcp ?? (mcp.servers as Record<string, unknown> | undefined)?.browsermcp) as
+        { type?: string; enabled?: boolean; command?: string[] } | undefined;
       expect(entry).toBeDefined();
       expect(entry!.type).toBe("local");
       expect(entry!.enabled).not.toBe(false);

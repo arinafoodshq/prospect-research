@@ -132,6 +132,7 @@
       if (!state.prospects.length) {
         jobs.push(api.getShortlist(state.runId).then(function (r) {
           state.prospects = r.prospects;
+          state.shortlistLoaded = true;
         }, function () { /* the board still renders, empty */ }));
       }
       if (!state.drafts.length) {
@@ -884,6 +885,7 @@
       return api.getShortlist(myRun).then(function (res) {
         if (myRun !== state.runId) return null;
         state.prospects = res.prospects;
+        state.shortlistLoaded = true;
         state.selectedId = null;
         state.selectedIds = null;
         state.tab = null;
@@ -936,6 +938,7 @@
   }
 
   function renderProgressSnapshot(snap) {
+    state.runStatus = snap.status; // the shortlist gate reads this (never fake-zero mid-run)
     $("stat-found").textContent = String(snap.found);
     $("stat-opened").textContent = String(snap.opened);
     $("stat-kept").textContent = String(snap.kept);
@@ -974,11 +977,13 @@
     if (!state.runId) return false;
     var list = $("prospect-list");
     showView("shortlist");
+    state.previewPeek = true; // explicit mid-run peek: labeled as such, never a fake zero
     if (list && !list.children.length) {
       list.innerHTML = '<li class="skel skel-card" aria-hidden="true"></li>'.repeat(3);
     }
     return api.getShortlist(state.runId).then(function (res) {
       state.prospects = res.prospects;
+      state.shortlistLoaded = true;
       state.selectedId = null;
       state.selectedIds = null;
       state.tab = null;
@@ -1065,6 +1070,26 @@
 
   function renderShortlist() {
     var shown = shownProspects();
+    var list = $("prospect-list");
+    // Quality gate before display (owner report 2026-11-03): the shortlist
+    // never shows a "0 buyers" state that fills with buyers seconds later.
+    // Before the first fetch lands -> progress card. Mid-run, an explicit
+    // "Preview results so far" peek is allowed but labeled; the auto-landed
+    // view waits for the run to park. Only a parked run with a completed
+    // fetch may show the honest empty state.
+    var PARKED = { awaiting_approval: 1, complete: 1, stopped: 1, failed: 1 };
+    var midRun = state.runStatus && !PARKED[state.runStatus];
+    if (!state.shortlistLoaded || (midRun && !state.previewPeek) || (midRun && shown.length === 0)) {
+      $("shortlist-title").textContent = "Finding your buyers\u2026";
+      $("shortlist-sub").textContent = midRun
+        ? "Still searching \u2014 we only show you businesses once their quality check passes."
+        : "Fetching your results\u2026";
+      list.innerHTML = "";
+      loadingHint(list, midRun ? "Checking the search results\u2026" : "Fetching\u2026");
+      $("btn-to-drafts").disabled = true;
+      ["ready", "warm", "look"].forEach(function (t) { $("tab-" + t + "-n").textContent = "0"; });
+      return;
+    }
     // Spec D: default selection is Ready-now ONLY — never everything.
     if (!state.selectedIds) {
       state.selectedIds = shown.filter(function (p) { return tabOf(p) === "ready"; }).map(function (p) { return p.id; });
@@ -1076,17 +1101,26 @@
       state.tab = counts.ready ? "ready" : counts.warm ? "warm" : counts.look ? "look" : "ready";
     }
 
-    $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer worth your time." : " buyers worth your time.");
-    // Honest copy, generated from the real counts (never "passed your
-    // must-haves" unless every shown pick truly did).
-    $("shortlist-sub").textContent = state.tab === "look"
-      ? "These need a human look before they join your list."
-      : counts.ready + " ready to contact, " + counts.warm + " to warm up, " + counts.look + " to check first.";
+    if (shown.length === 0) {
+      // Honest empty, with a way forward (never "No buyers worth your time." —
+      // it reads as an accusation after a wait).
+      $("shortlist-title").textContent = "Nothing worth your time yet.";
+      $("shortlist-sub").textContent = "The search came back empty. Widen the area or start a new search \u2014 first searches often miss.";
+    } else if (midRun) {
+      $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer found so far." : " buyers found so far.");
+      $("shortlist-sub").textContent = "Still running \u2014 this is a peek. The checked list lands here when the search finishes.";
+    } else {
+      $("shortlist-title").textContent = numWord(shown.length) + (shown.length === 1 ? " buyer worth your time." : " buyers worth your time.");
+      // Honest copy, generated from the real counts (never "passed your
+      // must-haves" unless every shown pick truly did).
+      $("shortlist-sub").textContent = state.tab === "look"
+        ? "These need a human look before they join your list."
+        : counts.ready + " ready to contact, " + counts.warm + " to warm up, " + counts.look + " to check first.";
+    }
     ["ready", "warm", "look"].forEach(function (t) {
       $("tab-" + t + "-n").textContent = String(counts[t]);
       $("tab-" + t).setAttribute("aria-selected", state.tab === t ? "true" : "false");
     });
-    var list = $("prospect-list");
     list.innerHTML = "";
     var inTab = shown.filter(function (p) { return tabOf(p) === state.tab; });
     $("shortlist-empty").hidden = inTab.length > 0;
@@ -2294,6 +2328,7 @@
       var run = res && res.run;
       if (!run) { wrap.hidden = true; return; }
       currentCampaignRun = run;
+      state.runStatus = run.status; // the shortlist gate reads this (never fake-zero mid-run)
       var midRun = ["discovering", "investigating", "assessing", "drafting"].indexOf(run.status) >= 0;
       var act = (midRun || run.status === "failed") ? "resume-run" : "open-messages";
       var label = run.status === "failed" ? "Retry research"

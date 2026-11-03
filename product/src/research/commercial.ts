@@ -501,7 +501,7 @@ export function buildBriefGoal(profile: {
   target_market: string; service_area_note: string; constraints_note: string;
 }): string {
   return [
-    "Build a commercial brief for B2B prospecting. Reply ONLY JSON, no other text.",
+    "Build a commercial brief for prospecting. Reply ONLY JSON, no other text.",
     `Business: ${profile.name}. ${profile.description}`,
     `Website: ${profile.website_url || "none"}. Target market: ${profile.target_market || "unknown"}.`,
     `Service area: ${profile.service_area_note || "unknown"}. Constraints: ${profile.constraints_note || "none stated"}.`,
@@ -514,9 +514,10 @@ export function buildBriefGoal(profile: {
     '"directive":{"categories":[{"name":string,"angle":string,"buyer_roles":[1-4],"artifact":string,"max_queries":1-3}]} (2-6 buying-organisation categories to sweep, ecosystem-style, drawn from the groups/industries; artifact = what the owner can open to verify a prospect: own website, Google Business Profile, or business social page)},',
     "Rules: exactly one primary segment; exclusions must name concrete categories INCLUDING adjacent-but-out-of-scope verticals (e.g. schools for a retail brief — industry fit is model-judged, so the exclusion list is the only deterministic drift guard); every statement labeled honestly — never mark a guess as user_fact; each pain must name what evidence would falsify it.",
     "Segments rule (hard): industries must name ONLY buyer categories the owner stated or that follow directly from their stated buyers ('individuals, corporate events' -> event planning companies, event venues and centres, corporate offices with admin/HR buyers, trade associations, community organisations). NEVER invent industries the owner did not name or imply — banks, financial services, professional services, real estate and similar are FORBIDDEN unless the owner said them; put them in exclusions instead.",
+    "Consumer-buyers rule (hard): when the owner's stated buyers are PEOPLE (parents, homeowners, brides, students, patients...), industries must NEVER name the people ('consumer households', 'individuals', 'families') — our prospects are always ORGANIZATIONS. Name instead the business types that buy in bulk, carry or resell the offer, host it, or put it in front of those people (a kiddies thrift seller -> pre-schools and daycares that keep spare clothes, children's boutiques taking consignment stock, kids' activity centres and clubs, children's event planners, parenting community organisations); the end consumer stays in buyer_roles as the owner's buyer, and every outreach ask becomes bulk order, stock the line, host, or refer — never a cold sell to a person.",
     "Geography rule: geos are searchable PLACES, never placeholders. Expand a street-level base to its area, city, state and country ('Kodesoh Street, Ikeja' -> 'Ikeja, Lagos, Nigeria'); never write 'to be confirmed' — derive the metro from the stated base, or honor a stated reach (nationwide/worldwide/online) as the geography.",
-    "Strategist rules: identify WHO PAYS for this offer — the buying organizations that host, organize, or budget for it, never lookalike sellers of the same thing (a caterer's buyers are event hosts: corporate admins, event planning companies, event centres, hotels; not other caterers). Expand the stated base to its well-known neighbouring districts within the same metro so geos cover the realistic service radius (a base of Ikeja, Lagos also reaches Ogba, Allen, Opebi, Maryland, Airport Road). Honor stated reach: nationwide/worldwide/online means geography says so and buyer_roles name who buys at that reach. buyer_roles must be concrete job titles or organization types with the budget to say yes.",
-    "Directive rule: directive.categories are BUYER organisations drawn from the brief's groups/industries (never lookalike sellers, never excluded verticals); each names who says yes inside it and the artifact an owner can open to verify a prospect.",
+    "Strategist rules: identify WHO PAYS for this offer — the buying organizations that host, organize, or budget for it, never lookalike sellers of the same thing (a caterer's buyers are event hosts: corporate admins, event planning companies, event centres, hotels; not other caterers). When the payer is a person, identify the organizations that reach or supply them instead (the consumer-buyers rule). Expand the stated base to its well-known neighbouring districts within the same metro so geos cover the realistic service radius (a base of Ikeja, Lagos also reaches Ogba, Allen, Opebi, Maryland, Airport Road). Honor stated reach: nationwide/worldwide/online means geography says so and buyer_roles name who buys at that reach. buyer_roles must be concrete job titles or organization types with the budget to say yes.",
+    "Directive rule: directive.categories are BUYER organisations drawn from the brief's groups/industries (never lookalike sellers, never excluded verticals, never groups of individual people); each names who says yes inside it and the artifact an owner can open to verify a prospect.",
   ].join("\n");
 }
 
@@ -527,8 +528,9 @@ export function buildPlanGoal(b: CommercialBrief): string {
   return [
     "Draft a buyer search plan: business types x locale angles.",
     `Queries must find BUYING businesses in: ${seg.industries.join(", ")} (${seg.label}), near ${seg.geos.join(", ")}.`,
-    `Buyers are the organizations that host, organize, or budget for the offer (${buyers}) — query buyer types and occasions, not lookalike sellers.`,
-    `Source like an ecosystem researcher: named venues, centres, clubs, associations, event calendars and recurring programmes ('<venue> Ikeja capacity contacts', '<association> Lagos events calendar', '<street or neighbourhood> companies', '<venue> outside vendors policy') — never role listings or job ads.`,
+    `Buyers are the organizations that host, organize, or budget for the offer (${buyers}) — query buyer types and occasions, not lookalike sellers. When the owner's buyers are people, query the organizations that supply, host or reach them instead (the brief's industries say which).`,
+    `Source like an ecosystem researcher: named venues, centres, clubs, schools, retailers and recurring programmes ('<venue> Ikeja capacity contacts', '<association> Lagos members events', '<school group> <city> official site') — never role listings or job ads.`,
+    `Every RESULT must be one namable organization with its own site or business profile. Calendars, events round-ups, directories, listicles, residents-association pages and news pages may appear IN queries but are never targets — they are pages about many organizations, not one.`,
     `Queries name a PLACE and an entity type, and seek official pages ('<venue or estate or street> <area> official site', '<association> <city> members events'). Never put careers, jobs, vacancies or salary in a query, and never ship scrape-shaped queries like '<category> companies contact' — they return directories, not buyers.`,
     b.directive
       ? `Sweep every directive category with at least one problem-led query, capped per category: ${b.directive.categories.map((c) => `${c.name} ≤${c.max_queries}`).join(", ")}.`
@@ -546,8 +548,9 @@ export function buildSearchGoal(b: CommercialBrief, query: string): string {
   const buyers = (b.buyer_roles ?? []).map((r) => r.role).join(", ") || "the budget owners";
   return [
     `Find businesses that match: ${query}.`,
-    `Wanted: buying businesses in ${seg.industries.join(", ")} (${seg.label}) near ${seg.geos.join(", ")} — remember buyers are the hosts/organizers/budget-owners (${buyers}), not lookalike sellers.`,
+    `Wanted: buying businesses in ${seg.industries.join(", ")} (${seg.label}) near ${seg.geos.join(", ")} — remember buyers are the hosts/organizers/budget-owners (${buyers}); when the owner's buyers are people, report the organizations that supply, host or reach them, never a person or household.`,
     `Never return job ads or role listings (a 'Head of HR at X' posting is not a buyer); every result must be an organisation with a plausible use case for the offer, located in the brief's area.`,
+    `Reject non-organizations outright: event calendars, 'things to do' round-ups, directories, news pages, residents-association pages, form or login pages — they are pages ABOUT organizations, never a buyer.`,
     `Two-step rule: report the organisation with a real url; if the organisation's own social profile (Instagram/Facebook) is visible in the results, attach it — never guess a handle that is not in the results.`,
     `Never list: ${seg.exclusions.join(", ")}.`,
     `Prefer the business's own website, Google Business page, or official social profile as the url; directories and listicles are a last resort.`,

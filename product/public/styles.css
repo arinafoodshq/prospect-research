@@ -1107,7 +1107,7 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
 
 /* Quiet nav on the landing: a text link, same as Sign in — never a
    filled pill (the global button style must not leak into nav). */
-button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
 
 /* This campaign's stages: a contextual trail, not navigation. Shown only
    while a campaign is in play; clickable to revisit what was done. */
@@ -1150,6 +1150,10 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
   }
   .auth-link, .auth-out { font-size: 0.9rem; white-space: nowrap; }
   .auth-chip { max-width: 7.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+  /* The onboard header repeats the brand the top bar already shows — drop
+     the pair on phones, keep "Save and exit" alone at the right. */
+  .ob-head .brand-mark, .ob-head .brand { display: none; }
+  .ob-head { justify-content: flex-end; }
 }
 
 /* ============================================================

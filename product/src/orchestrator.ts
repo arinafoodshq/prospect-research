@@ -438,9 +438,11 @@ export class ResearchWorkflow {
   }
 
   /**
-   * QA-loop replan: ask the model for fresh queries given the sweep's
-   * quality report; write them as the next sweep's plan. Returns null when
-   * the model is dry (nothing new) or no planMore client exists.
+   * QA-loop replan: the judge never searches — it reports quality signals,
+   * and the ORIGINAL plan prompt (buildPlanGoal, the complete prompt that
+   * planned sweep 1) turns the report into fresh queries. Names of junk and
+   * good candidates ride along so the planner doubles down on what worked
+   * and avoids what produced junk (owner direction 2026-11-03).
    */
   private async replan(sweep: number, qa: RunQuality): Promise<string[] | null> {
     if (!this.deps) throw new Error("replan requires injected deps");
@@ -451,7 +453,12 @@ export class ResearchWorkflow {
       const row = await getRun(db, run_id);
       const plan = (row?.plan ?? {}) as { queries?: string[]; all_queries?: string[] };
       const previous = plan.all_queries ?? plan.queries ?? [];
-      const whyNot = `only ${qa.good} of ${qa.candidates} candidates look good; ${qa.junk} came from directory pages; ${qa.unlocated} lack a location. Need buyer organizations that match the brief.`;
+      const quote = (names: string[]) => names.length ? names.map((n) => `"${n}"`).join(", ") : "none named";
+      const whyNot =
+        `only ${qa.good} of ${qa.candidates} candidates look good; ${qa.junk} came from pages that are not buyers ` +
+        `(junk names the new queries must NOT produce: ${quote(qa.junkNames)}); ` +
+        `good candidates to find more of the same kind: ${quote(qa.goodNames)}; ${qa.unlocated} lack a location. ` +
+        `Need buyer organizations that match the brief.`;
       const fresh = await planMore({ previousQueries: previous, whyNot });
       const added = (Array.isArray(fresh) ? fresh : [])
         .filter((q) => typeof q === "string" && q.trim() !== "" && !previous.includes(q))

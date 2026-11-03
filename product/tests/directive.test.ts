@@ -125,6 +125,15 @@ describe("prompt integration", () => {
     expect(goal).toContain("BUYER organisations");
   });
 
+  it("brief goal carries the consumer-buyers rule (B2C sellers prospect organizations)", () => {
+    const goal = buildBriefGoal({
+      name: "Kiddies thrift", website_url: "", description: "thrift wears for children",
+      target_market: "parents of children 0-5yrs", service_area_note: "Ikeja, Lagos", constraints_note: "",
+    });
+    expect(goal).toContain("Consumer-buyers rule");
+    expect(goal).toContain("never a cold sell to a person");
+  });
+
   it("plan goal sweeps every directive category with its query cap", () => {
     const goal = buildPlanGoal(ensureDirective(brief()));
     expect(goal).toContain("directive category");

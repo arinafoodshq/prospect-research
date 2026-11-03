@@ -771,7 +771,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       phase: "assess",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality: an official site or business social profile counts as a usable route (1=none),"confidence":1-5 source quality},"contacts":{"person_name":"the contact person's name as published, or null","person_title":"their role, or null","socials":["full profile urls copied from the evidence, e.g. https://instagram.com/handle"]}}]. Extract contacts ONLY from the evidence text — never invent emails, phones, handles or names; socials must be real profile urls on instagram.com, facebook.com, x.com, twitter.com or linkedin.com that appear in the evidence. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`
+        ? `Score each prospect 1-5 on five dimensions. ${renderBriefPrompt(activeBrief)} A prospect is an ORGANIZATION; score it as a route to the owner's buyers — icp_fit rewards organizations that can buy in bulk, carry or resell, host, or refer the offer to the buyers named in the brief (when those buyers are people, a prospect that reaches them is a GOOD fit, never a bad one for "not being" the buyer). Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5 overall,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"why fit or not, citing specifics","dimensions":{"icp_fit":1-5 account match,"problem":1-5 pain relevance (1=contradicted or unclear),"readiness":1-5 dated buying trigger (1=none),"reachability":1-5 contact quality: an official site or business social profile counts as a usable route (1=none),"confidence":1-5 source quality},"contacts":{"person_name":"the contact person's name as published, or null","person_title":"their role, or null","socials":["full profile urls copied from the evidence, e.g. https://instagram.com/handle"]}}]. Extract contacts ONLY from the evidence text — never invent emails, phones, handles or names; socials must be real profile urls on instagram.com, facebook.com, x.com, twitter.com or linkedin.com that appear in the evidence. Score honesty over optimism: use 1-2 freely when evidence is thin. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`
         : `Rate fit 1-5 for each prospect. Reply ONLY a JSON array: [{"prospect_id","fit_rating":1-5,"supporting_claims":[claim text],"weakening_claims":[],"rationale":"..."}]. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 30).map((e) => ({ claim: e.claim, url: e.source_url, type: e.source_type })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
@@ -833,7 +833,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
       phase: "draft",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims],"variants":{"whatsapp":"<=60 words, casual and direct, greeting by name, no citations","email":"<=120 words, professional, matches body but tighter","dm":"<=35 words, ultra casual for Instagram/TikTok"}}]. The variants are the messages the prospect actually receives on each channel — same facts, shaped for the channel. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category, contact_person: p.contact_name ?? null })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`
+        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. When the business's buyers are people (consumers), the prospect is a partner route — frame the ask as bulk order, stocking the line, hosting, or referring their audience, never as if the prospect were the end consumer. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims],"variants":{"whatsapp":"<=60 words, casual and direct, greeting by name, no citations","email":"<=120 words, professional, matches body but tighter","dm":"<=35 words, ultra casual for Instagram/TikTok"}}]. The variants are the messages the prospect actually receives on each channel — same facts, shaped for the channel. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category, contact_person: p.contact_name ?? null })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`
         : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`,
     });
     req.tools = []; // structured burst: answer in text, no tool loop offered
@@ -899,23 +899,33 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
   }
 
   /**
-   * QA-loop replan: the previous sweep found too few good buyers. Ask for
-   * NEW queries — different buyer types and wording, same locale — given
-   * what was already searched and why the batch fell short.
+   * QA-loop replan: the judge reports; THIS stays the planner. The goal is
+   * the full buildPlanGoal prompt (the same one that planned sweep 1) plus
+   * the gate's report — never a weaker ad-hoc goal (owner direction
+   * 2026-11-03: sweep-2 junk came from the thin replan prompt).
    */
   async function planMore(input: { previousQueries: string[]; whyNot: string }): Promise<string[]> {
-    const goal = activeBrief
-      ? [
-          `The previous search sweep fell short: ${input.whyNot}`,
-          `Already searched (do NOT repeat or reword these): ${input.previousQueries.join(" | ")}.`,
-          `${renderBriefPrompt(activeBrief)}`,
-          "Write up to 8 NEW search queries: different buyer organizations and occasions that can afford and host the offer, same service area, different wording. Reply ONLY a JSON array of search query strings.",
-        ].join("\n")
-      : [
-          `The previous search sweep fell short: ${input.whyNot}`,
-          `Already searched (do NOT repeat): ${input.previousQueries.join(" | ")}.`,
-          "Write up to 8 NEW search queries for better-fitting buyers, same locale, different wording. Reply ONLY a JSON array of search query strings.",
-        ].join("\n");
+    if (!activeBrief) {
+      const goal = [
+        `The previous search sweep fell short: ${input.whyNot}`,
+        `Already searched (do NOT repeat): ${input.previousQueries.join(" | ")}.`,
+        "Write up to 8 NEW search queries for better-fitting buyers, same locale, different wording. Reply ONLY a JSON array of search query strings.",
+      ].join("\n");
+      const req = buildPhaseRequest({ phase: "plan", briefExcerpt: brief, phaseGoal: goal });
+      req.tools = [];
+      const parsed = await callResponses(req);
+      return extractJsonArray(parsed.outputText)
+        .filter((q): q is string => typeof q === "string" && q.trim() !== "")
+        .map((q) => q.trim())
+        .slice(0, MAX_PLAN_QUERIES_OUT);
+    }
+    const goal = [
+      "A quality gate reviewed the previous sweep and requests more candidates from you (you are the planner; the gate never writes queries).",
+      `Gate report: ${input.whyNot}`,
+      `Already searched (do NOT repeat or reword these): ${input.previousQueries.join(" | ")}.`,
+      buildPlanGoal(activeBrief),
+      "Write up to 8 NEW search queries that obey every rule above, inside the brief's directive categories and segment industries. Prefer the query shapes behind the good candidates in the report; avoid the shapes behind the junk names. Reply ONLY a JSON array of search query strings.",
+    ].join("\n");
     const req = buildPhaseRequest({ phase: "plan", briefExcerpt: brief, phaseGoal: goal });
     req.tools = [];
     const parsed = await callResponses(req);

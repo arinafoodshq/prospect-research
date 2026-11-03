@@ -371,6 +371,9 @@ export async function discover(
           conflicts_with: null, supersedes: null,
         });
         if (h.candidateEligible === false) continue; // evidence kept, chatter never becomes a candidate
+        // Ingest gate: page titles (listicles, calendars, forms, fragments)
+        // never become candidates (owner report 2026-11-03).
+        if (!plausibleBusinessName(h.name)) continue;
         // Location inheritance: search hits carry no geo. The queries are
         // already locale-scoped, so a candidate without its own location
         // inherits the brief's area instead of rendering "Area unconfirmed".
@@ -819,8 +822,32 @@ export function isJunkProspect(p: Prospect, evidence: Evidence[]): boolean {
   return urls.length > 0 && urls.every((u) => isDirectoryHost(u));
 }
 
+/**
+ * Ingest gate for candidate names (owner report 2026-11-03: "admin",
+ * "Lagos Events Calendar", "13 Top Family-Friendly Activities in Lagos",
+ * "Terms of Agreement HC052024" and bare "Halls" reached the shortlist —
+ * search-result PAGE TITLES, not businesses). Pure + unit-tested; discover
+ * skips non-plausible names (their evidence rows stay for the trail).
+ */
+export function plausibleBusinessName(raw: string): boolean {
+  const name = String(raw ?? "").trim();
+  if (name.length < 3 || name.length > 80) return false;
+  if (!/[a-z]/i.test(name)) return false;
+  if (/^\d/.test(name)) return false; // "13 Top ..." — listicles
+  const low = name.toLowerCase();
+  if (/\b(calendar|directory|listings?|wikipedia|jotform|admin|login|sign in|sign up|blog|news|jobs|vacanc\w*|careers|about us|contact us|home page|events? in|activities in|things to do|places (for|to)|most reviewed|guide to)\b/.test(low)) return false;
+  if (/\b(terms|privacy|cookies?)\b/.test(low)) return false;
+  if (/\btop\s+\d+\b/.test(low) || /\bbest\s+\d+\b/.test(low)) return false;
+  // One generic word is a page fragment, not a business ("Play", "Halls").
+  const words = low.split(/[^a-z0-9&']+/).filter(Boolean);
+  const GENERIC = new Set(["play", "hall", "halls", "event", "events", "fun", "conference", "venue", "venues", "place", "centre", "center", "home", "about", "contact", "admin", "page"]);
+  if (words.length === 1 && GENERIC.has(String(words[0]))) return false;
+  return true;
+}
+
 export interface RunQuality {
   good: number; junk: number; candidates: number; unlocated: number;
+  goodNames: string[]; junkNames: string[];
 }
 
 export function runQuality(
@@ -829,13 +856,22 @@ export function runQuality(
   evidence: Evidence[],
 ): RunQuality {
   let good = 0, junk = 0, unlocated = 0;
+  const goodNames: string[] = [];
+  const junkNames: string[] = [];
   for (const p of prospects) {
-    if (isJunkProspect(p, evidence)) { junk += 1; continue; }
+    if (isJunkProspect(p, evidence)) {
+      junk += 1;
+      if (junkNames.length < 5) junkNames.push(p.name);
+      continue;
+    }
     const a = amap.get(p.id);
-    if (p.status !== "disqualified" && (a?.fit_rating ?? 0) >= 3) good += 1;
+    if (p.status !== "disqualified" && (a?.fit_rating ?? 0) >= 3) {
+      good += 1;
+      if (goodNames.length < 5) goodNames.push(p.name);
+    }
     if (!p.location || Object.keys(p.location).length === 0) unlocated += 1;
   }
-  return { good, junk, candidates: prospects.length, unlocated };
+  return { good, junk, candidates: prospects.length, unlocated, goodNames, junkNames };
 }
 
 // --- rank ---------------------------------------------------------------------

@@ -26,6 +26,7 @@ import {
   plan,
   rank,
   runQuality,
+  plausibleBusinessName,
   type BudgetState,
   type Prospect,
 } from "../src/research/phases";
@@ -546,7 +547,10 @@ describe("run quality (agentic QA loop)", () => {
       ["p4", entry("p4", 1)],
     ]);
     const q = runQuality(prospects, amap, evidence);
-    expect(q).toEqual({ good: 1, junk: 2, candidates: 4, unlocated: 1 }); // junk rows skip the location check
+    expect(q).toEqual({
+      good: 1, junk: 2, candidates: 4, unlocated: 1, // junk rows skip the location check
+      goodNames: ["p1"], junkNames: ["p2", "p3"],
+    });
   });
 
   it("mixed evidence never counts as junk", () => {
@@ -555,6 +559,36 @@ describe("run quality (agentic QA loop)", () => {
     const q = runQuality(prospects, new Map(), evidence);
     expect(q.junk).toBe(0);
     expect(q.good).toBe(0); // no assessment yet, but not junk either
+  });
+});
+
+// --- ingest gate ---------------------------------------------------------------
+
+describe("plausibleBusinessName (discover ingest gate)", () => {
+  it("rejects the junk shapes that reached a real shortlist", () => {
+    // All five are real names from run_e525ec91 (thrift seller, 2026-11-03).
+    expect(plausibleBusinessName("13 Top Family-Friendly Activities in Lagos (Affordable)")).toBe(false);
+    expect(plausibleBusinessName("5 Exciting Places for Fun Family Events")).toBe(false);
+    expect(plausibleBusinessName("20 Most reviewed Recreation centers")).toBe(false);
+    expect(plausibleBusinessName("Terms of Agreement HC052024")).toBe(false);
+    expect(plausibleBusinessName("Lagos Events Calendar")).toBe(false);
+    expect(plausibleBusinessName("admin")).toBe(false);
+    expect(plausibleBusinessName("Play")).toBe(false);
+    expect(plausibleBusinessName("Halls")).toBe(false);
+  });
+  it("keeps real organizations, including ones the assessor may still reject", () => {
+    expect(plausibleBusinessName("Providha Fun City")).toBe(true);
+    expect(plausibleBusinessName("Ogba Zoo and Nature Park")).toBe(true);
+    expect(plausibleBusinessName("Fun Factory")).toBe(true);
+    // A residents association is a real organization: the ingest gate is
+    // brief-agnostic; fit is the assessor's call, never the name filter's.
+    expect(plausibleBusinessName("Opebi Residents Association")).toBe(true);
+  });
+  it("rejects fragments and empty input", () => {
+    expect(plausibleBusinessName("")).toBe(false);
+    expect(plausibleBusinessName("   ")).toBe(false);
+    expect(plausibleBusinessName("12345")).toBe(false);
+    expect(plausibleBusinessName("x".repeat(90))).toBe(false);
   });
 });
 
