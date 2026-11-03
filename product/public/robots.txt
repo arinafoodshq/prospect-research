@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# The app itself is behind sign-in; the landing page is the public face.
+Sitemap: https://prospect-research.sam-5b1.workers.dev/sitemap.xml
