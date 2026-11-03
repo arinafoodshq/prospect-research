@@ -170,7 +170,10 @@ export interface MetaClient {
   search?: (query: string, knownNames?: string[]) => Promise<SearchHit[]>;
   proposeAssessments?: (prospects: Prospect[], evidence: Evidence[]) => Promise<AssessProposal[]>;
   proposeDrafts?: (prospects: Prospect[], evidence?: Evidence[]) => Promise<DraftProposal[]>;
-  fetchPage?: (url: string, timeoutMs: number) => Promise<{ text: string } | { failure: "blocked" | "empty" | "timeout"; detail: string }>;
+  fetchPage?: (url: string, timeoutMs: number) => Promise<
+    { text: string; socials?: string[]; links?: Array<{ url: string; text: string }> }
+    | { failure: "blocked" | "empty" | "timeout"; detail: string }
+  >;
   rationales?: (prospectIds: string[]) => Promise<Record<string, string>>;
   /** Build + validate the versioned commercial brief (new path; absent = legacy excerpt flow). */
   buildBrief?: (profile: BriefProfile) => Promise<import("./commercial").CommercialBrief>;
@@ -340,6 +343,7 @@ export async function discover(
   const queries: string[] = plan.queries ?? [];
   if (queries.length === 0) return stopped("no_plan", "discover needs a stored plan");
   if (!meta.search) return stopped("no_candidates", "no search client; honest empty shortlist");
+  const searchFn = meta.search;
   // Synchronized retry (owner directive 2026-11-03): the per-query ledger in
   // the run's plan JSON marks completed searches. A retried run continues at
   // the first UNSEARCHED query — never from the absolute beginning — and the
@@ -358,66 +362,92 @@ export async function discover(
   const knownNames = (await listProspects(db, budgets.run_id)).map((p) => p.name).slice(0, 15);
   let searched = 0;
   let skipped = 0;
-  for (const q of todo) {
+  let explodedTotal = 0;
+  // Parallel sweeps (owner direction 2026-11-03, borrowed from
+  // ArinaBreeze): grounded-search bursts run 3 at a time; the batch is
+  // SLICED to the remaining search budget up front, so parallelism can
+  // never overshoot the caps. Failures are isolated per query
+  // (Promise.allSettled): one dead burst never kills the sweep.
+  const BATCH = 3;
+  for (let i = 0; i < todo.length; i += BATCH) {
     if (budgets.consumed.candidates >= budgets.caps.candidates) break;
-    if (budgets.consumed.searches + 1 > budgets.caps.searches) {
+    const allowed = Math.max(0, budgets.caps.searches - budgets.consumed.searches);
+    if (allowed <= 0) {
       return stopped(budgetReason("searches"), "search budget exhausted mid-discover");
     }
-    let hits: SearchHit[];
-    try {
-      hits = await meta.search(q, knownNames);
-    } catch {
-      skipped += 1;
-      continue;
-    }
-    budgets.consumed.searches += 1;
-    budgets.consumed.tool_rounds += 1;
-    searched += 1;
-    if (!hits || hits.length === 0) {
-      // Zero-result outcome: mark the query done (retrying it would just
-      // repeat the miss), then move on.
-      await markQueryDone(db, budgets.run_id, plan, q);
-      continue;
-    }
-    for (const h of hits) {
-      if (budgets.consumed.candidates >= budgets.caps.candidates) break;
-      try {
-        // Evidence URL dedupe: the same source url reached the shortlist as
-        // three separate evidence rows across sweeps (billionaires.africa
-        // x3). One url = one evidence row per run; later hits reuse it.
-        const existingEv = h.source_url
-          ? await db.prepare("SELECT id FROM evidence WHERE run_id = ? AND source_url = ?")
-            .bind(budgets.run_id, h.source_url).first<string>("id")
-          : null;
-        const evId = existingEv ?? await saveEvidence(db, {
-          run_id: budgets.run_id, claim: h.claim, quote: h.quote,
-          source_url: h.source_url, source_type: "search_snippet",
-          retrieved_at: new Date().toISOString(), reliability: "unknown",
-          conflicts_with: null, supersedes: null,
-        });
-        if (h.candidateEligible === false) continue; // evidence kept, chatter never becomes a candidate
-        // Ingest gate: page titles (listicles, calendars, forms, fragments)
-        // never become candidates (owner report 2026-11-03).
-        if (!plausibleBusinessName(h.name)) continue;
-        // Location inheritance: search hits carry no geo. The queries are
-        // already locale-scoped, so a candidate without its own location
-        // inherits the brief's area instead of rendering "Area unconfirmed".
-        const inherited = Object.keys(h.location ?? {}).length > 0
-          ? h.location as Record<string, string>
-          : (geos.length ? { area: geos.slice(0, 3).join(", "), source: "brief" } : {});
-        const r = await saveCandidate(db, {
-          run_id: budgets.run_id, name: h.name, category: h.category,
-          location: inherited,
-          ...(h.domainOrHandle !== undefined ? { domainOrHandle: h.domainOrHandle } : {}),
-          evidence_ids: [evId],
-        });
-        if (!r.merged) budgets.consumed.candidates += 1;
-      } catch (e) {
-        if (e instanceof DbValidationError) continue; // validation rejection recorded as tool result; move on
-        throw e;
+    const batch = todo.slice(i, i + Math.min(BATCH, allowed));
+    if (batch.length === 0) break;
+    const settled = await Promise.allSettled(
+      batch.map(async (q) => ({ q, hits: await searchFn(q, knownNames) })),
+    );
+    for (let b = 0; b < settled.length; b += 1) {
+      const r = settled[b];
+      const q = batch[b];
+      if (!r || r.status !== "fulfilled" || !q) { skipped += 1; continue; }
+      budgets.consumed.searches += 1;
+      budgets.consumed.tool_rounds += 1;
+      searched += 1;
+      const hits = r.value.hits;
+      if (!hits || hits.length === 0) {
+        // Zero-result outcome: mark the query done (retrying it would just
+        // repeat the miss), then move on.
+        await markQueryDone(db, budgets.run_id, plan, q);
+        continue;
       }
+      for (const h of hits) {
+        if (budgets.consumed.candidates >= budgets.caps.candidates) break;
+        try {
+          // Evidence URL dedupe: the same source url reached the shortlist as
+          // three separate evidence rows across sweeps (billionaires.africa
+          // x3). One url = one evidence row per run; later hits reuse it.
+          const existingEv = h.source_url
+            ? await db.prepare("SELECT id FROM evidence WHERE run_id = ? AND source_url = ?")
+              .bind(budgets.run_id, h.source_url).first<string>("id")
+            : null;
+          const evId = existingEv ?? await saveEvidence(db, {
+            run_id: budgets.run_id, claim: h.claim, quote: h.quote,
+            source_url: h.source_url, source_type: "search_snippet",
+            retrieved_at: new Date().toISOString(), reliability: "unknown",
+            conflicts_with: null, supersedes: null,
+          });
+          if (h.candidateEligible === false) continue; // evidence kept, chatter never becomes a candidate
+          // Location inheritance: search hits carry no geo. The queries are
+          // already locale-scoped, so a candidate without its own location
+          // inherits the brief's area instead of rendering "Area unconfirmed".
+          const inherited = Object.keys(h.location ?? {}).length > 0
+            ? h.location as Record<string, string>
+            : (geos.length ? { area: geos.slice(0, 3).join(", "), source: "brief" } : {});
+          // Directory explosion (owner direction 2026-11-03, borrowed from
+          // ArinaBreeze): a directory hit becomes its MEMBER businesses —
+          // the listing page itself never becomes a candidate. Runs BEFORE
+          // the name gate: directory titles are exactly what the gate
+          // rejects ("... Directory"). Bounded (≤25 per directory, ≤60 per
+          // run), fail-safe per link.
+          if (h.source_url && isDirectoryHost(h.source_url) && explodedTotal < 60 && meta.fetchPage) {
+            const made = await explodeDirectory(meta, db, budgets, {
+              url: h.source_url, evidenceId: evId, inherited,
+              remaining: 60 - explodedTotal,
+            });
+            explodedTotal += made;
+            if (made > 0) continue;
+          }
+          // Ingest gate: page titles (listicles, calendars, forms, fragments)
+          // never become candidates (owner report 2026-11-03).
+          if (!plausibleBusinessName(h.name)) continue;
+          const r = await saveCandidate(db, {
+            run_id: budgets.run_id, name: h.name, category: h.category,
+            location: inherited,
+            ...(h.domainOrHandle !== undefined ? { domainOrHandle: h.domainOrHandle } : {}),
+            evidence_ids: [evId],
+          });
+          if (!r.merged) budgets.consumed.candidates += 1;
+        } catch (e) {
+          if (e instanceof DbValidationError) continue; // validation rejection recorded as tool result; move on
+          throw e;
+        }
+      }
+      await markQueryDone(db, budgets.run_id, plan, q);
     }
-    await markQueryDone(db, budgets.run_id, plan, q);
   }
   void skipped;
   const prospects = await listProspects(db, budgets.run_id);
@@ -425,6 +455,52 @@ export async function discover(
     return stopped("no_candidates", `zero candidates after ${searched} searches; honest empty shortlist`);
   }
   return completed(`${prospects.length} candidates from ${searched} searches (${done.size + searched}/${queries.length} queries done)`);
+}
+
+/**
+ * Directory explosion: fetch the listing page, harvest member anchors
+ * (name+url), and save each plausible member as a candidate sharing the
+ * directory's evidence row. Fail-safe by construction: the whole function
+ * swallows its own failures and returns the count made — the caller falls
+ * back to treating the directory hit like any other candidate. Bounded:
+ * ≤25 members per directory, and the caller caps explosions per run.
+ */
+async function explodeDirectory(
+  meta: MetaClient, db: Db, budgets: BudgetState & { run_id: string },
+  dir: { url: string; evidenceId: string; inherited: Record<string, string>; remaining: number },
+): Promise<number> {
+  try {
+    if (!meta.fetchPage) return 0;
+    const page = await meta.fetchPage(dir.url, 15000);
+    if (!("links" in page) || !page.links || page.links.length === 0) return 0;
+    let made = 0;
+    for (const l of page.links) {
+      if (made >= Math.min(25, dir.remaining)) break;
+      if (budgets.consumed.candidates >= budgets.caps.candidates) break;
+      try {
+        if (isDirectoryHost(l.url) || isSocialHost(l.url)) continue; // nav links, not members
+        const host = hostOf(l.url);
+        if (!host) continue;
+        if (!plausibleBusinessName(l.text)) continue; // "About us", "Contact", fragments
+        const r = await saveCandidate(db, {
+          run_id: budgets.run_id, name: l.text, category: "Directory listing",
+          location: dir.inherited, domainOrHandle: host,
+          evidence_ids: [dir.evidenceId],
+        });
+        if (!r.merged) { budgets.consumed.candidates += 1; made += 1; }
+      } catch (e) {
+        if (!(e instanceof DbValidationError)) {
+          await logActivity(db, {
+            run_id: budgets.run_id, event: "created",
+            note: `explosion link skipped: ${e instanceof Error ? e.message.slice(0, 140) : "error"}`,
+          }).catch(() => { /* the run never fails for one member */ });
+        }
+      }
+    }
+    return made;
+  } catch {
+    return 0; // a dead or blocked directory costs nothing but one fetch
+  }
 }
 
 /** Persist one query into the run's done_queries ledger (best-effort: a
@@ -459,11 +535,14 @@ export async function investigate(
     consumed: budgets.consumed, caps: budgets.caps,
     fetcher: meta.fetchPage ?? (async () => ({ failure: "blocked" as const, detail: "no fetch client" })),
   };
+  // Parallel page opens (owner 2026-11-03: "opening 30 pages is too slow" —
+  // the slowness was one fetch after another). Five at a time, sliced to the
+  // remaining fetch budget so parallelism never overshoots; every target is
+  // isolated (Promise.allSettled): one dead page costs nothing but itself.
   let investigated = 0;
-  for (const p of targets) {
-    if (budgets.consumed.fetches + 1 > budgets.caps.fetches) {
-      return stopped(budgetReason("fetches"), "fetch budget exhausted mid-investigate");
-    }
+  const BATCH = 5;
+  const investigateOne = async (p: Prospect): Promise<"opened" | "nofetch" | "failed"> => {
+    try {
     // Per-prospect fetch: the prospect's OWN discovery URL. Never another
     // prospect's evidence, never a placeholder (both happened before).
     const ownIds = new Set(p.evidence_ids);
@@ -475,11 +554,11 @@ export async function investigate(
       // evidence row (it read as junk evidence downstream).
       try {
         await setProspectStatus(db, budgets.run_id, p.id, "investigating");
-        investigated += 1;
+        return "nofetch";
       } catch (e) {
-        if (!(e instanceof DbValidationError)) throw e;
+        if (e instanceof DbValidationError) return "failed";
+        throw e;
       }
-      continue;
     }
     const res = await execFetchPage(fetchDeps, { url: target.source_url });
     const attach = async (evId: string): Promise<void> => {
@@ -609,10 +688,35 @@ export async function investigate(
     }
     try {
       await setProspectStatus(db, budgets.run_id, p.id, "investigating");
-      investigated += 1;
+      return "opened";
     } catch (e) {
-      if (!(e instanceof DbValidationError)) throw e;
+      if (e instanceof DbValidationError) return "failed";
+      throw e;
     }
+    } catch (e) {
+      // Fail-safe: an unexpected per-prospect error still moves the
+      // candidate ON (the fetch-failure contract) — never stranded as
+      // "candidate"; one dead page costs nothing but itself.
+      try {
+        await setProspectStatus(db, budgets.run_id, p.id, "investigating");
+      } catch { /* stranded only if D1 itself is down */ }
+      return "failed";
+    }
+  };
+  for (let i = 0; i < targets.length; i += BATCH) {
+    const allowed = Math.max(0, budgets.caps.fetches - budgets.consumed.fetches);
+    if (allowed <= 0) {
+      return stopped(budgetReason("fetches"), "fetch budget exhausted mid-investigate");
+    }
+    const batch = targets.slice(i, i + Math.min(BATCH, allowed));
+    if (batch.length === 0) break;
+    const settled = await Promise.allSettled(batch.map((p) => investigateOne(p)));
+    for (const r of settled) {
+      if (r.status === "fulfilled" && r.value !== "failed") investigated += 1;
+    }
+    // Hard clamp: parallel verification searches could nose past a cap.
+    if (budgets.consumed.searches > budgets.caps.searches) budgets.consumed.searches = budgets.caps.searches;
+    if (budgets.consumed.fetches > budgets.caps.fetches) budgets.consumed.fetches = budgets.caps.fetches;
   }
   return completed(`${investigated} prospects investigated`);
 }

@@ -26,8 +26,8 @@ export interface BudgetConsumed {
 export const DEFAULT_CAPS: BudgetCaps = {
   searches: 40,
   fetches: 80,
-  candidates: 30,
-  tool_rounds: 6,
+  candidates: 120,
+  tool_rounds: 60,
   cost_usd: 6,
   active_compute_s: 1200,
 };

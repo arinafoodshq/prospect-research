@@ -659,6 +659,85 @@ describe("plausibleBusinessName (discover ingest gate)", () => {
   });
 });
 
+// --- volume + fault tolerance (owner direction 2026-11-03) ---------------------
+
+describe("directory explosion + parallel sweeps", () => {
+  it("explodes a directory hit into gated member businesses, never the page itself", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["directory query"]);
+    const hits = [{
+      claim: "Directory of cleaners", quote: "listing",
+      source_url: "https://www.businesslist.com.ng/cleaners",
+      name: "Cleaners in Lagos - Directory", category: "Directory",
+    }];
+    const fetchPage = async () => ({
+      text: "listing page",
+      links: [
+        { url: "https://alpha.ng", text: "Alpha Cleaners Ltd" },
+        { url: "https://beta.ng", text: "Beta Facilities" },
+        { url: "https://alpha.ng/about", text: "Alpha Cleaners Ltd" }, // same domain: deduped
+        { url: "https://gamma.ng", text: "Contact us" }, // gate rejects fragments
+        { url: "https://www.facebook.com/alpha", text: "Alpha Cleaners" }, // social host rejected
+      ],
+    });
+    const out = await discover(BRIEF, db, { search: async () => hits, fetchPage }, budgetsWith());
+    const names = (await listProspects(db, RUN_ID)).map((p) => p.name);
+    expect(out.status).toBe("completed");
+    expect(names).toContain("Alpha Cleaners Ltd");
+    expect(names).toContain("Beta Facilities");
+    expect(names).not.toContain("Cleaners in Lagos - Directory"); // the page is consumed by its members
+    expect(names).not.toContain("Contact us");
+    expect(names.filter((n) => n === "Alpha Cleaners Ltd").length).toBe(1); // domain dedupe
+  });
+
+  it("one dead query never kills the sweep (allSettled isolation)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["dead query", "live query"]);
+    const search = async (q: string) => {
+      if (q === "dead query") throw new Error("search down");
+      return [{ claim: "Live Co exists", quote: "q", source_url: "https://live.example.com", name: "Live Co", category: "Services" }];
+    };
+    const out = await discover(BRIEF, db, { search }, budgetsWith());
+    expect(out.status).toBe("completed");
+    expect((await listProspects(db, RUN_ID)).map((p) => p.name)).toContain("Live Co");
+  });
+
+  it("search batches are sliced to the remaining budget (no overshoot)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables, ["q1", "q2", "q3", "q4", "q5"]);
+    let called = 0;
+    const search = async () => { called += 1; return []; };
+    const out = await discover(BRIEF, db, { search }, budgetsWith({ searches: 2 }));
+    expect(out.status).toBe("stopped");
+    expect(out.stop_reason).toBe(budgetReason("searches"));
+    expect(called).toBe(2);
+  });
+
+  it("one exploding fetch never stops the batch (investigate isolation)", async () => {
+    const { db, tables } = makeMockDb();
+    seedRun(tables);
+    const mk = async (name: string, url: string) => {
+      const evidenceId = await saveEvidence(db, {
+        run_id: RUN_ID, claim: `${name} exists`, quote: "q", source_url: url,
+        source_type: "search_snippet", retrieved_at: new Date().toISOString(),
+        reliability: "unknown", conflicts_with: null, supersedes: null,
+      });
+      await saveCandidate(db, { run_id: RUN_ID, name, category: "Retail", location: {}, evidence_ids: [evidenceId] });
+    };
+    await mk("Shop A", "https://shopa.ng/about");
+    await mk("Shop B", "https://shopb.ng/about");
+    const out = await investigate(BRIEF, db, {
+      fetchPage: async (url: string) => {
+        if (url.includes("shopa")) throw new Error("renderer exploded");
+        return { text: `page text for ${url}` };
+      },
+    }, budgetsWith());
+    expect(out.status).toBe("completed"); // the run continues, isolated
+    const statuses = (await listProspects(db, RUN_ID)).map((p) => p.status);
+    expect(statuses.every((s) => s === "investigating")).toBe(true);
+  });
+});
+
 // --- fetch failure -----------------------------------------------------------
 
 describe("fetch failures", () => {

@@ -1017,7 +1017,24 @@ function extractVisibleText(html: string): string {
       if (u.length <= 100) socials.add(u);
     }
     const harvested = [...socials].slice(0, 8);
-    return { text: extractVisibleText(html).slice(0, FETCH_TEXT_CAP), ...(harvested.length > 0 ? { socials: harvested } : {}) };
+    // Member-link harvest for directory explosion (owner direction
+    // 2026-11-03, borrowed from ArinaBreeze): anchor href+text pairs let
+    // discover turn one directory page into many real-business candidates.
+    // Bounded, deduped by url, best-effort.
+    const linkPairs = new Map<string, string>();
+    const reA = /<a\b[^>]*href\s*=\s*"(https?:\/\/[^"]+)"[^>]*>([\s\S]{0,160}?)<\/a>/gi;
+    for (const m of html.matchAll(reA)) {
+      const href = m[1] ?? "";
+      const text = extractVisibleText(m[2] ?? "").trim().slice(0, 80);
+      if (!href || !text || text.length < 3 || linkPairs.has(href)) continue;
+      linkPairs.set(href, text);
+    }
+    const links = [...linkPairs.entries()].slice(0, 80).map(([url, text]) => ({ url, text }));
+    return {
+      text: extractVisibleText(html).slice(0, FETCH_TEXT_CAP),
+      ...(harvested.length > 0 ? { socials: harvested } : {}),
+      ...(links.length > 0 ? { links } : {}),
+    };
   }
 
   let activeBrief: CommercialBrief | null = null;

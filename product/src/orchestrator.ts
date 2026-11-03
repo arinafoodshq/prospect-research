@@ -61,7 +61,7 @@ export interface WorkflowRuntime {
 }
 
 export const DEFAULT_BUDGETS: WorkflowBudgets = {
-  searches: 30, fetches: 40, candidates: 25, cost_usd: 6, active_compute_s: 1200,
+  searches: 40, fetches: 80, candidates: 120, cost_usd: 6, active_compute_s: 1200,
 };
 
 export const RETRY_POLICY = {
