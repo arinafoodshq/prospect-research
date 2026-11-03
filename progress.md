@@ -2095,3 +2095,58 @@ to see the new behavior; (2) run_ca31bc9f (Mb declutter) still mid-flight
 on old prompts - recommend Retry research once it stops; (3) OpenCode
 global config shape changed on this machine (mcp.servers) - test updated
 to accept both shapes.
+## 2026-11-03 (fail-proof runs + synchronized retry + memory feeds + mobile shell)
+
+User direction: server+client keep synchronized state so retry never starts
+from the absolute beginning nor regenerates junk; feed the model memory when
+the circumstance demands it; mobile first-viewport must carry the status.
+
+ArinaFoods run_dc346818 diagnosis: FAILED on meta_http_504 (one transient
+model timeout) with 29 prospects + 20 searches persisted; junk leaked past
+ingest gate v1 (list pages, "The big list of...", bare domains, all-generic
+category names).
+
+Synchronized state (server):
+- research_run.plan now carries a done_queries ledger; discover skips
+  searched queries and persists after each one (zero-result queries too) -
+  a retry continues at the first unsearched query, never from zero.
+- plan phase skipped when a stored plan has queries (restarted runs keep
+  their plan and everything else).
+- RUN_TRANSITIONS: stopped/failed -> created allowed; postResume starts a
+  FRESH workflow instance over the SAME run state (workflow_instance_id
+  updated; rollback on start failure). Client "Retry research" and
+  btn-retry-progress call POST /api/runs/:id/resume (RealApi.resumeRun).
+- callResponses: in-call transient retry (429/5xx/timeout, 2s/8s, injectable
+  for tests); Workflow STEP_RETRIES raised to limit 5 x 20s exponential.
+- assess already resume-safe (targets = investigating only).
+
+Memory feeds (circumstance-gated):
+- search bursts receive the run's found names (<=15) - steer to NEW orgs.
+- renderBriefPrompt carries owner's own user_fact/source_verified words
+  (<=3) so assess and drafts quote the owner's truth.
+- replan already carries brief + QA report + junk/good names (previous turn).
+- onboard: ASSUME-NEVER-ASK - decision_maker/order_size/budget/timeline are
+  never questions (deterministic validator strips them; decision_maker
+  defaults to "the owner decides purchases" as an editable assumption).
+
+Client resilience:
+- runProgress polls back off 1.5s->15s, reset on success, ~2min floor;
+  offline banner (#net-banner) + online resync + 10s heartbeat snapshot.
+- shortlist gate from the earlier turn unchanged.
+
+Mobile shell:
+- sb-nav becomes a fixed bottom icon tab bar (inline SVGs, 0.62rem labels),
+  shortlist sticky bar raised above it; stage trail = one scrollable row
+  (scroll container on the nav; page never overflows - verified scrollW=390).
+- progress view: stats stay 3-up inline on phones, .view h2 shrunk to
+  1.45rem, ob-head brand pair hidden everywhere on mobile.
+- interview fonts: #ob-question 1.35rem/800 (display font stays on the
+  landing hero), #ob-first h2 clamp down to 2rem.
+
+Verification: 473/473 vitest (ledger-resume test, known-names memory test,
+ArinaFoods gate cases, never-ask strip cases), SMOKE PASS, tsc clean;
+deployed d5710240 (pushes b365097, 0168e56). Live 390px: progress eyebrow
+at y=61, stats 3-up at y=200, steps at y=296 (first viewport), brand hidden,
+fixed bottom bar, overflowX false. Known limit: runs started BEFORE this
+deploy have no ledger - a retry re-walks remaining queries with dedupe
+convergence; fresh runs resume true.
