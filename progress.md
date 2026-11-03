@@ -2259,3 +2259,48 @@ Sender authority (migration 0009 + code):
 Verification: 478/478 vitest (sender-ownership route test), SMOKE PASS
 (new pins: overview-first studio, row opens the pager), tsc clean;
 deployed f014293b (push 07d6b0f).
+## 2026-11-03 (interview senses: chips, website mining, no leaks)
+
+User test (TechAssembly: "we build website and app" + their site URL):
+chip clicks advanced the interview (no multi-select); the site was given
+but the interview still asked the business name; the summary showed
+"Buyer: the owner decides purchases | startups and small businesses"; the
+shortlist showed one dead-end card ("First Concepts", unclassified, no
+route, rationale cut mid-word "no reachable o...") and a "No draft yet"
+dead end; the decision-maker assumption had pattern-matched into the
+assessment rationale.
+
+Root causes + fixes:
+- THE POISON: RealApi.createProfile built target_market as
+  [decision_maker, ideal_customer].join(" | ") - the assumption leaked
+  into buyers, then into the brief's "Buyers:" line, and assessments
+  pattern-matched prospects against "the owner decides purchases".
+  Buyers are q5 (ideal_customer) ONLY; the decision-maker default no
+  longer injects into the field dict at all (stripped question leaves the
+  field empty; the brief's strategist rule carries "owner decides" as an
+  assumption, never a buyer_role/industry).
+- Chips are multi-select (owner direction): a chip ADDS to the input
+  (comma-append, duplicates collapse) and never advances; Continue stays
+  the owner's move. Demo mock teaches one chips question (exclusions).
+- Website auto-mining: a URL in the owner's reply is fetched server-side
+  (fetchPage, best-effort) and handed to the model: "MINE IT FIRST -
+  fill name/offer/buyers/area from the page; asking for what the site
+  answers is forbidden" (OnboardTurnInput.site).
+- Rationales clip at a WORD boundary (clipAt) - "no reachable o..." gone.
+- Routeless prospects with no draft-bearing status are off the shortlist
+  (dead ends don't belong on "buyers worth your time"); the zero-state
+  counts them: "set N aside (K with no way to reach them yet)".
+- Demo profile Buyer reads q5; empty profile rows hidden from the summary.
+
+Testing loop (user: "test, loop n use playwright until it works"): smoke
+rewritten for the new interview (exclusions chips, append pins, retry
+survival, done-by-assumptions) + demo fixture Northgate given a route;
+browser loop on live /demo verified: chips append live ("Competitors,
+Franchises", no advance), interview ends by assumptions, summary clean
+(Business stated / Offer stated / no decision-maker noise, no empty
+assumed rows).
+
+Verification: 478/478 vitest, SMOKE PASS, tsc clean; deployed 20688517
+(push c7d9e84). Next live check: run a fresh TechAssembly-style campaign -
+the site mining + clean brief should fill the summary from the site and
+qualify real web-dev buyers.
