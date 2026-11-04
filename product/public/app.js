@@ -1730,12 +1730,29 @@
   }
 
   function renderDrafts() {
-    return api.getDrafts(state.runId).then(function (res) {
+    // Cold open (reloaded page): the prospect list may not be loaded yet —
+    // the top-up needs it to name the missing picks.
+    var ensureProspects = (state.prospects && state.prospects.length)
+      ? Promise.resolve()
+      : (api.getRunProspects ? api.getRunProspects(state.runId).then(function (r) {
+        state.prospects = r.prospects || [];
+      }, function () { /* the note names ids as a fallback */ }) : Promise.resolve());
+    return ensureProspects.then(function () { return api.getDrafts(state.runId); }).then(function (res) {
       state.drafts = res.drafts.map(function (d) {
         if (state.decisions[d.prospectId]) d.status = state.decisions[d.prospectId].decision;
         return d;
       });
       var sel = state.selectedIds || state.drafts.map(function (d) { return d.prospectId; });
+      if (!sel.length && !state.drafts.length) {
+        // Zero drafts and nothing selected (owner bug 2026-11-04: after a
+        // reload the "Write their messages now" button vanished entirely and
+        // the copy lied — "nothing qualified" while 47 routable prospects
+        // were waiting). Fall back to everyone still on the list.
+        var keptIds = (state.prospects || []).filter(function (p) {
+          return p.status !== "disqualified";
+        }).map(function (p) { return p.id; });
+        if (keptIds.length) sel = keptIds;
+      }
       var drafts = state.drafts.filter(function (d) { return sel.indexOf(d.prospectId) >= 0; });
       var notes = [];
       if (drafts.length < state.drafts.length) notes.push("Showing drafts for your " + sel.length + " selected picks.");
