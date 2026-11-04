@@ -1,64 +1,82 @@
-/* Design tokens: Prospect Research — workspace.html + landing.html
- * references (paper theme, 2026-10-31). Single source of truth for colour,
- * type, radius, motion. The accent lives in exactly one variable so it can
- * change in one place. */
+/* Design tokens: Prospect Research — style-guide.md (2026-11-04) is the
+ * single source of truth. Old variable names are KEPT as aliases to the new
+ * values so every existing rule adopts the palette, radius family and type
+ * without a rewrite. New components use the guide's own token names. */
 :root {
   color-scheme: light;
 
-  /* Surfaces */
-  --ground: #F8F7F4;          /* paper */
-  --surface: #FFFFFF;         /* card */
-  --surface-deep: #EFEDE6;    /* board columns, aside strips */
-  --surface-success: #DDF5EA; /* good-soft */
+  /* Colour (style guide section 3) */
+  --ink: #1B2A3A;
+  --ink-soft: #52627A;
+  --mist: #F3F7F8;
+  --paper: #FFFFFF;
+  --line: #E3EBEE;
+  --sky: #3B6FE0;
+  --sky-deep: #2B57BA;
+  --sky-wash: #E8EFFD;
+  --sage: #4E9C7E;
+  --sage-ink: #2F7A5D;
+  --sage-wash: #E4F3EC;
+  --sand: #B5740F;
+  --sand-wash: #FCF0D9;
+  --rose: #B4524A;
+  --rose-wash: #FBE9E6;
+  --lilac: #B9AEE8;      /* illustration accent only */
 
-  /* Borders */
-  --border: #E6E3DA;
-  --border-strong: #CFCBBF;
+  /* Aliases (older components keep their names, adopt the new values) */
+  --ground: var(--mist);
+  --surface: var(--paper);
+  --surface-deep: #ECF1F4;
+  --surface-success: var(--sage-wash);
+  --border: var(--line);
+  --border-strong: #C9D6DB;
+  --text: var(--ink);
+  --muted: var(--ink-soft);
+  --dim: var(--ink-soft);
+  --accent: var(--sky);
+  --accent-rgb: 59, 111, 224;
+  --accent-ink: #FFFFFF;
+  --accent-soft: var(--sky-wash);
+  --accent-deep: var(--sky-deep);
+  --success: var(--sage-ink);
+  --warn: var(--sand);
+  --danger: var(--rose);
+  --marigold: #E0A93B;   /* the brand mark's gold */
+  --marigold-soft: var(--sand-wash);
+  --marigold-ink: #8A5B00;
+  --gold-deep: #8A5B00;
+  --green-deep: var(--sky);
+  --navy-deep: var(--sky-wash);
+  --ink-strong: var(--ink);
+  --white: #FFFFFF;
 
-  /* Text */
-  --text: #0B1220;            /* ink */
-  --muted: #4B5565;
-  --dim: #5F6877;
+  /* Radius: one scale, used everywhere (controls 12, rows 16, cards 24) */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-pill: 999px;
+  --radius-card: var(--r-lg);
+  --radius-sm: var(--r-sm);
+  --radius: var(--r-md);
+  --radius-pill: var(--r-pill);
 
-  /* Primary accent (ultramarine): change here, changes everywhere */
-  --accent: #3D5AFE;
-  --accent-rgb: 61, 90, 254;  /* same color as --accent, for rgba() shadows */
-  --accent-ink: #FFFFFF;      /* text on accent */
-  --accent-soft: #E8ECFF;
-  --accent-deep: #2A43D1;
+  /* Spacing (4px base) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
 
-  /* Marigold (highlights, the final panel) */
-  --marigold: #FFB020;
-  --marigold-soft: #FFF3D6;
-  --marigold-ink: #8A4B00;
-
-  /* Status */
-  --success: #076B47;
-  --warn: #B45309;
-  --danger: #B42318;
-
-  /* Compatibility names (older components) */
-  --white: #ffffff;
-  --info: #3D5AFE;
-  --gold-deep: #8A4B00;
-  --green-deep: #3D5AFE;      /* "with us" card = ultramarine per reference */
-  --navy-deep: #E8ECFF;       /* soft primary fill */
-  --ink-strong: #0B1220;
+  /* Elevation: one soft level, hero + card hover only */
+  --lift: 0 6px 24px rgba(27, 42, 58, .07);
 
   /* Type */
   --font-display: "Fraunces", Georgia, "Times New Roman", serif;
-  --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --tracking-display: -0.025em;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --tracking-display: -0.01em;
 
-  /* Radius */
-  --radius-card: 20px;
-  --radius-sm: 14px;
-  --radius-pill: 999px;
+  /* Touch targets (Fitts: 44px) */
+  --touch: 44px;
 
-  /* Touch */
-  --touch: 48px;
-
-  /* Motion */
+  /* Motion: user-triggered only */
   --motion-rise: 0.8s;
   --motion-lift: 3px;
 }

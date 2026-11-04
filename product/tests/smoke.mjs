@@ -142,6 +142,8 @@ const IDS = [
   "btn-sb-dashboard", "btn-sb-messages", "btn-sb-campaigns", "btn-sb-senders",
   "campaign-card", "sends-monitor",
   "runs-wrap", "runs-list", "runs-pager", "runs-page-label", "btn-runs-prev", "btn-runs-next",
+  "home-greeting", "home-hero", "home-lead", "home-journey", "home-cards", "home-campaigns-more",
+  "home-tabs", "home-msg-hint", "home-rows", "home-msg-more", "home-recents", "home-recents-more",
   "waiting-strip", "board-campaign", "board-switch", "studio-campaign",
   "stage-slot",
   "site-footer",
@@ -502,31 +504,33 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
 }
 
 await fire(els["btn-to-status"], "click", evt());
-await tick();
+await tick(); await tick();
 ok(visible("view-status"), "drafts -> status board view");
 {
+  // The style-guide Home mid-flow: the hero leads with the waiting pile,
+  // the journey marks "you are here", the tabbed list holds the rows with
+  // campaign smalls, and every number gets a noun (owner 2026-11-04).
+  const home = () => ["home-hero", "home-lead", "home-journey", "home-cards", "home-msg-hint", "home-rows", "home-recents"]
+    .map((k) => (els[k].textContent || "") + " " + (els[k].innerHTML || "")).join("\n");
+  ok(/ready for you to check|still researching|all caught up/.test(els["home-hero"].textContent), "the hero answers what is going on (" + els["home-hero"].textContent + ")");
+  ok(/You are here/.test(els["home-journey"].innerHTML), "the journey marks the current step");
+  ok(!/\bsent\b/i.test(home()) || /Nothing is sent until you approve it/.test(home()), "no 'sent' promises on the home feed");
+  ok(!/ready to send/i.test(home()), "no 'ready to send' copy");
+  ok(!/Nothing here\./.test(home()), "no dead-end 'Nothing here.' microcopy");
+  ok(/class="chip chip-(wait|done|info|no)"/.test(home()) || /board-empty|empty/.test(els["home-rows"].innerHTML), "message rows use the status chip (colour never alone)");
+  ok(/data-act="open-draft"/.test(home()), "message rows are clickable doors to the message detail");
+  ok(els["home-rows"].innerHTML.split('class="row"').length - 1 <= 5, "5 rows per page");
+  ok(/<small>/.test(els["home-rows"].innerHTML), "each row names its campaign");
+  // Opening a message from the list jumps into that message in the studio.
+  const draftId = home().match(/data-act="open-draft" data-id="([^"]+)"/)[1];
+  await fire(els["view-status"], "click", evt({ target: { getAttribute: (k) => (k === "data-act" ? "open-draft" : k === "data-id" ? draftId : null) } }));
   await tick(); await tick();
-  // The board is ONE aggregated feed across ALL campaigns (owner
-  // 2026-11-04): four plain-language groups, campaign chip on every row.
-  const groups = () => els["status-board"].children.filter((c) => c.className.indexOf("board-group") === 0);
-  ok(groups().length === 4, "status board has 4 plain-language groups, saw " + groups().length);
-  const all = groups().map((c) => c.innerHTML).join("\n");
-  ok(/Waiting for your approval/.test(all) && /Approved/.test(all) && /Paused/.test(all) && /Not a fit/.test(all), "layman group names");
-  ok(!/\bsent\b/i.test(all), "no 'sent' concept anywhere on the draft board");
-  ok(!/ready to send/i.test(all), "no 'ready to send' copy on the board");
-  ok(!/Nothing here\./.test(all), "no dead-end 'Nothing here.' microcopy");
-  ok(/campaign-chip/.test(all), "every row labels its campaign");
-  ok(/data-act="open-draft"/.test(all), "board items are clickable doors to the message detail");
-  // Clicking a board item opens that lead's message in the studio.
-  const draftId = all.match(/data-id="([^"]+)"/)[1];
-  els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "open-draft", id: draftId } } }));
-  await tick(); await tick();
-  ok(visible("view-drafts"), "board item opens the message detail");
+  ok(visible("view-drafts"), "message row opens the message detail");
   await fire(els["btn-to-status"], "click", evt());
-  await tick();
+  await tick(); await tick();
   {
-    // Per-group pagination (owner 2026-11-04): 8 approved drafts -> two
-    // pages, "1–6 of 8", Next reveals the rest, edges disabled.
+    // "See all" expands the tab beyond 5 rows (owner style-guide: 5 rows,
+    // the rest behind See all — never a wall).
     const MockApi = sandbox.window.ApiLayer.MockApi;
     const orig = MockApi.prototype.getBoard;
     MockApi.prototype.getBoard = function () {
@@ -535,57 +539,94 @@ ok(visible("view-status"), "drafts -> status board view");
       }) });
     };
     sandbox.module.exports.state.board = null;
+    sandbox.module.exports.state.homeTab = "approved";
     await sandbox.module.exports.renderStatuses();
-    const groupOf = () => els["status-board"].children.filter((c) => c.className.indexOf("board-group") === 0).find((c) => /Approved/.test(c.innerHTML));
-    const col = groupOf();
-    ok(/1\u20136 of 8/.test(col.innerHTML), "approved group paginates to 6 of 8");
-    ok(/data-act="board-page" data-col="approved" data-dir="1"/.test(col.innerHTML), "the pager rides the board delegation");
-    ok(/data-dir="1" disabled/.test(col.innerHTML) === false && /data-dir="-1" disabled/.test(col.innerHTML), "page 0: Prev disabled, Next enabled");
-    els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "board-page", col: "approved", dir: "1" } } }));
-    await tick();
-    const col2 = groupOf();
-    ok(/7\u20138 of 8/.test(col2.innerHTML), "Next reveals the last page (7\u20138 of 8)");
-    ok(/data-dir="1" disabled/.test(col2.innerHTML), "Next is disabled on the last page");
-    els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "board-page", col: "approved", dir: "-1" } } }));
-    await tick();
-    ok(/1\u20136 of 8/.test(groupOf().innerHTML), "Prev returns to the first page");
+    ok(els["home-rows"].innerHTML.split('class="row"').length - 1 === 5, "approved rows cap at 5 with See all");
+    ok(/See all 8/.test(els["home-msg-more"].innerHTML), "see-all names the full count");
+    await fire(els["view-status"], "click", evt({ target: { getAttribute: () => null, id: "home-see-all-msgs" } }));
+    await tick(); await tick();
+    ok(els["home-rows"].innerHTML.split('class="row"').length - 1 === 8, "see-all reveals every row");
+    ok(/Show fewer/.test(els["home-msg-more"].innerHTML), "see-all toggles to show-fewer");
     MockApi.prototype.getBoard = orig;
     sandbox.module.exports.state.board = null;
+    sandbox.module.exports.state.homeTab = "waiting";
+    sandbox.module.exports.state.homeShowAll = false;
     await sandbox.module.exports.renderStatuses();
   }
-  ok(visible("view-status"), "back on the board for the next pins");
+  ok(visible("view-status"), "back on the home for the next pins");
 }
 
 await fire(els["btn-back-drafts"], "click", evt());
 await tick();
-ok(visible("view-drafts"), "status -> back to drafts");
+ok(visible("view-drafts"), "home check-messages opens the message queue");
 await fire(els["btn-back-shortlist"], "click", evt());
 await tick();
 ok(visible("view-shortlist"), "drafts -> back to shortlist");
 
-// Sidebar navigation: the Dashboard item opens the board; the stage strip
+// Sidebar navigation: Home is the general dashboard; the stage strip
 // disappears there (stages are not navigation, user request 2026-11-02).
 await fire(els["btn-sb-dashboard"], "click", evt());
-await tick();
-ok(visible("view-status"), "sidebar Dashboard opens the dashboard");
+await tick(); await tick();
+ok(visible("view-status"), "sidebar Home opens the dashboard");
 ok(els["stage-wrap"].hidden !== false, "no stage strip on the dashboard itself");
 {
-  // All runs, any status, paginated (owner request 2026-11-03): nine demo
-  // runs -> first page of 8, pager on, next reveals the last one. Campaign
-  // NAMES label every row; the waiting strip aggregates pending issues
-  // across ALL campaigns (owner 2026-11-04).
-  ok(els["runs-list"].innerHTML.split("<li").length - 1 === 8, "runs list paginates to 8 rows, saw " + (els["runs-list"].innerHTML.split("<li").length - 1));
-  ok(/Runs 1\u20138 of 9/.test(els["runs-page-label"].textContent), "pager labels the page (" + els["runs-page-label"].textContent + ")");
-  ok(els["btn-runs-next"].disabled === false && els["btn-runs-prev"].disabled === true, "pager buttons match the page edges");
-  ok(/Demo Realty/.test(els["runs-list"].innerHTML) && /WakaSure/.test(els["runs-list"].innerHTML), "rows carry their campaign name");
-  ok(/47 waiting/.test(els["runs-list"].innerHTML), "waiting counts show per campaign");
-  ok(els["waiting-strip"].hidden === false && /WakaSure/.test(els["waiting-strip"].innerHTML) && /47 messages waiting/.test(els["waiting-strip"].innerHTML), "waiting strip aggregates pending issues across campaigns");
-  await fire(els["btn-runs-next"], "click", evt());
-  ok(els["runs-list"].innerHTML.indexOf("demo-run-1") >= 0, "next page reveals the oldest run");
-  ok(/Runs 9\u20139 of 9/.test(els["runs-page-label"].textContent), "last page labelled");
-  await fire(els["btn-runs-prev"], "click", evt());
-  await fire(els["btn-sb-dashboard"], "click", evt());
+  // The style-guide Home: hero answers "what do I do now?", campaign cards
+  // merge duplicates, messages are one tabbed list, recent searches speak
+  // plain sentences (owner 2026-11-04, dashboard.html + style-guide.md).
+  ok(/is ready for you to check|are ready for you to check/.test(els["home-hero"].textContent), "hero states the number that matters (" + els["home-hero"].textContent + ")");
+  ok(els["home-journey"].innerHTML.split("step").length - 1 >= 3, "the journey strip has three steps");
+  ok(/WakaSure/.test(els["home-cards"].innerHTML), "campaign cards name their campaign");
+  ok(els["home-cards"].innerHTML.split('class="card camp"').length - 1 <= 3, "at most 3 campaign cards");
+  ok(els["home-tabs"].innerHTML.split('class="tab"').length - 1 === 4, "four message tabs with counts");
+  ok(/Needs your check/.test(els["home-rows"].innerHTML) && /Demo Catering|WakaSure/.test(els["home-rows"].innerHTML), "message rows carry a campaign small label + chip");
+  ok(els["home-rows"].innerHTML.split('class="row"').length - 1 <= 5, "5 rows per page, never a wall");
+  ok(els["home-msg-more"].hidden === true || /Show fewer/.test(els["home-msg-more"].innerHTML), "see-all hides when every row already shows");
+  ok(/Looked at .* businesses/.test(els["home-recents"].innerHTML), "recent searches speak plain sentences");
+  ok(/Ready to check|Finished|No matches/.test(els["home-recents"].innerHTML), "recent searches use human chips");
+  // Tab switch: counts update, rows swap, empty tab shows the calm
+  // illustration, never a blank box.
+  const tabBtn = els["home-tabs"].innerHTML.match(/data-tab="(deferred)"/);
+  ok(!!tabBtn, "the paused tab exists");
+  await fire(els["view-status"], "click", evt({ target: { getAttribute: (k) => (k === "data-tab" ? "deferred" : null) } }));
   await tick();
+  {
+    // Empty tab: the calm illustration, never a blank box. A mocked empty
+    // board makes the state deterministic whatever the flow decided earlier.
+    const EmptyApi = sandbox.window.ApiLayer.MockApi;
+    const origBoard = EmptyApi.prototype.getBoard;
+    EmptyApi.prototype.getBoard = function () { return Promise.resolve({ drafts: [] }); };
+    sandbox.module.exports.state.board = null;
+    await sandbox.module.exports.renderStatuses();
+    ok(/Nothing/.test(els["home-rows"].innerHTML) && /<svg/.test(els["home-rows"].innerHTML),
+      "an empty tab shows the calm illustration, never blank");
+    EmptyApi.prototype.getBoard = origBoard;
+    sandbox.module.exports.state.board = null;
+    await sandbox.module.exports.renderStatuses();
+  }
+  await fire(els["view-status"], "click", evt({ target: { getAttribute: (k) => (k === "data-tab" ? "waiting" : null) } }));
+  await tick();
+  // Campaign card button: "Check N messages" jumps straight to that queue.
+  const cardBtn = els["home-cards"].innerHTML.match(/data-act="check-campaign" data-id="([^"]+)"/);
+  ok(!!cardBtn, "each card has one primary action");
+  await fire(els["view-status"], "click", evt({ target: { getAttribute: (k) => (k === "data-act" ? "check-campaign" : k === "data-id" ? cardBtn[1] : null) } }));
+  await tick();
+  ok(visible("view-drafts"), "a card's check button jumps to that campaign's messages");
+  await fire(els["btn-sb-dashboard"], "click", evt());
+  await tick(); await tick();
+  // Recent searches: 4 items, plain sentence, "See all" expands the full
+  // paginated history (nine demo runs).
+  ok(els["home-recents"].innerHTML.split('class="run"').length - 1 <= 4, "4 recent searches, no more");
+  ok(els["home-recents-more"].hidden === false, "see-all appears when more searches exist");
+  await fire(els["view-status"], "click", evt({ target: { getAttribute: () => null, id: "home-see-runs" } }));
+  await tick(); await tick();
+  ok(els["runs-wrap"].hidden === false, "see all reveals the full search history");
+  ok(els["runs-list"].innerHTML.split("<li").length - 1 === 8, "the full list paginates to 8 rows");
+  ok(/Runs 1\u20138 of 9/.test(els["runs-page-label"].textContent), "pager labels the page");
+  ok(/47 waiting|businesses/.test(els["runs-list"].innerHTML), "history rows keep the plain counts");
+  await fire(els["btn-runs-next"], "click", evt());
+  ok(els["runs-list"].innerHTML.indexOf("demo-run-1") >= 0, "next page reveals the oldest search");
+  await fire(els["btn-sb-dashboard"], "click", evt());
+  await tick(); await tick();
 }
 {
   const li = { getAttribute: (k) => (k === "data-view" ? "shortlist" : null) };

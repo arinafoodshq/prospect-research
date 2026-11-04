@@ -8,12 +8,12 @@
   <link rel="canonical" href="https://prospect-research.sam-5b1.workers.dev/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Figtree:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="./tokens.css" />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-  <meta name="theme-color" content="#F8F7F4" />
+  <meta name="theme-color" content="#F3F7F8" />
   <!-- Social preview: WhatsApp, X, Facebook, LinkedIn read these. The image
        must be an absolute URL to a raster (PNG), 1200x630, or previews show
        blank cards. -->
@@ -41,10 +41,15 @@
       <symbol id="i-wa" viewBox="0 0 24 24"><path d="M3 21l1.6-4.7A8.5 8.5 0 1 1 8 19.4L3 21z"/><path d="M9 8.5c0 3.4 3.1 6.5 6.5 6.5l1-1.5-2-1-1 .8c-1-.4-2-1.4-2.4-2.4l.8-1-1-2L9 8.5z"/></symbol>
       <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3.5 7l8.5 6 8.5-6"/></symbol>
       <symbol id="i-ig" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/></symbol>
+      <!-- Reference icon set (dashboard.html): stroke style, currentColor -->
+      <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></symbol>
+      <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3L3 10l7 3 3 7z"/><path d="M10 13l11-10"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5L16 9.5"/></symbol>
     </defs>
   </svg>
-  <!-- App shell: a left sidebar carries the APP's navigation (Dashboard,
-       Messages, Campaigns, Senders) like any normal workspace app. A single
+  <!-- App shell: a left sidebar carries the APP's navigation (Home,
+       Messages, Campaigns, Email accounts) like any normal workspace app. A
        campaign's stages live in a contextual strip inside the content —
        they belong to one campaign, not to the app's navigation, and they
        stay clickable so the owner can revisit what was done. -->
@@ -52,15 +57,15 @@
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <span class="sb-brand"><img class="brand-mark" src="./favicon.svg" alt="" aria-hidden="true" />Prospect Research</span>
       <nav class="sb-nav">
-        <button type="button" class="sb-item" id="btn-sb-dashboard"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Dashboard</span></button>
-        <button type="button" class="sb-item" id="btn-sb-messages"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span>Messages</span></button>
-        <button type="button" class="sb-item" id="btn-sb-campaigns"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg><span>Campaigns</span></button>
-        <button type="button" class="sb-item" id="btn-sb-senders"><svg class="sb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 006 0v-1a10 10 0 10-3.92 7.94"/></svg><span>Email accounts</span></button>
+        <button type="button" class="sb-item" id="btn-sb-dashboard"><svg class="sb-ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
+        <button type="button" class="sb-item" id="btn-sb-messages"><svg class="sb-ico" aria-hidden="true"><use href="#i-msg"/></svg><span>Messages</span></button>
+        <button type="button" class="sb-item" id="btn-sb-campaigns"><svg class="sb-ico" aria-hidden="true"><use href="#i-send"/></svg><span>Campaigns</span></button>
+        <button type="button" class="sb-item" id="btn-sb-senders"><svg class="sb-ico" aria-hidden="true"><use href="#i-mail"/></svg><span>Email accounts</span></button>
       </nav>
       <div class="sb-account" id="auth-area">
         <a class="auth-link" id="hdr-signin" href="/api/auth/start" hidden>Sign in</a>
-        <span class="auth-chip" id="hdr-user" hidden></span>
-        <button type="button" class="auth-out" id="btn-signout" hidden>Sign out</button>
+        <span class="who" id="hdr-user" hidden></span>
+        <button type="button" class="btn btn-ghost" id="btn-signout" hidden>Sign out</button>
       </div>
     </aside>
     <div class="sb-content" id="sb-content">
@@ -371,28 +376,68 @@
       </div>
     </section>
 
-    <!-- View 5b: status board -->
-    <section id="view-status" class="view" hidden aria-label="Status board">
+    <!-- View 5b: Home (style-guide.md layout: hero, journey, campaign
+         cards, two-column messages + recent searches). -->
+    <section id="view-status" class="view" hidden aria-label="Home">
       <p class="kicker kicker-dim" id="status-kicker" hidden></p>
-      <h2>Your dashboard</h2>
-      <p class="board-sub">Where every message stands. Nothing sends without your approval.</p>
-      <div id="run-banner" hidden></div>
-      <div id="waiting-strip" hidden aria-label="Messages waiting for your approval"></div>
-      <div id="board-campaign" class="campaign-chip" hidden></div>
-      <div id="runs-wrap">
-        <h3 class="sec-h">All runs</h3>
-        <p class="hint">Every search you have started, any status — nothing is lost when a newer run begins.</p>
-        <ul id="runs-list" class="runs-list"><li class="hint">Loading…</li></ul>
-        <div class="board-pager" id="runs-pager" hidden>
-          <button id="btn-runs-prev" type="button" class="linklike pager-btn">&lsaquo; Prev</button>
-          <span class="muted small" id="runs-page-label"></span>
-          <button id="btn-runs-next" type="button" class="linklike pager-btn">Next &rsaquo;</button>
+      <section class="hero" aria-labelledby="home-hero">
+        <div>
+          <p class="hero-hi" id="home-greeting"></p>
+          <h1 id="home-hero" class="hero-title">You are all caught up.</h1>
+          <p class="hero-lead" id="home-lead">Describe what you sell and we will find the businesses that need it, then write the message for each one.</p>
+          <div class="hero-actions">
+            <button type="button" class="btn btn-primary" id="btn-back-drafts" hidden>Check messages</button>
+            <button type="button" class="btn btn-ghost" id="btn-restart">Start a new campaign</button>
+          </div>
+          <p class="reassure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5L16 9.5"/></svg>Nothing is sent until you approve it.</p>
         </div>
-      </div>
-      <div class="board" id="status-board"></div>
-      <div class="row">
-        <button id="btn-back-drafts" type="button" class="secondary">Back to drafts</button>
-        <button id="btn-restart" type="button">Start a new campaign</button>
+        <svg class="hero-art" viewBox="0 0 360 260" role="img" aria-label="A paper plane flying over gentle hills">
+          <circle cx="250" cy="92" r="64" fill="#DCE7FF"/>
+          <circle cx="250" cy="92" r="40" fill="#CBBFF2" opacity=".55"/>
+          <circle cx="62" cy="58" r="10" fill="#B9AEE8"/>
+          <circle cx="312" cy="34" r="6" fill="#4E9C7E" opacity=".7"/>
+          <circle cx="120" cy="30" r="4" fill="#3B6FE0" opacity=".6"/>
+          <path d="M0 200 Q90 150 180 190 T360 170 V260 H0Z" fill="#CFE6DC"/>
+          <path d="M0 226 Q110 184 210 220 T360 208 V260 H0Z" fill="#4E9C7E" opacity=".85"/>
+          <path d="M96 128 L228 70 L190 168 L164 138 Z" fill="#fff" stroke="#3B6FE0" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M164 138 L228 70" stroke="#3B6FE0" stroke-width="3" stroke-linecap="round"/>
+          <path d="M164 138 L172 158 L190 168" fill="#DCE7FF" stroke="#3B6FE0" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M20 150 q30 -22 58 -12" fill="none" stroke="#3B6FE0" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 9"/>
+        </svg>
+      </section>
+
+      <section class="home-sec" aria-labelledby="home-journey-h">
+        <div class="sec-head"><h2 id="home-journey-h">Where you are</h2><p>Three simple steps from search to sent.</p></div>
+        <ol class="journey" id="home-journey"></ol>
+      </section>
+
+      <section class="home-sec" aria-labelledby="home-need-h">
+        <div class="sec-head"><h2 id="home-need-h">Start with these</h2><p>Biggest piles first.</p></div>
+        <div class="cards" id="home-cards"></div>
+        <div class="row-foot" id="home-campaigns-more" hidden></div>
+      </section>
+
+      <div class="two">
+        <section class="card home-card" aria-labelledby="home-status-h">
+          <div class="sec-head"><h2 id="home-status-h">Your messages</h2></div>
+          <div class="tabs" role="tablist" aria-label="Message status" id="home-tabs"></div>
+          <p class="hint" id="home-msg-hint"></p>
+          <ul class="rows" id="home-rows"></ul>
+          <div class="row-foot" id="home-msg-more" hidden></div>
+        </section>
+        <section class="card home-card" aria-labelledby="home-runs-h">
+          <div class="sec-head"><h2 id="home-runs-h">Recent searches</h2></div>
+          <div id="home-recents"></div>
+          <div class="row-foot" id="home-recents-more" hidden></div>
+          <div id="runs-wrap" hidden>
+            <ul id="runs-list" class="runs-list"></ul>
+            <div class="board-pager" id="runs-pager" hidden>
+              <button id="btn-runs-prev" type="button" class="linklike pager-btn">&lsaquo; Prev</button>
+              <span class="muted small" id="runs-page-label"></span>
+              <button id="btn-runs-next" type="button" class="linklike pager-btn">Next &rsaquo;</button>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
     <!-- View 7: campaigns -->

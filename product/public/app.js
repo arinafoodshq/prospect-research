@@ -232,10 +232,10 @@
         $("runs-pager").hidden = true;
         return;
       }
-      var STATUS_LABEL = { created: "Preparing", running: "Working now", complete: "Done", failed: "Failed", stopped: "Stopped", awaiting_approval: "Ready to review", assessing: "Scoring" };
+      var STATUS_LABEL = { created: "Preparing", running: "Working now", complete: "Finished", failed: "Failed", stopped: "Stopped", awaiting_approval: "Ready to check", assessing: "Checking fit" };
       list.innerHTML = runs.map(function (r) {
         var label = STATUS_LABEL[r.status] || String(r.status || "").replace(/_/g, " ");
-        var counts = (r.found || 0) + " found · " + (r.kept || 0) + " kept" + (r.waiting ? ' · <em class="waiting-flag">' + r.waiting + " waiting</em>" : "");
+        var counts = (r.found || 0) + " businesses · " + (r.kept || 0) + " good matches" + (r.waiting ? ' · <em class="waiting-flag">' + r.waiting + " waiting</em>" : "");
         return '<li class="run-row">' +
           '<div class="run-main">' +
           '<p class="run-title"><strong>' + esc(r.profile_name || "Campaign") + '</strong><span class="run-status st-' + esc(r.status || "unknown") + '">' + esc(label) + "</span></p>" +
@@ -2342,73 +2342,210 @@
       '<circle cx="48" cy="28" r="3" fill="#2e7d5b" opacity="0.5"/></svg>';
   }
 
+  // ============ Home (style-guide.md section 7): hero answers "what do I
+  // do now?", the journey strip shows where they are, campaign cards merge
+  // duplicates and lead with the biggest pile, messages are one tabbed list
+  // (5 rows, "See all"), recent searches speak plain sentences. Load
+  // limits: 3 cards, 5 rows, 4 recents; everything else behind See all. ============
+  var HOME_ROWS_PAGE = 5;
+  var HOME_RECENTS = 4;
+  var HOME_MSG_HINTS = {
+    waiting: "Read each message, then approve it or skip it.",
+    approved: "You approved these. Follow up when you are ready.",
+    deferred: "Messages you set aside to look at later.",
+    rejected: "You marked these as not right. We will not message them."
+  };
+  var HOME_CHIP = {
+    waiting: ["chip-wait", "Needs your check"],
+    approved: ["chip-done", "Approved"],
+    deferred: ["chip-info", "Paused"],
+    rejected: ["chip-no", "Skipped"]
+  };
+
   function renderStatuses() {
-    if (!state.board && api.getBoard) {
-      // Self-fetch: the board can be opened cold (Back to drafts → board)
-      // without a dashboard pass first (owner 2026-11-04).
-      return api.getBoard().then(function (r) {
-        state.board = r.drafts || [];
-        renderStatuses();
-      }, function () {
-        state.board = [];
-        renderStatuses();
-      });
+    // Self-fetch: the dashboard can be opened cold without a data pass.
+    var needRuns = !state.runsCache || !state.runsCache.length;
+    if (needRuns || !state.board) {
+      return Promise.all([
+        api.getRuns ? api.getRuns(50, 0).then(function (r) { state.runsCache = r.runs || []; }, function () { state.runsCache = state.runsCache || []; }) : Promise.resolve(),
+        api.getBoard ? api.getBoard().then(function (r) { state.board = r.drafts || []; }, function () { state.board = []; }) : Promise.resolve()
+      ]).then(renderStatuses, renderStatuses);
     }
-    renderRunBanner();
     var board = $("status-board");
-    if (!board) return;
-    board.innerHTML = "";
-    // The adopted run's decisions still override fresh board rows this
-    // session (deciding in the studio updates the board instantly).
+    var runs = state.runsCache || [];
     var items = (state.board || []).map(function (d) {
-      var dec = state.decisions[d.prospectId] ? state.decisions[d.prospectId].decision : d.status;
+      var dec = state.decisions[d.prospect_id] ? state.decisions[d.prospect_id].decision : d.status;
       return { prospectId: d.prospect_id, name: d.name || d.prospect_id, campaign: d.campaign || "Campaign",
         runId: d.run_id, status: dec === "draft" ? "pending" : dec };
     });
-    state.boardPage = state.boardPage || {};
-    // Groups are appended as REAL nodes (the smoke's DOM stub keeps
-    // children and innerHTML independent — and it reads better anyway).
-    BOARD_GROUPS.forEach(function (g) {
-      var all = items.filter(function (d) { return d.status === g.key; });
-      var pages = Math.max(1, Math.ceil(all.length / BOARD_PAGE_SIZE));
-      state.boardPage[g.key] = Math.min(state.boardPage[g.key] || 0, pages - 1);
-      var page = state.boardPage[g.key];
-      var start = page * BOARD_PAGE_SIZE;
-      var rows = all.slice(start, start + BOARD_PAGE_SIZE).map(function (d) {
-        var suffix = g.suffix ? esc(g.suffix) : "";
-        return "<li><span class=\"campaign-chip\">" + esc(d.campaign) + "</span>" +
-          "<button type=\"button\" class=\"board-item\" data-act=\"open-draft\" data-id=\"" + esc(d.prospectId) +
-          "\" data-run=\"" + esc(d.runId) + "\" data-campaign=\"" + esc(d.campaign) + "\">" + esc(d.name) + "</button>" + suffix + "</li>";
-      });
-      var body;
-      if (rows.length) {
-        body = "<ul>" + rows.join("") + "</ul>";
-      } else {
-        var icon = g.key === "pending" ? illust("clear") : illust("calm");
-        body = '<div class="board-empty">' + icon + "<p>" + esc(g.empty) + "</p></div>";
+    var waiting = items.filter(function (d) { return d.status === "pending"; });
+    var workingRun = runs.filter(function (r) { return r.status === "running" || r.status === "assessing" || r.status === "investigating" || r.status === "discovering" || r.status === "drafting"; })[0];
+    var failedRun = runs.filter(function (r) { return r.status === "failed" || r.status === "stopped"; })[0];
+    var totalFound = runs.reduce(function (a, r) { return a + (r.found || 0); }, 0);
+
+    // Hero: one headline with the number that matters, one primary button.
+    var firstName = (function () {
+      var e = (me && (me.name || me.email)) || "";
+      var base = String(e).indexOf("@") > 0 ? String(e).split("@")[0] : String(e);
+      var word = base.split(/[._\s-]+/)[0] || "";
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })();
+    var h = new Date().getHours();
+    var part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+    $("home-greeting").textContent = firstName ? "Good " + part + ", " + firstName : "";
+    var hero = $("home-hero");
+    var lead = $("home-lead");
+    var check = $("btn-back-drafts");
+    // Priority: the actionable pile (messages waiting) outranks a running
+    // search — the hero states the ONE next action (style guide section 7);
+    // the working search still shows in Recent searches and the banner.
+    if (waiting.length) {
+      hero.textContent = waiting.length === 1
+        ? "1 message is ready for you to check"
+        : waiting.length + " messages are ready for you to check";
+      lead.textContent = "We have found businesses and written a message for each one. Read them, approve the good ones, and you are done.";
+      check.hidden = false;
+      check.textContent = "Check messages";
+    } else if (workingRun) {
+      hero.textContent = workingRun.profile_name
+        ? "We are still researching for " + workingRun.profile_name + "."
+        : "We are still researching.";
+      lead.textContent = (workingRun.found || 0) + " businesses looked at so far. The search keeps running on the server, so you can leave and come back.";
+      check.hidden = false;
+      check.textContent = "Check what we have so far";
+    } else if (failedRun) {
+      hero.textContent = failedRun.profile_name ? "Your " + failedRun.profile_name + " search stopped early." : "Your search stopped early.";
+      lead.textContent = "Nothing was lost. You can continue the same search from where it stopped.";
+      check.hidden = false;
+      check.textContent = "Continue the search";
+    } else {
+      hero.textContent = "You are all caught up.";
+      lead.textContent = runs.length
+        ? "Every message across your campaigns has been checked. Start a new search whenever you like."
+        : "Describe what you sell and we will find the businesses that need it, then write the message for each one.";
+      check.hidden = runs.length === 0;
+    }
+
+    // Journey: a true sequence with real counts.
+    var journey = $("home-journey");
+    var s1 = '<li class="step done"><span class="dot" aria-hidden="true">1</span><div><b>Find businesses</b><span>' +
+      (totalFound ? "Done. We looked at " + totalFound + " for you." : "Your searches will show here.") + "</span></div></li>";
+    var s2 = workingRun || failedRun
+      ? '<li class="step now" aria-current="step"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>You are here. The search is still working.</span></div></li>'
+      : (waiting.length
+        ? '<li class="step now" aria-current="step"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>You are here. ' + waiting.length + " waiting.</span></div></li>"
+        : '<li class="step done"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>Done. Everything has been checked.</span></div></li>');
+    var s3 = '<li class="step"><span class="dot" aria-hidden="true">3</span><div><b>Send</b><span>Approved messages go out from your email.</span></div></li>';
+    journey.innerHTML = s1 + s2 + s3;
+
+    // Campaign cards: ONE card per campaign (merge duplicates), biggest
+    // pile first, 3 max, one primary button each.
+    var cardsEl = $("home-cards");
+    var byCampaign = {};
+    runs.forEach(function (r) {
+      if (!(r.waiting > 0)) return;
+      var name = r.profile_name || "Campaign";
+      var c = byCampaign[name];
+      if (!c) {
+        byCampaign[name] = { name: name, waiting: r.waiting, runId: r.id, profileId: r.profile_id, when: r.created_at, found: r.found || 0, kept: r.kept || 0 };
+        return;
       }
-      var pager = "";
-      if (all.length > BOARD_PAGE_SIZE) {
-        var end = Math.min(start + BOARD_PAGE_SIZE, all.length);
-        pager = '<div class="board-pager">' +
-          '<button type="button" class="linklike" data-act="board-page" data-col="' + g.key + '" data-dir="-1"' + (page === 0 ? " disabled" : "") + '>&lsaquo; Prev</button>' +
-          '<span class="muted small">' + (start + 1) + "\u2013" + end + " of " + all.length + "</span>" +
-          '<button type="button" class="linklike" data-act="board-page" data-col="' + g.key + '" data-dir="1"' + (page >= pages - 1 ? " disabled" : "") + '>Next &rsaquo;</button>' +
-          "</div>";
-      }
-      var count = all.length ? " · " + all.length : "";
-      var div = document.createElement("section");
-      div.className = "board-group" + (g.primary ? " board-primary" : "");
-      div.setAttribute("data-col", g.key);
-      div.innerHTML = "<h3>" + esc(g.title) + count + "</h3>" + body + pager;
-      board.appendChild(div);
+      c.waiting += r.waiting;
+      if (String(r.created_at) > String(c.when)) { c.when = r.created_at; c.found = r.found || 0; c.kept = r.kept || 0; c.runId = r.id; c.profileId = r.profile_id; }
     });
-    // The board is ALL campaigns now — label it so the scope is never in
-    // question (recognition over recall).
-    var chip = $("board-campaign");
-    if (chip) { chip.hidden = false; chip.textContent = "All campaigns"; }
-    var switcher = $("board-switch");
-    if (switcher) { switcher.hidden = true; switcher.innerHTML = ""; }
+    var cardList = Object.keys(byCampaign).map(function (k) { return byCampaign[k]; })
+      .sort(function (a, b) { return b.waiting - a.waiting; });
+    var shown = state.homeShowAllCampaigns ? cardList : cardList.slice(0, 3);
+    if (!shown.length) {
+      cardsEl.innerHTML = '<div class="empty">' + illust("start") + "<p>No messages are waiting. Start a new search and the cards will show up here.</p></div>";
+    } else {
+      cardsEl.innerHTML = shown.map(function (c) {
+        var pct = c.found ? Math.round((c.kept / c.found) * 100) : 0;
+        var initial = esc((c.name.charAt(0) || "C").toUpperCase());
+        return '<article class="card camp">' +
+          '<header><div class="badge" style="background:var(--sky-wash);color:var(--sky-deep)">' + initial + "</div>" +
+          '<div><h3>' + esc(c.name) + '</h3><span class="sub">Last search ' + esc(fmtWhen(c.when)) + "</span></div></header>" +
+          '<div><div class="big">' + c.waiting + '</div><div class="sub">' + (c.waiting === 1 ? "message" : "messages") + " waiting for you</div></div>" +
+          '<div class="bar" role="img" aria-label="' + c.kept + " of " + c.found + ' checked"><i style="width:' + pct + '%"></i></div>' +
+          '<button type="button" class="btn btn-primary" data-act="check-campaign" data-id="' + esc(c.runId) + '" data-profile="' + esc(c.profileId || "") + '" data-profile-name="' + esc(c.name) + '">Check ' + c.waiting + " " + (c.waiting === 1 ? "message" : "messages") + "</button>" +
+          "</article>";
+      }).join("");
+    }
+    var moreCards = $("home-campaigns-more");
+    if (moreCards) {
+      var rest = cardList.length - shown.length;
+      moreCards.hidden = rest <= 0 && !state.homeShowAllCampaigns;
+      moreCards.innerHTML = rest > 0
+        ? '<button type="button" class="btn btn-quiet" id="home-see-campaigns">See all campaigns</button>'
+        : (state.homeShowAllCampaigns && cardList.length > 3 ? '<button type="button" class="btn btn-quiet" id="home-see-campaigns">Show fewer</button>' : "");
+    }
+
+    // Your messages: one list, four tabs, 5 rows per page.
+    var GROUPS = [
+      { key: "waiting", title: "Waiting for you", match: "pending", empty: "Nothing waiting", emptyCopy: "When the research writes messages, they will wait here until you check them." },
+      { key: "approved", title: "Approved", match: "approved", empty: "Nothing approved yet", emptyCopy: "Approve a message and it will move here, ready to send." },
+      { key: "deferred", title: "Paused", match: "deferred", empty: "Nothing paused", emptyCopy: "When you set a message aside, it will wait here until you are ready." },
+      { key: "rejected", title: "Not a fit", match: "rejected", empty: "Nothing marked", emptyCopy: "Messages you mark as not right will wait here, and we will not message them." }
+    ];
+    state.homeTab = state.homeTab || "waiting";
+    var tabsEl = $("home-tabs");
+    tabsEl.innerHTML = GROUPS.map(function (g) {
+      var n = items.filter(function (d) { return d.status === g.match; }).length;
+      return '<button type="button" class="tab" role="tab" data-tab="' + g.key + '" aria-selected="' + (state.homeTab === g.key) + '">' + esc(g.title) + ' <span class="n">' + n + "</span></button>";
+    }).join("");
+    var group = GROUPS.filter(function (g) { return g.key === state.homeTab; })[0] || GROUPS[0];
+    var tabItems = items.filter(function (d) { return d.status === group.match; });
+    $("home-msg-hint").textContent = HOME_MSG_HINTS[group.key];
+    var rowsEl = $("home-rows");
+    var chip = HOME_CHIP[group.key] || ["chip-info", group.title];
+    if (!tabItems.length) {
+      rowsEl.innerHTML = '<li class="empty">' + illust(group.key === "deferred" ? "calm" : "clear") +
+        "<h3>" + esc(group.empty) + "</h3><p>" + esc(group.emptyCopy) + "</p></li>";
+    } else {
+      var visible = state.homeShowAll ? tabItems : tabItems.slice(0, HOME_ROWS_PAGE);
+      rowsEl.innerHTML = visible.map(function (d) {
+        return '<li class="row"><div class="name">' + esc(d.name) + "<small>" + esc(d.campaign) + "</small></div>" +
+          '<span class="chip ' + chip[0] + '">' + esc(chip[1]) + "</span>" +
+          '<button type="button" class="btn btn-ghost" data-act="open-draft" data-id="' + esc(d.prospectId) + '" data-run="' + esc(d.runId) + '" data-campaign="' + esc(d.campaign) + '">Open</button></li>';
+      }).join("");
+    }
+    var msgMore = $("home-msg-more");
+    if (msgMore) {
+      msgMore.hidden = tabItems.length <= HOME_ROWS_PAGE;
+      msgMore.innerHTML = tabItems.length > HOME_ROWS_PAGE
+        ? '<button type="button" class="btn btn-quiet" id="home-see-all-msgs">' + (state.homeShowAll ? "Show fewer" : "See all " + tabItems.length) + "</button>"
+        : "";
+    }
+
+    // Recent searches: plain sentences, human chips, 4 items, the full
+    // paginated history behind "See all".
+    var recentsEl = $("home-recents");
+    var RUN_CHIP = function (r) {
+      if (r.status === "failed" || r.status === "stopped") return ["chip-no", "Stopped"];
+      if (r.waiting > 0) return ["chip-wait", "Ready to check"];
+      if (r.status === "complete") return (r.kept || 0) > 0 ? ["chip-done", "Finished"] : ["chip-no", "No matches"];
+      return ["chip-info", "Working"];
+    };
+    if (!runs.length) {
+      recentsEl.innerHTML = '<div class="empty">' + illust("start") + "<p>Your searches will appear here, with what each one found.</p></div>";
+    } else {
+      recentsEl.innerHTML = runs.slice(0, HOME_RECENTS).map(function (r) {
+        var c = RUN_CHIP(r);
+        var kept = (r.kept || 0) > 0
+          ? " and kept " + r.kept + " good matches"
+          : ((r.status === "complete" || r.status === "failed") ? ". None were a good match" : "");
+        return '<div class="run"><div><b>' + esc(r.profile_name || "Campaign") + '</b><span class="d">' +
+          esc(fmtWhen(r.created_at)) + ". Looked at " + (r.found || 0) + " businesses" + kept + '.</span></div>' +
+          '<span class="chip ' + c[0] + '">' + esc(c[1]) + "</span></div>";
+      }).join("");
+    }
+    var recentsMore = $("home-recents-more");
+    if (recentsMore) {
+      recentsMore.hidden = runs.length <= HOME_RECENTS;
+      recentsMore.innerHTML = runs.length > HOME_RECENTS
+        ? '<button type="button" class="btn btn-quiet" id="home-see-runs">See all ' + runs.length + " searches</button>"
+        : "";
+    }
     showView("status");
   }
 
@@ -3335,7 +3472,30 @@
     $("btn-ob-exit").addEventListener("click", obSaveExit);
     $("btn-ob-edit-first").addEventListener("click", obEditFirst);
     $("evidence-body").addEventListener("click", onEvidenceClick);
-    $("status-board").addEventListener("click", onBoardClick);
+    // Home (the general dashboard): one delegated listener covers tab
+    // switching, see-all toggles, campaign cards and message rows.
+    $("view-status").addEventListener("click", function (e) {
+      var t = e.target || {};
+      var act = t.getAttribute ? t.getAttribute("data-act") : null;
+      var tab = t.getAttribute ? t.getAttribute("data-tab") : null;
+      var id = t.id || "";
+      if (act === "open-draft") { onBoardClick(e); return; }
+      if (act === "check-campaign") {
+        switchRun({ id: t.getAttribute("data-id"), profile_id: t.getAttribute("data-profile"), profile_name: t.getAttribute("data-profile-name") });
+        renderDrafts();
+        return;
+      }
+      if (tab) { state.homeTab = tab; state.homeShowAll = false; renderStatuses(); return; }
+      if (id === "home-see-all-msgs") { state.homeShowAll = !state.homeShowAll; renderStatuses(); return; }
+      if (id === "home-see-campaigns") { state.homeShowAllCampaigns = !state.homeShowAllCampaigns; renderStatuses(); return; }
+      if (id === "home-see-runs") {
+        var wrapEl = $("runs-wrap");
+        if (wrapEl) wrapEl.hidden = false;
+        t.hidden = true;
+        renderRuns();
+        return;
+      }
+    });
     // The run banner sits beside the board; its buttons share the handler.
     var banner = $("run-banner");
     if (banner) banner.addEventListener("click", onBoardClick);
