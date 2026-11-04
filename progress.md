@@ -2482,3 +2482,30 @@ cross-campaign resource, by design (they send for any campaign).
 
 Tests: draft-missing on a running run (no 409, ok:true). Verification:
 492/492 vitest, SMOKE PASS, tsc clean; deployed f7dce344 (push 7fda3de).
+## 2026-11-04 v2 (write-messages: the actual 0-draft root cause, live-verified)
+
+User clicked "Write their messages now" again on the most recent campaign
+(run_17497978) — still zero drafts.
+
+Live D1 evidence (prospect_research f403c035-dcfd): the run is complete
+with 61 prospects (18 qualified, 8 shortlisted, 24 investigating, 11
+disqualified — the 504Yard keep-rate working: 50/61 non-disqualified),
+47 non-disqualified prospects own contact routes, and outreach_draft rows
+= 0. The workflow's own draft phase had written nothing.
+
+Root cause (the third one): proposeDrafts shared ONE global slice of 40
+evidence rows across ALL prospects — the same shape as the assess bug
+fixed yesterday. Most prospects' own evidence was missing from the prompt,
+the model could not cite it, and draft()'s grounding audit correctly
+skipped every ungrounded body: zero drafts, silently. Fixed: per-prospect
+evidence rows in the draft prompt (like assess) AND bursts chunked to 12
+prospects (40+ messages with variants in one reply truncated and lost
+rows). Also in draft(): contact routes scoped to THIS run in JS (the raw
+scan crossed runs), the studio top-up gets fresh budget counters (a long
+run's consumed counters could breach caps first), and the on-demand path
+NEVER mutates a live run's status (empty targets used to park a running
+run at awaiting_approval).
+
+Verification: 492/492 vitest, SMOKE PASS, tsc clean; deployed 2d305802
+(push 6d6f796). The user's click on run_17497978 should now draft all 47
+routable prospects (chunked bursts, a few seconds each).
