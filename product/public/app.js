@@ -125,6 +125,23 @@
     }
   }
 
+  /** Adopt the account's latest run on demand — ANY status, not just the
+   *  resumable ones (owner 2026-11-04: a complete run's messages were
+   *  unreachable from a cold /messages; the sidebar dumped him into
+   *  onboarding instead of the studio). */
+  function adoptLatestRun() {
+    if (state.runId || api.mode !== "live" || !api.getLatestRun) {
+      return Promise.resolve(!!state.runId);
+    }
+    return api.getLatestRun().then(function (res) {
+      var run = res && res.run;
+      if (!run || !run.id) return false;
+      state.runId = run.id;
+      state.profile = { id: run.profile_id, name: run.profile_name || (state.profile && state.profile.name) || "" };
+      return true;
+    }, function () { return false; });
+  }
+
   function openDashboard() {
     adoptPendingRun();
     var jobs = [];
@@ -289,7 +306,15 @@
   function routeToView(name) {
     if (!name) return false;
     if (name === "status") { openDashboard(); return true; }
-    if (name === "drafts") { if (state.runId) { renderDrafts(); return true; } openDashboard(); return true; }
+    if (name === "drafts") {
+      if (state.runId) { renderDrafts(); return true; }
+      // Deep link with no adopted run: adopt the latest (any status) first.
+      return adoptLatestRun().then(function (adopted) {
+        if (adopted) { renderDrafts(); return true; }
+        openDashboard();
+        return true;
+      });
+    }
     if (name === "campaigns") { renderCampaignView(); return true; }
     if (name === "senders") { renderSendersView("status"); return true; }
     if (name === "progress") { if (state.runId) { showView("progress"); pollProgress(false); return true; } openDashboard(); return true; }
@@ -3066,10 +3091,16 @@
     if (sbDash) sbDash.addEventListener("click", openDashboard);
     var sbMsg = $("btn-sb-messages");
     if (sbMsg) sbMsg.addEventListener("click", function () {
-      if (state.runId) { renderDrafts(); return; }
       if (api.mode === "live" && !me) { goSignin(); return; }
-      showView("onboard");
-      obFirstPhase();
+      if (state.runId) { renderDrafts(); return; }
+      // No adopted run yet (fresh reload): adopt the latest one first — a
+      // complete run carries messages too, so onboarding is only for a
+      // genuinely fresh account (owner 2026-11-04).
+      adoptLatestRun().then(function (adopted) {
+        if (adopted) { renderDrafts(); return; }
+        showView("onboard");
+        obFirstPhase();
+      });
     });
     var sbCmp = $("btn-sb-campaigns");
     if (sbCmp) sbCmp.addEventListener("click", function () {
