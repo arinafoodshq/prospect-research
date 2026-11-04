@@ -1403,9 +1403,13 @@ export async function draft(
       throw e;
     }
   }
-  try {
-    await setRunStatus(db, budgets.run_id, "awaiting_approval");
-  } catch { /* best-effort; gate still waits */ }
+  // Park the run for review on the WORKFLOW path only — the studio's
+  // on-demand top-up must never rewind a completed (or live) run.
+  if (!opts?.onDemand) {
+    try {
+      await setRunStatus(db, budgets.run_id, "awaiting_approval");
+    } catch { /* best-effort; gate still waits */ }
+  }
   return completed(`${done}/${targets.length} drafts written (${proposals.length} proposals); awaiting approval`);
 }
 
