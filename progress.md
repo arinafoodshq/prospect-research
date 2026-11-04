@@ -2541,3 +2541,17 @@ junk (Wells Fargo Bank, Business Post...) receives nothing.
 
 Deploys through a0c669a7 (pushes bff9e70..7cad0d0). 492/492 vitest, SMOKE
 PASS, tsc clean.
+## 2026-11-04 v4 (sidebar Messages adopts the latest run — verified live)
+
+Owner confirmed messages generate; remaining complaint: sidebar Messages
+from a cold open landed on /onboard. Root: only RESUMABLE runs were
+adopted at boot (checkResumableRun); a COMPLETE run — exactly when
+messages exist — was never adopted, so the Messages button fell through
+to onboarding. Fixed: adoptLatestRun() adopts the account's latest run on
+demand (any status) in both the sidebar handler and the /messages deep
+link; onboarding is only for a genuinely fresh account.
+
+LIVE VERIFICATION (browser MCP, cold goto -> Dashboard -> sidebar
+Messages): lands in the studio, "ALL MESSAGES / 47 messages for your
+picks" — no onboarding detour. Deploy 375e0c33 (push 4a6c89a). 492/492
+vitest, SMOKE PASS.
