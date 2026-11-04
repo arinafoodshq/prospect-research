@@ -162,24 +162,31 @@
 
   function openDashboard() {
     adoptPendingRun();
-    var jobs = [];
-    if (state.runId) {
-      if (!state.prospects.length) {
-        jobs.push(api.getShortlist(state.runId).then(function (r) {
-          state.prospects = r.prospects;
-          state.shortlistLoaded = true;
-        }, function () { /* the board still renders, empty */ }));
+    // A cold dashboard with no adopted run races its own boot: adopt the
+    // latest run (any status) FIRST, then fetch — otherwise the board
+    // fetched nothing and painted an unlabeled empty campaign (owner
+    // 2026-11-04, seen live).
+    var boot = state.runId ? Promise.resolve() : adoptLatestRun().then(function () { /* adopted or genuinely none */ });
+    boot.then(function () {
+      var jobs = [];
+      if (state.runId) {
+        if (!state.prospects.length) {
+          jobs.push(api.getShortlist(state.runId).then(function (r) {
+            state.prospects = r.prospects;
+            state.shortlistLoaded = true;
+          }, function () { /* the board still renders, empty */ }));
+        }
+        if (!state.drafts.length) {
+          jobs.push(api.getDrafts(state.runId).then(function (r) {
+            state.drafts = r.drafts;
+          }, function () { /* the board still renders, empty */ }));
+        }
       }
-      if (!state.drafts.length) {
-        jobs.push(api.getDrafts(state.runId).then(function (r) {
-          state.drafts = r.drafts;
-        }, function () { /* the board still renders, empty */ }));
-      }
-    }
-    // The status board reads the runs cache (campaign label + switcher), so
-    // the runs fetch lands BEFORE the board paints.
-    jobs.push(renderRuns());
-    Promise.all(jobs).then(function () { renderStatuses(); });
+      // The status board reads the runs cache (campaign label + switcher),
+      // so the runs fetch lands BEFORE the board paints.
+      jobs.push(renderRuns());
+      Promise.all(jobs).then(function () { renderStatuses(); });
+    });
   }
 
   // Times render in the VIEWER's timezone and locale (best practice for an
