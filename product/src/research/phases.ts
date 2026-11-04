@@ -1290,6 +1290,7 @@ export async function draft(
   brief: Brief, db: Db, meta: MetaClient,
   budgets: BudgetState & { run_id: string },
   onlyIds?: string[],
+  opts?: { onDemand?: boolean },
 ): Promise<PhaseOutcome> {
   void brief;
   const breach = firstBreach(budgets.consumed, budgets.caps);
@@ -1299,18 +1300,30 @@ export async function draft(
   // on the shortlist dead-ended with "no draft yet") — not just the
   // rank-shortlisted elite. Reachable = owns a contact route, or was
   // rank-shortlisted. onlyIds scopes an on-demand top-up from the studio.
+  // Routes are scoped to THIS run (owner bug 2026-11-04: the raw route
+  // scan crossed runs); the intersection happens in JS because the
+  // prospects list is already run-scoped.
   const routeRows = await db.prepare("SELECT prospect_id FROM contact_route").all<{ prospect_id: string }>();
-  const routeIds = new Set((routeRows.results ?? []).map((r) => String(r["prospect_id"])));
+  const runProspectIds = new Set(prospects.map((p) => p.id));
+  const routeIds = new Set(
+    (routeRows.results ?? [])
+      .map((r) => String(r["prospect_id"]))
+      .filter((id) => runProspectIds.has(id)),
+  );
   let targets = prospects.filter((p) =>
     p.status !== "disqualified" && (routeIds.has(p.id) || p.status === "shortlisted"));
   if (onlyIds && onlyIds.length > 0) targets = targets.filter((t) => onlyIds.indexOf(t.id) >= 0);
   // Honest empty: nothing shortlisted (rank already logged why). Park at
   // awaiting_approval like the normal path so the run completes visibly
-  // instead of freezing mid-flight on the Workflow path.
+  // instead of freezing mid-flight on the Workflow path — but NEVER from
+  // the studio's on-demand top-up: that must not touch a live run's status
+  // (owner bug 2026-11-04: a mid-run top-up hijacked a running run).
   if (targets.length === 0) {
-    try {
-      await setRunStatus(db, budgets.run_id, "awaiting_approval");
-    } catch { /* best-effort; gate still waits */ }
+    if (!opts?.onDemand) {
+      try {
+        await setRunStatus(db, budgets.run_id, "awaiting_approval");
+      } catch { /* best-effort; gate still waits */ }
+    }
     return completed("0 drafts written; empty shortlist awaiting review");
   }
   const allEvidence = await listEvidence(db, budgets.run_id);

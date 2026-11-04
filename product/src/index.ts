@@ -23,10 +23,9 @@ import {
 import { ASR_ENDPOINT, buildTranscribeForm, parseTranscribeResponse } from "./asr";
 import * as auth from "./auth";
 import { auditEvent } from "./audit";
-import { DEFAULT_CAPS } from "./research/budgets";
+import { DEFAULT_CAPS, emptyConsumed } from "./research/budgets";
 import { createMetaClient } from "./meta";
 import { draft, ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
-import { loadRunConsumed } from "./orchestrator";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
 import { openSecret } from "./delivery/crypto";
@@ -431,12 +430,17 @@ const postDraftMissing: Handler = async ({ req, env, params }) => {
     ...(env.MODEL_ID !== undefined ? { modelId: env.MODEL_ID } : {}),
     audit: (ev) => auditEvent(env.DB, ev),
   });
-  const consumed = await loadRunConsumed(env.DB, run.id as string);
+  // An explicit owner action never dies on the autonomous run's budget:
+  // fresh counters for this burst (the workflow's own caps still govern the
+  // run itself). Owner bug 2026-11-04: a long-running run's consumed
+  // counters could breach the caps before the top-up and the click did
+  // nothing.
   const outcome = await draft(
     { id: String(run.profile_id), status: "confirmed", excerpt: "" },
     env.DB as unknown as Db, meta,
-    { caps: { ...DEFAULT_CAPS }, consumed, run_id: run.id as string },
+    { caps: { ...DEFAULT_CAPS }, consumed: emptyConsumed(), run_id: run.id as string },
     onlyIds,
+    { onDemand: true },
   );
   if (outcome.status === "stopped") {
     return err("draft_failed", 502, outcome.stop_reason ?? "the draft burst failed");

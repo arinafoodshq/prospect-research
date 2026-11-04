@@ -877,17 +877,38 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
 
   async function proposeDrafts(prospects: Prospect[], evidence: Evidence[] = []): Promise<DraftProposal[]> {
     const ids = new Set(prospects.map((p) => p.id));
-    const req = buildPhaseRequest({
+    // Per-prospect evidence (owner bug 2026-11-04: the prompt shared ONE
+    // global slice of 40 evidence rows across all prospects — most
+    // prospects' own pages were missing, the model could not cite them,
+    // and the grounding audit skipped every ungrounded body: the studio's
+    // "Write their messages now" wrote ZERO drafts). Each prospect now
+    // carries its own evidence rows. Bursts are chunked to 12 prospects —
+    // 40+ messages with variants in one reply truncated and lost rows.
+    const evidenceFor = new Map<string, Array<{ id: string; claim: string; url: string | null }>>();
+    for (const p of prospects) {
+      const ownIds = new Set(p.evidence_ids);
+      const own = evidence.filter((e) => ownIds.has(e.id)).slice(0, 5)
+        .map((e) => ({ id: e.id, claim: e.claim.slice(0, 160), url: e.source_url }));
+      evidenceFor.set(p.id, own);
+    }
+    const goalFor = (chunk: Array<{ id: string; name: string; category: string; contact_name?: string | null; evidence: Array<{ id: string; claim: string; url: string | null }> }>) => buildPhaseRequest({
       phase: "draft",
       briefExcerpt: brief,
       phaseGoal: activeBrief
-        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. When the business's buyers are people (consumers), the prospect is a partner route — frame the ask as bulk order, stocking the line, hosting, or referring their audience, never as if the prospect were the end consumer. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims],"variants":{"whatsapp":"<=60 words, casual and direct, greeting by name, no citations","email":"<=120 words, professional, matches body but tighter","dm":"<=35 words, ultra casual for Instagram/TikTok"}}]. The variants are the messages the prospect actually receives on each channel — same facts, shaped for the channel. Business: ${renderBriefPrompt(activeBrief)} Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category, contact_person: p.contact_name ?? null })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`
-        : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(prospects.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(evidence.slice(0, 40).map((e) => ({ id: e.id, claim: e.claim, url: e.source_url })))}.`,
+        ? `Write one outreach draft per prospect. Each draft must follow: observed fact from the prospect's OWN evidence below, supported interpretation, pain hypothesis (say "might" or "often" when unverified), the offer, one low-friction ask. When the business's buyers are people (consumers), the prospect is a partner route — frame the ask as bulk order, stocking the line, hosting, or referring their audience, never as if the prospect were the end consumer. Never invent metrics, relationships, referrals, or internal knowledge. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the prospect's own evidence urls, never invented","subject":"...","body":"... must cite evidence ids from that prospect's own evidence list, like [${chunk[0] && chunk[0].evidence[0] ? chunk[0].evidence[0].id : "ev_x"}] ...","next_action":"...","follow_up_days":7,"supporting_ids":[evidence ids backing the claims],"variants":{"whatsapp":"<=60 words, casual and direct, greeting by name, no citations","email":"<=120 words, professional, matches body but tighter","dm":"<=35 words, ultra casual for Instagram/TikTok"}}]. The variants are the messages the prospect actually receives on each channel — same facts, shaped for the channel. Business: ${renderBriefPrompt(activeBrief)} Prospects (each with its OWN evidence): ${JSON.stringify(chunk)}.`
+        : `Write one outreach draft per prospect. Reply ONLY a JSON array: [{"prospect_id","channel":"website_form|email|phone|social_profile|other","contact_value":"copied from the evidence urls below, never invented","subject":"...","body":"... must cite evidence like [source 1] ...","next_action":"...","follow_up_days":7}]. Business: ${brief}. Prospects: ${JSON.stringify(chunk.map((p) => ({ id: p.id, name: p.name, category: p.category })))}. Evidence: ${JSON.stringify(chunk.flatMap((p) => p.evidence))}.`,
     });
-    req.tools = []; // structured burst: answer in text, no tool loop offered
-    const parsed = await callResponses(req);
     const out: DraftProposal[] = [];
-    for (const item of extractJsonArray(parsed.outputText)) {
+    const CHUNK = 12;
+    for (let i = 0; i < prospects.length; i += CHUNK) {
+      const chunk = prospects.slice(i, i + CHUNK).map((p) => ({
+        id: p.id, name: p.name, category: p.category, contact_name: p.contact_name ?? null,
+        evidence: evidenceFor.get(p.id) ?? [],
+      }));
+      const req = goalFor(chunk);
+      req.tools = []; // structured burst: answer in text, no tool loop offered
+      const parsed = await callResponses(req);
+      for (const item of extractJsonArray(parsed.outputText)) {
       if (!isRecord(item)) continue;
       const pid = item["prospect_id"];
       const body = item["body"];
@@ -926,6 +947,7 @@ export function createMetaClient(deps: MetaClientDeps): MetaClient {
         ...(supportingIds.length > 0 ? { supporting_ids: supportingIds } : {}),
         ...(variants && Object.keys(variants).length > 0 ? { variants } : {}),
       });
+      }
     }
     return out;
   }
