@@ -2361,7 +2361,7 @@
       var status = esc(resumeStatusText(run));
       var btn = "";
       if (run.status === "awaiting_approval") {
-        btn = "<button type=\"button\" data-act=\"open-messages\">Open my messages <span aria-hidden=\"true\">-&gt;</span></button>";
+        btn = "<button type=\"button\" data-act=\"open-messages\" data-id=\"" + esc(run.id) + "\" data-profile=\"" + esc(run.profile_id || "") + "\">Open my messages <span aria-hidden=\"true\">-&gt;</span></button>";
       } else {
         var label = run.status === "failed" ? "Continue research" : "Continue research";
         btn = "<button type=\"button\" data-act=\"resume-run\" data-id=\"" + esc(run.id) + "\">" + label + " <span aria-hidden=\"true\">-&gt;</span></button>";
@@ -2378,6 +2378,7 @@
     var t = e.target || {};
     var ds = t.dataset || (t.getAttribute ? {
       act: t.getAttribute("data-act"), id: t.getAttribute("data-id"), col: t.getAttribute("data-col"), dir: t.getAttribute("data-dir"),
+      profile: t.getAttribute("data-profile"),
     } : {});
     if (ds.act === "board-page" && ds.col) {
       state.boardPage = state.boardPage || {};
@@ -2387,7 +2388,16 @@
     }
     if (ds.act === "new-campaign") { renderCampaignView(); return; }
     if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id); return; }
-    if (ds.act === "open-messages") { renderDrafts(); return; }
+    if (ds.act === "open-messages") {
+      // The banner knows its run: adopt it first or the studio 404s on a
+      // cold dashboard (owner 2026-11-04).
+      if (ds.id) {
+        state.runId = ds.id;
+        if (ds.profile) state.profile = { id: ds.profile, name: (state.profile && state.profile.name) || "" };
+      }
+      renderDrafts();
+      return;
+    }
     if (ds.act === "resume-run") {
       if (ds.id) {
         state.runId = ds.id;
