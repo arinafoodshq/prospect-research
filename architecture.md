@@ -352,12 +352,27 @@ Log one `audit_log` row per stage with `duration_ms`. Report these for the Ikeja
 
 | Metric | Before | Phase 0 | Phase 2 target |
 |---|---|---|---|
-| Time to first candidate | | | under 15 s |
-| Time to first shortlisted | | | under 60 s |
-| Time to first draft | | | under 90 s |
-| Time to settled (about 40 businesses) | over 15 min | | under 4 min |
-| Pages opened per minute | | | 4x or better |
-| Model calls per run | | | no more than before |
+| Time to first candidate | 82 s | 74 s (run_305e1d9a) | under 15 s |
+| Time to first shortlisted | n/a (assess was skipped by the sweep-stop flaw) | ~7 min (assess now runs; 98+ assessments, 10 set-asides with reasons) | under 60 s |
+| Time to first draft | 8 min 0 s | 17 min 09 s | under 90 s |
+| Time to settled (about 40 businesses) | 8 min 01 s (run_91c95daf baseline: 49 opened, 33 drafts, 0 assessments, 0 kept, 27 model calls) | 17 min 14 s (run_305e1d9a: 63 opened, 51 drafts, 98+ assessments, 3-4 kept, 10 set-asides, 83 model calls) | under 4 min |
+| Pages opened per minute | 33.5/min during investigate (49 in 88 s); 6/min over the whole run | 57/min during investigate (63 in 66 s, completed without a budget stop) | 4x or better |
+| Model calls per run | 27 | 83 (assess now actually runs; chunked bursts add calls) | no more than before |
+
+Honest read of Phase 0 (owner asked for real numbers, not spin): each
+phase got faster and the pipeline now does the full quality job the
+baseline silently skipped (assess never ran in the baseline, so its 8 min
+"win" was an illusion: 0 kept, 0 assessments, drafts for unassessed
+route-holders). Wall-to-wall is slower because the run now pays for
+assess plus up to three QA sweeps. The next real wall-clock win is
+Phase 2 (queues + parallel discovery + first-draft-early UX); the QA
+loop's TARGET_GOOD=4 chasing on a strict segment is also a tunable.
+
+Baseline notes (run_91c95daf, version d8f1ef89): the sweep stopped at
+investigate and assess NEVER ran, so "rank what exists" ranked unassessed
+prospects and the run parked with 0 kept and 33 route-only drafts. Phase 0
+adds the continue-to-assess fix so the same stop shape now assesses what
+exists. Draft was the single longest phase (one giant burst, about 4.5 min).
 
 Back-of-envelope for the target (an estimate to sanity check, not a measurement): 20 searches at concurrency 6 take about 4 waves of 3 s, one triage call about 5 s, 60 sites at roughly 24 in flight with an 8 s cap take about 20 to 30 s, 40 assessments at concurrency 6 take about 40 s, and 15 drafts at concurrency 4 take about 25 s. Overlapping stages brings the total to roughly 2 minutes.
 

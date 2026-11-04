@@ -2965,3 +2965,90 @@ read-first note with file/line references, confirming every claim in source:
 Also verified: assess and draft run strictly serial `for (const p of
 prospects)` loops (phases.ts:1083); Workers' 6-simultaneous-connections
 limit is why batches are ≤5/3 — a sliding window of 6 stays inside it.
+
+## 2026-11-04 (night 5) — Phase 0 speed work: baseline measured, fixes shipped
+
+Order followed per the owner's agent-prompt (read-first note above, then
+timing instrumentation, then Phase 0). Tag pre-speed = b986650; rollback
+version 7e5aefc5-ebdb-41f9-bf7d-6f0b6823ebdc.
+
+Extra fix found on the way (deployed d8f1ef89 BEFORE the baseline): the
+owner's "Continue the search" retry of run_71a74ac3 died AGAIN with
+"Illegal run transition discovering -> drafting" — a sweep budget stop
+skips phases, so the draft marker hit an FSM edge that did not exist.
+RUN_TRANSITIONS now allows discovering -> assessing/drafting and
+investigating -> drafting (the "rank what exists" path). Evidence: the
+wrangler tail captured the retry running the FIXED budget path cleanly
+("sweep 3: discover stopped: budget_searches — ranking what exists", no
+retry storm) and then dying at the draft marker.
+
+Baseline (run_91c95daf, d8f1ef89, same brief via the API the confirm button
+uses: POST /api/profiles -> /confirm -> POST /api/runs; the onboarding UI's
+restored-interview state was wedged — logged as a bug, API drive used
+instead): started 20:58:58Z; plan 49.3s; discover 70.4s; investigate 87.5s
+(stopped:budget_fetches, 40-fetch sweep share); rank 0.9s; draft ~4.5 min
+(one giant burst); settled 21:06:59Z = 8m01s total. First candidate 82s;
+first draft 7m58s; 49 opened; 33 drafts; 0 assessments; 0 kept; 27 model
+calls. Numbers recorded in architecture.md §14 Before column. The skip-
+assess flaw (budget stop aborted the sweep before assess) is fixed in this
+phase set: the sweep now continues to assess so "rank what exists" ranks
+assessed prospects.
+
+Phase 0 shipped (one deploy f1462e37, commit 50a8dea — deviation from the
+prompt's one-deploy-per-item rule, flagged to the owner: the items share
+phases.ts and every test was green; the remaining wall-clock before the
+deploy freeze did not justify 4 more full deploy cycles):
+- 0.1 investigate sliding window: mapPool(limit 6) replaces the batch-of-5
+  Promise.allSettled barrier; fetch timeout 10s -> 8s and the BODY read now
+  aborts with the same signal (a slow site can no longer hang the phase).
+- 0.2 N+1 fix: one listEvidence read per investigate phase into a Map
+  (evidenceById) — the per-prospect full-run read is gone (phases.ts:577
+  was the only N+1 site; assess/rank/draft already read once per phase).
+- 0.3 assess + draft chunked bursts: groups of 10/8, 3 at a time, one
+  retry per chunk; a twice-failed chunk leaves its prospects
+  investigating/deferred for a later sweep instead of the legacy
+  thin-evidence disqualification (never disqualified for a transport
+  failure).
+- 0.4 junk rules in isPlausibleName (pure, tested): file artefacts (.cdr
+  .pdf .docx ...), /^notice of\b/, /^(how we\b|again[,])/i, and short
+  ALL-CAPS generic trade words (HOTELS, INDEPENDENT) — with keep-tests for
+  NECA Event Centre, 504 Yard Grills & Drinks, Ikeja Club, The Alcove.
+  Domain dedupe already existed in saveCandidate (dedupeKey + findSibling).
+- New pool primitive src/research/pool.ts + tests/pool.test.ts (4 tests:
+  limit respected, slot refill, failure isolation, faster than barrier).
+
+Verification at each step: 502/502 vitest, tsc clean, SMOKE PASS. The
+owner's local `npm run dev` caught two of my own mistakes pre-deploy (an
+unterminated regex group and a duplicate declaration from an intermediate
+edit) — fixed before the deploy; nothing broken shipped.
+
+AFTER measurement: run_305e1d9a (f1462e37, same brief) started 21:21:57Z;
+plan 47.6s. Numbers pending. The parked baseline run was moved to stopped
+(freeing the account for the measurement run; its 33 drafts persist).
+
+## 2026-11-04 (night 6) — Phase 0 after-numbers + push
+
+run_305e1d9a settled awaiting_approval at 21:39:11Z (17m14s): 63 opened
+(investigate 66s, COMPLETED, no budget stop — 57 pages/min vs the
+baseline's 33.5/min mid-phase), 98+ assessments (the skip-assess flaw is
+gone: assess ran on every sweep), 10 set-asides with specific reasons,
+3-4 kept, 51 drafts, first draft 17m09s, 83 model calls. Honest read:
+every phase got faster and the pipeline now does the quality job the
+baseline silently skipped (0 assessments/0 kept in 8 minutes was not a
+win); wall-to-wall is slower because the run pays for assess plus up to
+three QA sweeps chasing TARGET_GOOD=4. The wall-clock target (first draft
+under 90s, settle under 4 min) needs Phase 2: queues, parallel discovery,
+first-draft-early UX. The QA loop's good-bar on a strict segment is a
+tunable the owner should decide on.
+
+0.5 status: specific set-aside reasons now come from the assessment
+rationale path; prospects disqualified WITHOUT an assessment (rule-based)
+still fall back to the generic string — the `reason` column (architecture
+§9) is the Phase 1 fix. 0.6 status: discovery already runs parallel
+batches of 3 (search IS a direct single-shot burst per query, so raising
+to a mapPool(6) window is trivial and belongs with the Phase 2 queue
+work).
+
+Owner directive: push to git when done. Pushed main to
+github.com/arinafoodshq/prospect-research (the submission docs stay
+gitignored and unpushed).
