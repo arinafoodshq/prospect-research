@@ -2573,3 +2573,40 @@ LIVE VERIFICATION (browser MCP on the owner's Chrome, ArinaFoods run,
 to "7–12 of 12" (IbaWorkHub, TPX Hub, Smart X Business Hub, OA
 Consulting, Growth Hacking Series, L a y out). Deploys e8b65a12 (pushes
 8b577f1, 6d7be87). 492/492 vitest, SMOKE PASS, tsc clean.
+## 2026-11-04 v6 (aggregated board + illustrations + radius consistency)
+
+Owner: "how do we have Ready-to-review runs and an empty Pending review?"
++ "boxes less confusing, why rectangle borders, style-guide consistency"
++ "layman understands his dashboard feed, dont overwhelm" + "use
+illustrations/geometry like Google/Stripe - calming yet action-triggering"
++ the 4x "Review ->" switcher row was confusing.
+
+Root design flaw: the board was scoped to the ADOPTED run while runs and
+waiting existed across campaigns. Rebuilt as ONE aggregated feed:
+
+- GET /api/board: all drafts joined with prospect names + campaign names
+  (mock-safe JS grouping). One fetch, no run context needed.
+- Board groups (layman words, few, one priority): "Waiting for your
+  approval" (primary, accent border), "Approved - follow up yourself"
+  (the duplicate Follow-ups group merged in), "Paused - revisit later",
+  "Not a fit". Every row carries its campaign chip; rows paginate 6/page
+  with page memory; opening a row of ANOTHER campaign switches runs with a
+  clean slate first (openDraftFor(runId, campaign)).
+- The board self-fetches when opened cold (Back-to-drafts -> board).
+- Illustrations: small inline-SVG calm geometry (soft rings, dotted path,
+  rising check in brand gold/green) on empty board groups and the empty
+  runs list - empty states feel like progress, not failure.
+- Style-guide consistency: all dashboard boxes use the radius token scale
+  (--radius rows, --radius-card group cards; the ad-hoc 8px/square
+  rectangles are gone); the duplicate switcher row is removed; the board
+  renders as a vertical single-column feed (mobile-first, less
+  overwhelming).
+- (earlier in this turn) waiting strip, campaign labels, viewer-local
+  timestamps everywhere (fmtWhen; cleanTime delegates), compact pager
+  buttons, stale-state clearing on run switches.
+
+Smoke updated for the aggregated feed (4 groups, campaign chips, paging
+via the board stub). 492/492 vitest, SMOKE PASS, tsc clean; deploys
+through f9889fd8 (pushes 29d5b1d..1c06aa1). Live-verified in the owner
+browser: Waiting 84 / Approved 3 / Not a fit 2 across campaigns, rows
+campaign-labelled.
