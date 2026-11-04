@@ -527,6 +527,35 @@ ok(visible("view-status"), "drafts -> status board view");
   ok(visible("view-drafts"), "board item opens the message detail");
   await fire(els["btn-to-status"], "click", evt());
   await tick();
+  {
+    // Per-group pagination (owner 2026-11-04): 8 approved drafts -> two
+    // pages, "1–6 of 8", Next reveals the rest, edges disabled.
+    const MockApi = sandbox.window.ApiLayer.MockApi;
+    const orig = MockApi.prototype.getDrafts;
+    MockApi.prototype.getDrafts = function () {
+      return Promise.resolve({ drafts: ["pg1", "pg2", "pg3", "pg4", "pg5", "pg6", "pg7", "pg8"].map(function (id) {
+        return { prospectId: "pr_" + id, status: "approved", channel_suggestion: "email", body: "b", next_action: "n" };
+      }) });
+    };
+    await sandbox.module.exports.renderDrafts();
+    await sandbox.module.exports.renderStatuses();
+    const colOf = () => els["status-board"].children.filter((c) => c.className === "column").find((c) => /Approved/.test(c.innerHTML));
+    const col = colOf();
+    ok(/1\u20136 of 8/.test(col.innerHTML), "approved group paginates to 6 of 8");
+    ok(/data-act="board-page" data-col="approved" data-dir="1"/.test(col.innerHTML), "the pager rides the board delegation");
+    ok(/data-dir="1" disabled/.test(col.innerHTML) === false && /data-dir="-1" disabled/.test(col.innerHTML), "page 0: Prev disabled, Next enabled");
+    els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "board-page", col: "approved", dir: "1" } } }));
+    await tick();
+    const col2 = colOf();
+    ok(/7\u20138 of 8/.test(col2.innerHTML), "Next reveals the last page (7\u20138 of 8)");
+    ok(/data-dir="1" disabled/.test(col2.innerHTML), "Next is disabled on the last page");
+    els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "board-page", col: "approved", dir: "-1" } } }));
+    await tick();
+    ok(/1\u20136 of 8/.test(colOf().innerHTML), "Prev returns to the first page");
+    MockApi.prototype.getDrafts = orig;
+    await sandbox.module.exports.renderDrafts();
+    await sandbox.module.exports.renderStatuses();
+  }
   ok(visible("view-status"), "back on the board for the next pins");
 }
 

@@ -777,6 +777,10 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .run-status.st-complete { color: var(--success); background: var(--success-soft, #e7f3ec); }
 .run-status.st-failed, .run-status.st-stopped { color: #a33; background: #fbe9e7; }
 .runs-pager { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; }
+/* Status-board pagination: one quiet pager row per group. */
+.board-pager { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.45rem; font-size: 0.8rem; }
+.board-pager button { padding: 0.1rem 0.4rem; }
+.board-pager button:disabled { opacity: 0.4; cursor: default; }
 .steps-card { padding-top: 0.6rem; padding-bottom: 0.6rem; }
 .checklist { list-style: none; padding: 0; margin: 0; display: grid; }
 .checklist li {

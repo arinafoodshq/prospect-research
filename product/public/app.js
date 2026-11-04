@@ -2230,16 +2230,22 @@
     return "<li>" + esc(notes[key] || "Nothing to show here yet.") + "</li>";
   }
 
+  // The status board paginates per group (owner 2026-11-04: 47 drafts made
+  // Approved a wall of names). Six rows per page, a compact pager under the
+  // list, page memory per column.
+  var BOARD_PAGE_SIZE = 6;
+
   function renderStatuses() {
     renderRunBanner();
     var board = $("status-board");
     board.innerHTML = "";
     var seenFollowups = {};
+    state.boardPage = state.boardPage || {};
     STATUS_COLS.forEach(function (c) {
       var div = document.createElement("div");
       div.className = "column";
       div.setAttribute("data-col", c.key);
-      var names = state.drafts.filter(function (d) {
+      var all = state.drafts.filter(function (d) {
         var dec = decisionOf(d);
         if (c.key === "followups") {
           if (dec !== "approved") return false;
@@ -2248,14 +2254,29 @@
           return true;
         }
         return dec === c.key;
-      }).map(function (d) {
+      });
+      var pages = Math.max(1, Math.ceil(all.length / BOARD_PAGE_SIZE));
+      state.boardPage[c.key] = Math.min(state.boardPage[c.key] || 0, pages - 1);
+      var page = state.boardPage[c.key];
+      var start = page * BOARD_PAGE_SIZE;
+      var rows = all.slice(start, start + BOARD_PAGE_SIZE).map(function (d) {
         var p = state.prospects.filter(function (x) { return x.id === d.prospectId; })[0];
         var suffix = c.key === "followups" ? ". Follow up manually (e.g. nudge in 3 days)" : "";
         return "<li><button type=\"button\" class=\"board-item\" data-act=\"open-draft\" data-id=\"" + esc(d.prospectId) + "\">" +
           esc(p ? p.name : d.prospectId) + "</button>" + esc(suffix) + "</li>";
       });
-      if (!names.length) names = [emptyCopy(c.key)];
-      div.innerHTML = "<h3>" + esc(c.title) + "</h3><ul>" + names.join("") + "</ul>";
+      if (!rows.length) rows = [emptyCopy(c.key)];
+      var count = all.length ? " · " + all.length : "";
+      var pager = "";
+      if (all.length > BOARD_PAGE_SIZE) {
+        var end = Math.min(start + BOARD_PAGE_SIZE, all.length);
+        pager = '<div class="board-pager">' +
+          '<button type="button" class="linklike" data-act="board-page" data-col="' + c.key + '" data-dir="-1"' + (page === 0 ? " disabled" : "") + '>&lsaquo; Prev</button>' +
+          '<span class="muted small">' + (start + 1) + "\u2013" + end + " of " + all.length + "</span>" +
+          '<button type="button" class="linklike" data-act="board-page" data-col="' + c.key + '" data-dir="1"' + (page >= pages - 1 ? " disabled" : "") + '>Next &rsaquo;</button>' +
+          "</div>";
+      }
+      div.innerHTML = "<h3>" + esc(c.title) + count + "</h3><ul>" + rows.join("") + "</ul>" + pager;
       board.appendChild(div);
     });
     showView("status");
@@ -2355,7 +2376,15 @@
 
   function onBoardClick(e) {
     var t = e.target || {};
-    var ds = t.dataset || {};
+    var ds = t.dataset || (t.getAttribute ? {
+      act: t.getAttribute("data-act"), id: t.getAttribute("data-id"), col: t.getAttribute("data-col"), dir: t.getAttribute("data-dir"),
+    } : {});
+    if (ds.act === "board-page" && ds.col) {
+      state.boardPage = state.boardPage || {};
+      state.boardPage[ds.col] = Math.max(0, (state.boardPage[ds.col] || 0) + (Number(ds.dir) || 0));
+      renderStatuses();
+      return;
+    }
     if (ds.act === "new-campaign") { renderCampaignView(); return; }
     if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id); return; }
     if (ds.act === "open-messages") { renderDrafts(); return; }
