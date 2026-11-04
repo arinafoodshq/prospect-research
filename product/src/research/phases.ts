@@ -1399,7 +1399,15 @@ export async function draft(
       await logActivity(db, { run_id: budgets.run_id, prospect_id: t.id, event: "drafted", note: null });
       done += 1;
     } catch (e) {
-      if (e instanceof DbValidationError) continue; // flagged item; run continues
+      if (e instanceof DbValidationError) {
+        // A rejection is VISIBLE (owner bug 2026-11-04: silent mass-skips
+        // made "0 drafts" look like nothing happened at all).
+        await logActivity(db, {
+          run_id: budgets.run_id, prospect_id: t.id, event: "deferred",
+          note: `draft rejected: ${e.message.slice(0, 160)}`,
+        }).catch(() => { /* logging never blocks the run */ });
+        continue;
+      }
       throw e;
     }
   }

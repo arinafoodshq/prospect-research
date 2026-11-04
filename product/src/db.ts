@@ -384,7 +384,13 @@ export async function saveDraft(
 ): Promise<string> {
   const prospect = await db.prepare("SELECT id, status FROM prospect WHERE id = ?").bind(input.prospect_id).first<{ id: string; status: ProspectStatus }>();
   if (!prospect) throw new DbValidationError(`prospect ${input.prospect_id} does not exist`);
-  if (prospect.status !== "shortlisted") throw new DbValidationError("drafts require a shortlisted prospect");
+  // Vetted prospects only (owner bug 2026-11-04: "drafts require a
+  // shortlisted prospect" silently rejected every qualified/investigating
+  // pick — 4 model bursts, 0 drafts, no logs). The shortlist tiers ARE the
+  // vetting; draft() only targets non-disqualified prospects with routes.
+  if (prospect.status === "candidate" || prospect.status === "disqualified") {
+    throw new DbValidationError(`drafts require a vetted prospect (got ${prospect.status})`);
+  }
   if (input.body.length > 4000) throw new DbValidationError("draft body exceeds 4000 chars");
   if (input.body.trim() === "") throw new DbValidationError("draft body is required");
   // Grounding is enforced by draft() (fuzzy body→evidence linking), not by a
