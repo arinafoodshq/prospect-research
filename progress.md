@@ -2555,3 +2555,21 @@ LIVE VERIFICATION (browser MCP, cold goto -> Dashboard -> sidebar
 Messages): lands in the studio, "ALL MESSAGES / 47 messages for your
 picks" — no onboarding detour. Deploy 375e0c33 (push 4a6c89a). 492/492
 vitest, SMOKE PASS.
+## 2026-11-04 v5 (status-board pagination, verified live)
+
+Owner: paginate the dashboard groups (Approved / Pending review /
+Deferred / Rejected / Follow-ups). Implemented: per-group pages of 6,
+count in the heading ("Pending review · 12"), a compact pager row
+("‹ Prev · 1–6 of 12 · Next ›") edge-aware and page-memory per column,
+riding the existing board click delegation. Smoke: 8-draft paging both
+directions (Next to 7–8 of 8, disabled edges, Prev back).
+
+Also found live: the run banner's "Open my messages" 404'd on a cold
+dashboard (it opened the studio without adopting the run). The banner now
+carries the run id and the action adopts it first.
+
+LIVE VERIFICATION (browser MCP on the owner's Chrome, ArinaFoods run,
+12 drafts): "Pending review · 12" shows 6 rows + "1–6 of 12"; Next flips
+to "7–12 of 12" (IbaWorkHub, TPX Hub, Smart X Business Hub, OA
+Consulting, Growth Hacking Series, L a y out). Deploys e8b65a12 (pushes
+8b577f1, 6d7be87). 492/492 vitest, SMOKE PASS, tsc clean.
