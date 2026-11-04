@@ -1743,15 +1743,14 @@
         return d;
       });
       var sel = state.selectedIds || state.drafts.map(function (d) { return d.prospectId; });
-      if (!sel.length && !state.drafts.length) {
-        // Zero drafts and nothing selected (owner bug 2026-11-04: after a
-        // reload the "Write their messages now" button vanished entirely and
-        // the copy lied — "nothing qualified" while 47 routable prospects
-        // were waiting). Fall back to everyone still on the list.
-        var keptIds = (state.prospects || []).filter(function (p) {
+      if (!sel.length) {
+        // No selection: scope the studio to everyone still on the list —
+        // drafted ones show, the rest land in the top-up note (owner
+        // 2026-11-04: after the first batch of 8 wrote, the button vanished
+        // and 44 prospects had no route to a message at all).
+        sel = (state.prospects || []).filter(function (p) {
           return p.status !== "disqualified";
         }).map(function (p) { return p.id; });
-        if (keptIds.length) sel = keptIds;
       }
       var drafts = state.drafts.filter(function (d) { return sel.indexOf(d.prospectId) >= 0; });
       var notes = [];
