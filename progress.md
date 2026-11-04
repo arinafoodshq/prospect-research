@@ -2610,3 +2610,41 @@ via the board stub). 492/492 vitest, SMOKE PASS, tsc clean; deploys
 through f9889fd8 (pushes 29d5b1d..1c06aa1). Live-verified in the owner
 browser: Waiting 84 / Approved 3 / Not a fit 2 across campaigns, rows
 campaign-labelled.
+## 2026-11-04 v7 (Home rebuilt to dashboard.html + style-guide.md)
+
+Owner supplied the reference mock (dashboard.html) and a full style guide
+(style-guide.md): tokens, radius scale, type (Fraunces + Figtree),
+component specs, copy rules, Nielsen heuristics, illustration system.
+
+- tokens.css rewritten to the guide (ink/mist/paper/line, sky action
+  family, sage/sand/rose status families, lilac illustration-only, radius
+  scale 8/12/16/24/pill, 4px spacing, one soft elevation) with the OLD
+  variable names aliased to the new values so every page adopts the system.
+- The dashboard (view-status) rebuilt to the reference layout: hero
+  (greeting by time of day + first name, ONE headline with the waiting
+  count or the ongoing-research state, lead sentence, Check messages /
+  Start a new campaign, shield reassurance line, paper-plane-over-hills
+  scene), "Where you are" 3-step journey with real counts, "Start with
+  these" campaign cards (merged by campaign across runs, biggest pile
+  first, max 3, kept/found progress bar, one primary "Check N messages"
+  that jumps straight to that queue), "Your messages" as ONE tabbed list
+  (Waiting for you / Approved / Paused / Not a fit, counts in tabs, hint
+  per tab, 5 rows + See all, campaign small on every row, chips never
+  colour-alone), "Recent searches" (4 items, plain sentences "Looked at 43
+  businesses and kept 27 good matches.", human chips Ready to check /
+  Finished / No matches, the full paginated history behind See all).
+- Copy rules applied: Dashboard -> Home (nav), Ready to review -> Ready to
+  check, Done -> Finished, no em dashes in labels, no jargon (found/kept
+  rewritten as businesses/good matches), numbers always with a noun.
+- Empty states carry the geometric illustration; the duplicate
+  Follow-ups board and the confusing Review switcher are gone (merged
+  into the tabbed list).
+- Smoke rewritten for the new Home (hero states, journey, card merge +
+  check-jump, tabs, 5-row cap + See-all toggle, recents, full history
+  pager). 492/492 vitest, SMOKE PASS, tsc clean; deployed a07ff243
+  (push 873e3b1). Live-verified in the owner browser: "142 messages are
+  ready for you to check", cards Arinastores 58 / WakaSure 50 /
+  ArinaFoods 13, tabs 142/4/0/2.
+
+Next per the guide's hand-off checklist: apply the same tokens/copy to
+Messages, Campaigns and Email accounts pages, and the 375px/768px pass.
