@@ -7,6 +7,7 @@
  * awaiting_approval for human decisions).
  */
 import { getRun, listEvidence, listProspects, setRunStatus, type Db, type RunStatus } from "./db";
+import { auditEvent } from "./audit";
 import { DEFAULT_CAPS, emptyConsumed, type BudgetConsumed } from "./research/budgets";
 import { validateBrief, ensureDirective } from "./research/commercial";
 import {
@@ -394,7 +395,27 @@ export class ResearchWorkflow {
       await this.runtime.step(`status:${marker}`, () => setRunStatus(db, run_id, marker));
     }
     try {
-      const out = await this.runtime.step(`phase:${name}`, fn);
+      const out = await this.runtime.step(`phase:${name}`, async () => {
+        // Per-phase timing (architecture.md §14): one audit row per phase with
+        // the wall duration, written INSIDE the step so replays never
+        // duplicate it. Best-effort: a failed audit write never fails a phase.
+        const t0 = Date.now();
+        const result = await fn();
+        if (this.deps) {
+          const stop = result as { budgetStopped?: boolean; stop_reason?: string } | undefined;
+          await auditEvent(this.deps.db, {
+            kind: "phase",
+            run_id: this.deps.run_id,
+            subject: name,
+            summary: {
+              phase: name,
+              duration_ms: Date.now() - t0,
+              outcome: stop && stop.budgetStopped ? `stopped:${stop.stop_reason}` : "completed",
+            },
+          }).catch(() => { /* timing is best-effort */ });
+        }
+        return result;
+      });
       this.runtime.log(`phase ${name} completed`);
       return out;
     } catch (err) {
