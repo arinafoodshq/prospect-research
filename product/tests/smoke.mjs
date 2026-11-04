@@ -142,6 +142,7 @@ const IDS = [
   "btn-sb-dashboard", "btn-sb-messages", "btn-sb-campaigns", "btn-sb-senders",
   "campaign-card", "sends-monitor",
   "runs-wrap", "runs-list", "runs-pager", "runs-page-label", "btn-runs-prev", "btn-runs-next",
+  "waiting-strip", "board-campaign", "board-switch", "studio-campaign",
   "stage-slot",
   "site-footer",
   "btn-back-onboard", "btn-confirm-profile", "btn-to-drafts", "btn-to-status", "btn-back-campaigns",
@@ -574,10 +575,15 @@ ok(visible("view-status"), "sidebar Dashboard opens the dashboard");
 ok(els["stage-wrap"].hidden !== false, "no stage strip on the dashboard itself");
 {
   // All runs, any status, paginated (owner request 2026-11-03): nine demo
-  // runs -> first page of 8, pager on, next reveals the last one.
+  // runs -> first page of 8, pager on, next reveals the last one. Campaign
+  // NAMES label every row; the waiting strip aggregates pending issues
+  // across ALL campaigns (owner 2026-11-04).
   ok(els["runs-list"].innerHTML.split("<li").length - 1 === 8, "runs list paginates to 8 rows, saw " + (els["runs-list"].innerHTML.split("<li").length - 1));
   ok(/Runs 1\u20138 of 9/.test(els["runs-page-label"].textContent), "pager labels the page (" + els["runs-page-label"].textContent + ")");
   ok(els["btn-runs-next"].disabled === false && els["btn-runs-prev"].disabled === true, "pager buttons match the page edges");
+  ok(/Demo Realty/.test(els["runs-list"].innerHTML) && /WakaSure/.test(els["runs-list"].innerHTML), "rows carry their campaign name");
+  ok(/47 waiting/.test(els["runs-list"].innerHTML), "waiting counts show per campaign");
+  ok(els["waiting-strip"].hidden === false && /WakaSure/.test(els["waiting-strip"].innerHTML) && /47 messages waiting/.test(els["waiting-strip"].innerHTML), "waiting strip aggregates pending issues across campaigns");
   await fire(els["btn-runs-next"], "click", evt());
   ok(els["runs-list"].innerHTML.indexOf("demo-run-1") >= 0, "next page reveals the oldest run");
   ok(/Runs 9\u20139 of 9/.test(els["runs-page-label"].textContent), "last page labelled");

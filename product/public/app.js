@@ -136,10 +136,28 @@
     return api.getLatestRun().then(function (res) {
       var run = res && res.run;
       if (!run || !run.id) return false;
-      state.runId = run.id;
-      state.profile = { id: run.profile_id, name: run.profile_name || (state.profile && state.profile.name) || "" };
+      switchRun({ id: run.id, profile_id: run.profile_id, profile_name: run.profile_name });
       return true;
     }, function () { return false; });
+  }
+
+  /** Switch the working run. Switching runs MUST drop the previous run's
+   *  client state (drafts, decisions, prospects, selection, board pages) —
+   *  the board and studio otherwise render the WRONG campaign's data
+   *  (owner 2026-11-04: waiting messages "disappeared" after opening
+   *  another run). */
+  function switchRun(run) {
+    if (state.runId !== run.id) {
+      state.runId = run.id;
+      state.drafts = [];
+      state.decisions = {};
+      state.prospects = [];
+      state.selectedIds = [];
+      state.boardPage = {};
+      state.shortlistLoaded = false;
+      state.lastAsideCount = null;
+    }
+    state.profile = { id: run.profile_id, name: run.profile_name || (state.profile && state.profile.name) || "" };
   }
 
   function openDashboard() {
@@ -158,21 +176,48 @@
         }, function () { /* the board still renders, empty */ }));
       }
     }
+    // The status board reads the runs cache (campaign label + switcher), so
+    // the runs fetch lands BEFORE the board paints.
+    jobs.push(renderRuns());
     Promise.all(jobs).then(function () { renderStatuses(); });
-    renderRuns();
+  }
+
+  // Times render in the VIEWER's timezone and locale (best practice for an
+  // international audience): same-day shows just the clock time, this year
+  // shows "Nov 4, 09:03", older years add the year. The browser's Intl
+  // handles the user's system timezone — never a hardcoded zone.
+  function fmtWhen(iso) {
+    var t = new Date(iso);
+    if (!iso || isNaN(t.getTime())) return "";
+    var now = new Date();
+    var opts;
+    if (t.toDateString() === now.toDateString()) {
+      opts = { hour: "2-digit", minute: "2-digit" };
+    } else if (t.getFullYear() === now.getFullYear()) {
+      opts = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+    } else {
+      opts = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+    }
+    try { return t.toLocaleString(undefined, opts); } catch (e) {
+      return t.toISOString().slice(0, 16).replace("T", " ");
+    }
   }
 
   // Every run, any status or stage (owner request 2026-11-03): the
   // dashboard lists them all with pagination — nothing is lost because a
-  // newer run started.
+  // newer run started. Rows are COMPACT and carry the campaign NAME (a
+  // small label, recognition over recall), a local timestamp, and the
+  // waiting count (visibility of what needs you, per campaign).
   var RUNS_PAGE_SIZE = 8;
   function renderRuns() {
     var list = $("runs-list");
-    if (!list) return;
+    if (!list) return Promise.resolve();
     list.innerHTML = '<li class="hint">Loading…</li>';
     var page = state.runsPage || 0;
-    api.getRuns(RUNS_PAGE_SIZE, page * RUNS_PAGE_SIZE).then(function (res) {
+    return api.getRuns(RUNS_PAGE_SIZE, page * RUNS_PAGE_SIZE).then(function (res) {
       var runs = res.runs || [];
+      state.runsCache = runs;
+      renderWaitingStrip();
       if (!runs.length) {
         list.innerHTML = '<li class="hint">No runs yet — every search you start lands here, any status.</li>';
         $("runs-pager").hidden = true;
@@ -181,11 +226,13 @@
       var STATUS_LABEL = { created: "Preparing", running: "Working now", complete: "Done", failed: "Failed", stopped: "Stopped", awaiting_approval: "Ready to review", assessing: "Scoring" };
       list.innerHTML = runs.map(function (r) {
         var label = STATUS_LABEL[r.status] || String(r.status || "").replace(/_/g, " ");
-        var when = r.created_at ? String(r.created_at).slice(0, 10) : "";
-        var counts = (r.found || 0) + " found · " + (r.kept || 0) + " kept";
-        return '<li class="run-row"><span class="run-status st-' + esc(r.status || "unknown") + '">' + esc(label) +
-          '</span><span class="run-meta">' + esc(when) + " · " + esc(counts) + "</span>" +
-          '<button type="button" class="linklike run-open" data-run="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '">Open</button></li>';
+        var counts = (r.found || 0) + " found · " + (r.kept || 0) + " kept" + (r.waiting ? ' · <em class="waiting-flag">' + r.waiting + " waiting</em>" : "");
+        return '<li class="run-row">' +
+          '<div class="run-main">' +
+          '<p class="run-title"><strong>' + esc(r.profile_name || "Campaign") + '</strong><span class="run-status st-' + esc(r.status || "unknown") + '">' + esc(label) + "</span></p>" +
+          '<p class="run-meta" title="' + esc(r.created_at || "") + '">' + esc(fmtWhen(r.created_at)) + " · " + counts + "</p>" +
+          "</div>" +
+          '<button type="button" class="linklike run-open" data-run="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '" data-profile-name="' + esc(r.profile_name || "") + '">Open</button></li>';
       }).join("");
       var total = res.total || runs.length;
       var start = page * RUNS_PAGE_SIZE + 1;
@@ -198,6 +245,22 @@
       list.innerHTML = '<li class="hint">Could not load your runs. Try again in a moment.</li>';
       $("runs-pager").hidden = true;
     });
+  }
+
+  // The latest pending issues, IRRESPECTIVE of campaign (owner 2026-11-04):
+  // one row per campaign with undecided messages, most recent first. This
+  // is what "Waiting for you" means on a multi-campaign dashboard.
+  function renderWaitingStrip() {
+    var strip = $("waiting-strip");
+    if (!strip) return;
+    var waiting = (state.runsCache || []).filter(function (r) { return (r.waiting || 0) > 0; });
+    if (!waiting.length) { strip.hidden = true; strip.innerHTML = ""; return; }
+    strip.hidden = false;
+    strip.innerHTML = waiting.map(function (r) {
+      return '<div class="waiting-row"><span class="campaign-chip">' + esc(r.profile_name || "Campaign") + "</span>" +
+        '<span class="run-meta">' + (r.waiting === 1 ? "1 message" : esc(r.waiting) + " messages") + " waiting for your approval</span>" +
+        '<button type="button" class="linklike" data-act="open-messages" data-id="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '" data-profile-name="' + esc(r.profile_name || "") + '">Review &rarr;</button></div>';
+    }).join("");
   }
 
   // Post-sign-in return lands on the owner's home (the dashboard), not the
@@ -1497,8 +1560,10 @@
   };
 
   function cleanTime(iso) {
-    try { return new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); }
-    catch (e) { return String(iso || ""); }
+    // One formatter everywhere (owner 2026-11-04): viewer-local, locale
+    // aware, same-day shows the clock time, older dates compress smartly.
+    var f = fmtWhen(iso);
+    return f || String(iso || "");
   }
 
   function timelineItem(t) {
@@ -1755,6 +1820,15 @@
   }
 
   function renderDrafts() {
+    // Which campaign owns these messages? Always labelled (owner
+    // 2026-11-04: multi-campaign views need the label, recognition over
+    // recall).
+    var schip = $("studio-campaign");
+    if (schip) {
+      var campName = state.profile && state.profile.name;
+      schip.hidden = !campName;
+      if (campName) schip.textContent = campName;
+    }
     // Cold open (reloaded page): the prospect list may not be loaded yet —
     // the top-up needs it to name the missing picks.
     var ensureProspects = (state.prospects && state.prospects.length)
@@ -2279,6 +2353,35 @@
       div.innerHTML = "<h3>" + esc(c.title) + count + "</h3><ul>" + rows.join("") + "</ul>" + pager;
       board.appendChild(div);
     });
+    // Which campaign is this board showing? Always labelled (owner
+    // 2026-11-04: the board silently re-scoped and waiting messages
+    // "disappeared" — recognition over recall).
+    var chip = $("board-campaign");
+    if (chip) {
+      var campName = state.profile && state.profile.name;
+      chip.hidden = !campName;
+      if (campName) chip.textContent = "Campaign: " + campName;
+    }
+    var switcher = $("board-switch");
+    if (switcher) {
+      // The current campaign has no messages at all? Point at the ones
+      // that do (the latest pending issues, whichever campaign holds them).
+      var others = (state.runsCache || []).filter(function (r) {
+        return r.id !== state.runId && (r.waiting || 0) > 0;
+      });
+      if (!state.drafts.length && others.length) {
+        switcher.hidden = false;
+        switcher.innerHTML = '<p class="hint">No messages in this campaign yet. Waiting elsewhere:</p>' +
+          '<div class="waiting-row">' + others.map(function (r) {
+            return '<span class="campaign-chip">' + esc(r.profile_name || "Campaign") + "</span>" +
+              '<span class="run-meta">' + r.waiting + " waiting</span>" +
+              '<button type="button" class="linklike" data-act="open-messages" data-id="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '" data-profile-name="' + esc(r.profile_name || "") + '">Review &rarr;</button>';
+          }).join("") + "</div>";
+      } else {
+        switcher.hidden = true;
+        switcher.innerHTML = "";
+      }
+    }
     showView("status");
   }
 
@@ -2354,7 +2457,10 @@
     if (!api.getLatestRun) { wrap.hidden = true; return; }
     return api.getLatestRun().then(function (res) {
       var run = res && res.run;
-      if (!run || run.status === "complete") { wrap.hidden = true; return; }
+      // Awaiting-approval runs live in the waiting strip now (the latest
+      // pending issues across ALL campaigns); the banner is only for work
+      // that must CONTINUE (running/failed/stopped).
+      if (!run || run.status === "complete" || run.status === "awaiting_approval") { wrap.hidden = true; return; }
       currentCampaignRun = run;
       state.runStatus = run.status;
       var name = esc(run.profile_name || "Your business");
@@ -2389,11 +2495,10 @@
     if (ds.act === "new-campaign") { renderCampaignView(); return; }
     if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id); return; }
     if (ds.act === "open-messages") {
-      // The banner knows its run: adopt it first or the studio 404s on a
-      // cold dashboard (owner 2026-11-04).
+      // Any entry point into the studio adopts its run with a CLEAN slate
+      // (banner, waiting strip, board switcher) — never mix campaigns.
       if (ds.id) {
-        state.runId = ds.id;
-        if (ds.profile) state.profile = { id: ds.profile, name: (state.profile && state.profile.name) || "" };
+        switchRun({ id: ds.id, profile_id: ds.profile, profile_name: ds.profile });
       }
       renderDrafts();
       return;
@@ -3219,11 +3324,13 @@
       var t = e.target || {};
       var runId = t.getAttribute ? t.getAttribute("data-run") : null;
       if (!runId) return;
-      var profileId = t.getAttribute("data-profile") || "";
-      // Opening any run from the history: adopt it the same way the resume
-      // card does — continue, never restart.
-      state.runId = runId;
-      if (profileId) state.profile = { id: profileId, name: state.profile && state.profile.name || "" };
+      // Opening any run from the history: adopt it with a CLEAN slate —
+      // continue, never restart, never mix campaigns.
+      switchRun({
+        id: runId,
+        profile_id: t.getAttribute("data-profile") || "",
+        profile_name: t.getAttribute("data-profile-name") || "",
+      });
       showView("progress");
       pollProgress();
     });

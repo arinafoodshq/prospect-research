@@ -1166,23 +1166,40 @@ const getLatestRun: Handler = async ({ env }) => {
     const url = new URL(req.url);
     const limit = Math.min(50, Math.max(1, Math.floor(Number(url.searchParams.get("limit") ?? 10) || 10)));
     const offset = Math.max(0, Math.floor(Number(url.searchParams.get("offset") ?? 0) || 0));
-    const runsRes = await env.DB.prepare("SELECT id, profile_id, status, stop_reason, started_at, finished_at, created_at FROM research_run").bind().all<Record<string, unknown>>();
+    const runsRes = await env.DB.prepare(
+      "SELECT r.id, r.profile_id, r.status, r.stop_reason, r.started_at, r.finished_at, r.created_at, p.name AS profile_name FROM research_run r LEFT JOIN business_profile p ON p.id = r.profile_id",
+    ).bind().all<Record<string, unknown>>();
     const all = [...(runsRes.results ?? [])];
     all.sort((a, b) => String(b["created_at"] ?? "").localeCompare(String(a["created_at"] ?? "")));
     // Per-run counts in one scan (no fancy SQL: the mock and prod agree).
-    const prRes = await env.DB.prepare("SELECT run_id, status FROM prospect").bind().all<{ run_id: string; status: string }>();
-    const counts = new Map<string, { found: number; kept: number }>();
+    const prRes = await env.DB.prepare("SELECT id, run_id, status FROM prospect").bind().all<{ id: string; run_id: string; status: string }>();
+    const runOfProspect = new Map<string, string>();
+    const counts = new Map<string, { found: number; kept: number; waiting: number }>();
     for (const p of prRes.results ?? []) {
-      const c = counts.get(p.run_id) ?? { found: 0, kept: 0 };
+      runOfProspect.set(p.id, p.run_id);
+      const c = counts.get(p.run_id) ?? { found: 0, kept: 0, waiting: 0 };
       c.found += 1;
       if (p.status === "qualified" || p.status === "investigating") c.kept += 1;
       counts.set(p.run_id, c);
     }
+    // Waiting = undecided messages (status 'draft') — what the owner can act
+    // on right now, per campaign (owner 2026-11-04: the board silently
+    // re-scoped and waiting messages became invisible).
+    const drRes = await env.DB.prepare("SELECT prospect_id, status FROM outreach_draft").bind().all<{ prospect_id: string; status: string }>();
+    for (const d of drRes.results ?? []) {
+      if (d.status !== "draft") continue;
+      const runId = runOfProspect.get(d.prospect_id);
+      if (!runId) continue;
+      const c = counts.get(runId) ?? { found: 0, kept: 0, waiting: 0 };
+      c.waiting += 1;
+      counts.set(runId, c);
+    }
     const page = all.slice(offset, offset + limit).map((r) => ({
-      id: r["id"], profile_id: r["profile_id"] ?? null, status: r["status"], stop_reason: r["stop_reason"] ?? null,
+      id: r["id"], profile_id: r["profile_id"] ?? null, profile_name: r["profile_name"] ?? null,
+      status: r["status"], stop_reason: r["stop_reason"] ?? null,
       started_at: r["started_at"] ?? null, finished_at: r["finished_at"] ?? null,
       created_at: r["created_at"] ?? null,
-      ...(counts.get(String(r["id"])) ?? { found: 0, kept: 0 }),
+      ...(counts.get(String(r["id"])) ?? { found: 0, kept: 0, waiting: 0 }),
     }));
     return json({ runs: page, total: all.length, limit, offset });
   };

@@ -768,19 +768,29 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 #progress-setaside { display: grid; gap: 0.3rem; }
 #progress-setaside li { padding: 0.35rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.84rem; line-height: 1.35; display: grid; gap: 0.1rem; }
 #progress-setaside li span { color: var(--muted); font-size: 0.8rem; }
-.runs-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
-.run-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-.run-row .run-meta { color: var(--muted); font-size: 0.82rem; flex: 1; min-width: 0; }
+.runs-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.run-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.42rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.run-row .run-main { flex: 1; min-width: 0; display: grid; gap: 0.05rem; }
+.run-row .run-title { margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.92rem; }
+.run-row .run-title .run-status { font-size: 0.68rem; padding: 0.1rem 0.5rem; }
+.run-row .run-meta { color: var(--muted); font-size: 0.78rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+.waiting-flag { font-style: normal; color: var(--gold, #8a6d1c); font-weight: 700; }
 .run-status { font-size: 0.76rem; font-weight: 700; padding: 0.16rem 0.55rem; border-radius: var(--radius-pill); background: var(--surface-2, var(--ground)); white-space: nowrap; }
 .run-status.st-running, .run-status.st-assessing { color: var(--accent); background: var(--accent-soft); }
 .run-status.st-awaiting_approval { color: var(--gold, #8a6d1c); background: #f6edd4; }
 .run-status.st-complete { color: var(--success); background: var(--success-soft, #e7f3ec); }
 .run-status.st-failed, .run-status.st-stopped { color: #a33; background: #fbe9e7; }
-.runs-pager { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; }
-/* Status-board pagination: one quiet pager row per group. */
+/* Compact quiet pagers — the same pattern everywhere (consistency). */
 .board-pager { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.45rem; font-size: 0.8rem; }
-.board-pager button { padding: 0.1rem 0.4rem; }
-.board-pager button:disabled { opacity: 0.4; cursor: default; }
+.pager-btn, .board-pager button { padding: 0.12rem 0.5rem; font-size: 0.8rem; }
+.board-pager button:disabled, .pager-btn:disabled { opacity: 0.4; cursor: default; }
+/* The latest pending issues across ALL campaigns (dashboard). */
+#waiting-strip { display: grid; gap: 0.35rem; margin: 0.6rem 0; }
+.waiting-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.42rem 0.7rem; border: 1px solid var(--accent, #c9a227); border-radius: var(--radius); background: var(--surface); }
+.waiting-row .run-meta { color: var(--muted); font-size: 0.82rem; flex: 1; }
+/* Small campaign labels on every view that shows one campaign's data. */
+.campaign-chip { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 0.14rem 0.6rem; border-radius: var(--radius-pill); background: var(--surface-2, var(--ground)); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+#board-switch { margin: 0.4rem 0 0.6rem; }
 .steps-card { padding-top: 0.6rem; padding-bottom: 0.6rem; }
 .checklist { list-style: none; padding: 0; margin: 0; display: grid; }
 .checklist li {

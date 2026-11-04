@@ -244,18 +244,19 @@
     });
   };
   // Demo: nine runs at different statuses so the dashboard's paginated
-  // "All runs" list shows real variety and exercises the pager.
+  // "All runs" list shows real variety and exercises the pager. Campaign
+  // names + waiting counts feed the labels and the waiting strip.
   MockApi.prototype.getRuns = function (limit, offset) {
     var all = [
-      { id: "demo-run-9", profile_id: "demo-p1", status: "running", found: 43, kept: 12, created_at: "2026-11-03T09:12:00Z" },
-      { id: "demo-run-8", profile_id: "demo-p1", status: "awaiting_approval", found: 72, kept: 31, created_at: "2026-11-02T15:40:00Z" },
-      { id: "demo-run-7", profile_id: "demo-p0", status: "complete", found: 30, kept: 9, created_at: "2026-11-01T11:05:00Z" },
-      { id: "demo-run-6", profile_id: "demo-p0", status: "stopped", found: 18, kept: 2, created_at: "2026-10-31T11:05:00Z" },
-      { id: "demo-run-5", profile_id: "demo-p0", status: "complete", found: 51, kept: 22, created_at: "2026-10-30T11:05:00Z" },
-      { id: "demo-run-4", profile_id: "demo-p0", status: "failed", found: 4, kept: 0, created_at: "2026-10-29T11:05:00Z" },
-      { id: "demo-run-3", profile_id: "demo-p0", status: "complete", found: 44, kept: 17, created_at: "2026-10-28T11:05:00Z" },
-      { id: "demo-run-2", profile_id: "demo-p0", status: "complete", found: 30, kept: 9, created_at: "2026-10-27T11:05:00Z" },
-      { id: "demo-run-1", profile_id: "demo-p0", status: "complete", found: 30, kept: 9, created_at: "2026-10-26T11:05:00Z" }
+      { id: "demo-run-9", profile_id: "demo-p1", profile_name: "Demo Coworking", status: "running", found: 43, kept: 12, waiting: 0, created_at: "2026-11-03T09:12:00Z" },
+      { id: "demo-run-8", profile_id: "demo-p1", profile_name: "Demo Realty", status: "awaiting_approval", found: 72, kept: 31, waiting: 12, created_at: "2026-11-02T15:40:00Z" },
+      { id: "demo-run-7", profile_id: "demo-p0", profile_name: "WakaSure", status: "complete", found: 30, kept: 9, waiting: 47, created_at: "2026-11-01T11:05:00Z" },
+      { id: "demo-run-6", profile_id: "demo-p0", profile_name: "Demo Events", status: "stopped", found: 18, kept: 2, waiting: 0, created_at: "2026-10-31T11:05:00Z" },
+      { id: "demo-run-5", profile_id: "demo-p0", profile_name: "Demo Catering", status: "complete", found: 51, kept: 22, waiting: 3, created_at: "2026-10-30T11:05:00Z" },
+      { id: "demo-run-4", profile_id: "demo-p0", profile_name: "Demo Cleaning", status: "failed", found: 4, kept: 0, waiting: 0, created_at: "2026-10-29T11:05:00Z" },
+      { id: "demo-run-3", profile_id: "demo-p0", profile_name: "Demo Retail", status: "complete", found: 44, kept: 17, waiting: 0, created_at: "2026-10-28T11:05:00Z" },
+      { id: "demo-run-2", profile_id: "demo-p0", profile_name: "Demo Logistics", status: "complete", found: 30, kept: 9, waiting: 0, created_at: "2026-10-27T11:05:00Z" },
+      { id: "demo-run-1", profile_id: "demo-p0", profile_name: "Demo First", status: "complete", found: 30, kept: 9, waiting: 0, created_at: "2026-10-26T11:05:00Z" }
     ];
     var o = offset || 0, l = limit || 10;
     return Promise.resolve({ runs: all.slice(o, o + l), total: all.length, limit: l, offset: o });
