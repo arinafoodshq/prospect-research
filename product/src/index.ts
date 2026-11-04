@@ -416,9 +416,10 @@ const postResume: Handler = async ({ req, env, params }) => {
 const postDraftMissing: Handler = async ({ req, env, params }) => {
   const run = await getRun(env, params["id"] as string);
   if (!run) return err("run_not_found", 404);
-  if (run.status !== "awaiting_approval" && run.status !== "complete") {
-    return err("run_not_ready", 409, "the research is still working — messages are written when it finishes");
-  }
+  // Any status: this is an explicit owner action from the studio. During a
+  // live run it drafts for whatever is ready (the peek list) instead of
+  // refusing with "run_not_ready" — the click used to do nothing visible
+  // (owner report 2026-11-04). The draft phase is bounded and fail-safe.
   const parsed = await readJson(req);
   const body = parsed.ok && isObj(parsed.body) ? parsed.body : {};
   const onlyIds = Array.isArray(body["prospect_ids"])

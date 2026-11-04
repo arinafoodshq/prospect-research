@@ -282,6 +282,16 @@ describe("runs history", () => {
   });
 });
 
+describe("write their messages (studio top-up)", () => {
+  it("drafts on demand even while the run is still working (owner 2026-11-04: the click did nothing)", async () => {
+    const db = makeMockDb();
+    seedRun(db, { id: "run_dm", status: "running" });
+    const res = await call(db, "POST", "/api/runs/run_dm/draft-missing", { prospect_ids: [] });
+    expect(res.status).toBe(200); // no more run_not_ready 409 on a live run
+    expect(res.body.ok).toBe(true);
+  });
+});
+
 describe("extractSiteUrl", () => {
   it("recognises bare domains, www, and prose-wrapped links (owner report 2026-11-03)", () => {
     expect(extractSiteUrl("see wakasure.com")).toBe("https://wakasure.com");

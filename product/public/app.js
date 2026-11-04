@@ -1739,17 +1739,21 @@
       var drafts = state.drafts.filter(function (d) { return sel.indexOf(d.prospectId) >= 0; });
       var notes = [];
       if (drafts.length < state.drafts.length) notes.push("Showing drafts for your " + sel.length + " selected picks.");
-      var missing = sel.filter(function (id) {
+      var missingIds = sel.filter(function (id) {
         return !state.drafts.some(function (d) { return d.prospectId === id; });
-      }).map(function (id) {
+      });
+      var missing = missingIds.map(function (id) {
         var p = state.prospects.filter(function (x) { return x.id === id; })[0];
         return p ? p.name : id;
       });
       if (missing.length) {
         notes.push("No draft yet for " + missing.join(", ") + ".");
         if (api.draftMissing) {
+          // The button carries PROSPECT IDS (owner bug 2026-11-04: it used to
+          // carry names, so the server matched nothing and the click did
+          // nothing). Names are for reading; ids are for the API.
           notes.push('<button type="button" class="linklike" data-act="write-missing" data-ids="' +
-            esc(missing.join(",")) + '">Write their messages now</button>');
+            esc(missingIds.join(",")) + '">Write their messages now</button>');
         }
       }
       $("drafts-note").innerHTML = notes.join(" ");
@@ -3171,9 +3175,12 @@
     // the picked prospects the first burst skipped (owner 2026-11-03).
     $("drafts-note").addEventListener("click", function (e) {
       var t = e.target || {};
-      var ds = t.dataset || {};
+      var ds = t.dataset || (t.getAttribute ? {
+        act: t.getAttribute("data-act"), ids: t.getAttribute("data-ids"),
+      } : {});
       if (ds.act !== "write-missing" || !state.runId || !api.draftMissing) return;
       var ids = (ds.ids || "").split(",").filter(Boolean);
+      if (!ids.length) return;
       var note = $("drafts-note");
       var g = loadingHint(note, "Writing their messages…");
       api.draftMissing(state.runId, ids).then(function () {

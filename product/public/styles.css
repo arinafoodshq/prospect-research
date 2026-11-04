@@ -99,6 +99,13 @@ li.skel-card {
   font-weight: 700;
   letter-spacing: var(--tracking-display);
 }
+/* In-app pages open with their business, not the brand (owner 2026-11-04:
+   the sidebar already says Prospect Research) — compact headlines. */
+#view-shortlist h2, #view-status h2, #view-drafts h2,
+#view-campaigns h2, #view-senders h2, #view-progress h2 {
+  font-size: 1.45rem;
+  margin: 0.3rem 0 0.25rem;
+}
 
 /* PDF flow screens: no outer card, content floats on the ground. */
 .view-plain {
