@@ -23,6 +23,7 @@ import {
   type Prospect,
 } from "../db";
 import { budgetReason, checkIncrement, firstBreach, type BudgetCaps, type BudgetConsumed } from "./budgets";
+import { mapPool } from "./pool";
 import {
   checkHardConstraints, decideVerdict, ensureDirective, extractContacts, icpFromBrief, isGroundedContact,
   validateBrief,
@@ -563,18 +564,20 @@ export async function investigate(
     consumed: budgets.consumed, caps: budgets.caps,
     fetcher: meta.fetchPage ?? (async () => ({ failure: "blocked" as const, detail: "no fetch client" })),
   };
-  // Parallel page opens (owner 2026-11-03: "opening 30 pages is too slow" —
-  // the slowness was one fetch after another). Five at a time, sliced to the
-  // remaining fetch budget so parallelism never overshoots; every target is
-  // isolated (Promise.allSettled): one dead page costs nothing but itself.
-  let investigated = 0;
-  const BATCH = 5;
+  // One evidence read for the WHOLE phase (Phase 0.2): investigateOne used to
+  // re-query every evidence row per prospect — an N+1 that grew with the run.
+  const allEvidence = await listEvidence(db, budgets.run_id);
+  const evidenceById = new Map(allEvidence.map((e) => [e.id, e] as const));
+  // Page opens (owner 2026-11-03: "opening 30 pages is too slow"): every
+  // target is isolated inside the sliding window below — one dead page costs
+  // nothing but itself.
   const investigateOne = async (p: Prospect): Promise<"opened" | "nofetch" | "failed"> => {
     try {
     // Per-prospect fetch: the prospect's OWN discovery URL. Never another
     // prospect's evidence, never a placeholder (both happened before).
-    const ownIds = new Set(p.evidence_ids);
-    const own = (await listEvidence(db, budgets.run_id)).filter((e) => ownIds.has(e.id));
+    const own = p.evidence_ids
+      .map((id) => evidenceById.get(id))
+      .filter((e): e is Evidence => !!e);
     const target = own.find((e) => e.source_url);
     if (!target?.source_url) {
       // No fetchable url: the candidate keeps its discovery evidence and
@@ -731,21 +734,23 @@ export async function investigate(
       return "failed";
     }
   };
-  for (let i = 0; i < targets.length; i += BATCH) {
-    const allowed = Math.max(0, budgets.caps.fetches - budgets.consumed.fetches);
-    if (allowed <= 0) {
-      return stopped(budgetReason("fetches"), "fetch budget exhausted mid-investigate");
-    }
-    const batch = targets.slice(i, i + Math.min(BATCH, allowed));
-    if (batch.length === 0) break;
-    const settled = await Promise.allSettled(batch.map((p) => investigateOne(p)));
-    for (const r of settled) {
-      if (r.status === "fulfilled" && r.value !== "failed") investigated += 1;
-    }
-    // Hard clamp: parallel verification searches could nose past a cap.
-    if (budgets.consumed.searches > budgets.caps.searches) budgets.consumed.searches = budgets.caps.searches;
-    if (budgets.consumed.fetches > budgets.caps.fetches) budgets.consumed.fetches = budgets.caps.fetches;
+  // Sliding window (Phase 0.1, architecture.md §12.1): 6 fetches in flight,
+  // a slot refilling the moment any page finishes — no batch barrier, so one
+  // slow site never costs the batch behind it. Sliced to the remaining fetch
+  // budget up front; the clamp below keeps a parallel overshoot inside caps.
+  const allowedFetches = Math.max(0, budgets.caps.fetches - budgets.consumed.fetches);
+  if (allowedFetches <= 0) {
+    return stopped(budgetReason("fetches"), "fetch budget exhausted before investigate");
   }
+  const window = targets.slice(0, allowedFetches);
+  const settled = await mapPool(window, 6, investigateOne);
+  let investigated = 0;
+  for (const r of settled) {
+    if (r.status === "fulfilled" && r.value !== "failed") investigated += 1;
+  }
+  // Hard clamp: parallel verification searches could nose past a cap.
+  if (budgets.consumed.searches > budgets.caps.searches) budgets.consumed.searches = budgets.caps.searches;
+  if (budgets.consumed.fetches > budgets.caps.fetches) budgets.consumed.fetches = budgets.caps.fetches;
   return completed(`${investigated} prospects investigated`);
 }
 
@@ -869,11 +874,43 @@ export async function assess(
   const targets = prospects.filter((p) => p.status === "investigating");
   if (targets.length === 0) return completed("nothing to assess");
   const evidence = await listEvidence(db, budgets.run_id);
+  // Chunked bursts (Phase 0.3): one giant prompt for 90 prospects is slow and
+  // fragile — split into groups of 10 and run three at a time. A failed chunk
+  // retries once, then its prospects stay investigating for a later sweep
+  // (never silently disqualified for a transport failure).
   let proposals: AssessProposal[];
-  try {
-    proposals = meta.proposeAssessments ? await meta.proposeAssessments(targets, evidence) : [];
-  } catch (e) {
-    return stopped("assess_failed", e instanceof Error ? e.message : "assess burst failed");
+  const covered = new Set<string>();
+  {
+    const CHUNK = 10;
+    const chunks: Prospect[][] = [];
+    for (let i = 0; i < targets.length; i += CHUNK) chunks.push(targets.slice(i, i + CHUNK));
+    const settled = await mapPool(chunks, 3, async (chunk) => {
+      const propose = meta.proposeAssessments;
+      if (!propose) return [];
+      try {
+        return await propose(chunk, evidence);
+      } catch {
+        return await propose(chunk, evidence); // one retry per chunk
+      }
+    });
+    let failedChunks = 0;
+    proposals = [];
+    for (let ci = 0; ci < settled.length; ci += 1) {
+      const r = settled[ci];
+      if (!r) continue;
+      if (r.status === "fulfilled") {
+        proposals.push(...r.value);
+        for (const t of chunks[ci] ?? []) covered.add(t.id);
+      } else {
+        failedChunks += 1;
+      }
+    }
+    // A chunk that failed twice leaves its prospects investigating (a later
+    // sweep retries them); they must NOT fall into the legacy thin-evidence
+    // disqualification below.
+    if (proposals.length === 0 && failedChunks > 0 && covered.size === 0) {
+      return stopped("assess_failed", "assess bursts failed for every chunk");
+    }
   }
   budgets.consumed.tool_rounds += 1;
   // New path: load the stored brief for the deterministic hard gate.
@@ -886,6 +923,7 @@ export async function assess(
   }
   let done = 0;
   for (const t of targets) {
+    if (!covered.has(t.id)) continue; // its chunk failed: retry on a later sweep
     const prop = proposals.find((x) => x.prospect_id === t.id);
     const rating = prop?.fit_rating ?? 2;
     // Prospect-scoped linking: support matches only the prospect's OWN
@@ -1332,27 +1370,30 @@ export async function draft(
   }
   const allEvidence = await listEvidence(db, budgets.run_id);
   const runEvidence = allEvidence.filter((e) => e.run_id === budgets.run_id);
+  // Chunked bursts (Phase 0.3): same shape as assess — groups of 8, three at
+  // a time, one retry per chunk. A twice-failed chunk defers its prospects
+  // (they stay reachable for the studio's on-demand top-up) instead of
+  // poisoning the whole burst.
   let proposals: DraftProposal[];
-  try {
-    if (meta.proposeDrafts) {
-      proposals = await meta.proposeDrafts(targets, runEvidence);
-      budgets.consumed.tool_rounds += 1;
-      // One retry: empty bursts happen (run_de5e566e wrote 0 drafts when
-      // the model returned nothing usable for its only target).
-      if (!targets.some((t) => proposals.some((x) => x.prospect_id === t.id))) {
-        proposals = await meta.proposeDrafts(targets, runEvidence);
-        budgets.consumed.tool_rounds += 1;
-      }
-    } else {
-      const first = allEvidence[0];
-      proposals = targets.map((t) => ({
-        prospect_id: t.id, channel: "website_form" as const, contact_value: "https://example.com/contact",
-        subject: `Hello ${t.name}`, body: `Hi ${t.name}, see [${first?.id ?? "ev_x"}].`,
-        next_action: "Send intro", follow_up_days: 7,
-      }));
+  {
+    const CHUNK = 8;
+    const chunks: Prospect[][] = [];
+    for (let i = 0; i < targets.length; i += CHUNK) chunks.push(targets.slice(i, i + CHUNK));
+    const settled = await mapPool(chunks, 3, async (chunk) => {
+      const propose = meta.proposeDrafts;
+      if (!propose) return [];
+      const burst = await propose(chunk, runEvidence);
+      if (chunk.some((t) => burst.some((x) => x.prospect_id === t.id))) return burst;
+      return await propose(chunk, runEvidence); // empty burst: one retry
+    });
+    proposals = [];
+    for (const r of settled) {
+      if (r.status === "fulfilled") proposals.push(...r.value);
     }
-  } catch (e) {
-    return stopped("draft_failed", e instanceof Error ? e.message : "draft burst failed");
+    if (proposals.length === 0 && settled.every((r) => r.status === "rejected")) {
+      return stopped("draft_failed", "draft bursts failed for every chunk");
+    }
+    budgets.consumed.tool_rounds += 1;
   }
   let done = 0;
   for (const t of targets) {

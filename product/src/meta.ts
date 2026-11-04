@@ -555,6 +555,24 @@ export function isPlausibleName(raw: string): boolean {
   if (trimmed.includes("?")) return false; // encoding casualty: never a verified name
   if (/:/.test(trimmed) && /\b(lagos|lekki|ikeja|ikoyi|yaba|surulere|oshodi|apapa|festac|ajah|island|mainland|abuja|nigeria|nigerian|guide|directory|list|suppliers?|vendors?|manufacturers?|exporters?)\b/i.test(trimmed)) return false; // "Place: listing" guide page, not a business
   if (STORY_HEADLINE.test(trimmed)) return false; // story headline, not a business
+  // File artefacts read as names: a document extension is a download, never
+  // a business ("Ikeja Hotels 2025 AR & ACCTS.cdr").
+  if (/\.(cdr|pdf|docx?|xlsx?|pptx?|zip|rar|eps|csv|jpe?g|png|gif|mp4|mp3|wav|txt)\b/i.test(trimmed)) return false;
+  // Meeting and notice documents ("NOTICE OF ANNUAL GENERAL MEETING") are
+  // announcements, not organisations.
+  if (/^notice of\b/i.test(trimmed)) return false;
+  // Editorial openers are article sentences, never names ("How We Uplifted
+  // The Standards Of IKEJA Club", "Again, COWA Ignites Fire of Hope").
+  if (/^(how we\b|again[,])/i.test(trimmed)) return false;
+  // A short ALL-CAPS name made only of generic trade words ("HOTELS",
+  // "INDEPENDENT") is a category label or nav leftover, not a brand. A real
+  // acronym brand ("NECA") is not in the generic set and survives.
+  if (
+    trimmed.length <= 24 &&
+    trimmed === trimmed.toUpperCase() &&
+    words.length <= 2 &&
+    /\b(?:hotels?|independent|events?|venues?|halls?|centres?|centers?|services?|company|limited|enterprises?|global|nigeria|lagos|official|welcome)\b/i.test(trimmed)
+  ) return false;
   const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
   if (lowerWords.includes("at") && lowerWords.some((w) => JOB_WORDS.has(w))) return false; // "<role> at <company>" job post
   const distinctive = words.filter((w) => {
@@ -1033,17 +1051,21 @@ function extractVisibleText(html: string): string {
     url: string, timeoutMs: number,
   ): Promise<{ text: string; socials?: string[] } | { failure: "blocked" | "empty" | "timeout"; detail: string }> {
     let res: Response;
+    let html: string;
     try {
       res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (res.status === 403 || res.status === 401 || res.status === 429) {
+        return { failure: "blocked", detail: `http ${res.status}` };
+      }
+      if (res.status === 404 || res.status === 410) return { failure: "empty", detail: `http ${res.status}` };
+      if (!res.ok) return { failure: "blocked", detail: `http ${res.status}` };
+      // The body read stays inside the same deadline: AbortSignal.timeout
+      // aborts the body stream too, so a slow site can never hang the phase
+      // past its timeout (Phase 0.1: hard timeout INCLUDING the body).
+      html = await res.text();
     } catch (e) {
       return { failure: "timeout", detail: e instanceof Error ? e.message : "fetch failed" };
     }
-    if (res.status === 403 || res.status === 401 || res.status === 429) {
-      return { failure: "blocked", detail: `http ${res.status}` };
-    }
-    if (res.status === 404 || res.status === 410) return { failure: "empty", detail: `http ${res.status}` };
-    if (!res.ok) return { failure: "blocked", detail: `http ${res.status}` };
-    const html = await res.text();
     // Social-link harvest: the lead's own page declares its profiles in the
     // markup (footer usually) — visible text often omits them. Grounded by
     // construction: these come from the prospect's own page.

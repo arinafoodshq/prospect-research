@@ -186,6 +186,12 @@ export class ResearchWorkflow {
    * because the sweep share made mid-run budget stops normal). Non-budget
    * stops (model failures, plan errors) remain fatal. */
   private async runSweepPhases(sweep: number, share: { searches?: number; fetches?: number; candidates?: number }): Promise<string | null> {
+    // Budget stops no longer abort the remaining sweep phases: "rank what
+    // exists" must actually ASSESS what exists — stopping at investigate used
+    // to skip assess entirely, so rank saw zero assessments and the run
+    // parked with "0 kept so far" (run_91c95daf baseline). Each later phase
+    // re-checks its own budgets and no-ops gracefully.
+    let stopMsg: string | null = null;
     for (const name of ["discover", "investigate", "assess"] as const) {
       // Budget stops complete the step normally (dispatch returns the stop
       // instead of throwing): a mid-sweep budget pause is an honest outcome,
@@ -209,10 +215,10 @@ export class ResearchWorkflow {
       }
       if (r && r.budgetStopped) {
         this.runtime.log(`sweep ${sweep}: ${name} stopped: ${r.stop_reason} — ranking what exists`);
-        return `${name} stopped: ${r.stop_reason}`;
+        stopMsg = stopMsg ?? `${name} stopped: ${r.stop_reason}`;
       }
     }
-    return null;
+    return stopMsg;
   }
 
   async run(): Promise<void> {

@@ -49,6 +49,26 @@ describe("name-quality gate: page-heading names never become candidates", () => 
     }
   });
 
+  it("rejects the real junk from run_71a74ac3 (maryodidi2 recording run)", () => {
+    // Bare all-caps generic trade words are category labels, not brands.
+    expect(isPlausibleName("HOTELS")).toBe(false);
+    expect(isPlausibleName("INDEPENDENT")).toBe(false);
+    // Meeting/notice documents are announcements, never organisations.
+    expect(isPlausibleName("NOTICE OF ANNUAL GENERAL MEETING")).toBe(false);
+    // File artefacts ("...AR & ACCTS.cdr") are downloads, not businesses.
+    expect(isPlausibleName("Ikeja Hotels 2025 AR & ACCTS.cdr")).toBe(false);
+    // Editorial openers are article sentences, not names.
+    expect(isPlausibleName("How We Uplifted The Standards Of IKEJA Club")).toBe(false);
+    expect(isPlausibleName("Again, COWA Ignites Fire of Hope")).toBe(false);
+  });
+
+  it("keeps real brands that the new rules must not reject", () => {
+    expect(isPlausibleName("NECA Event Centre")).toBe(true); // acronym brand, not a bare generic
+    expect(isPlausibleName("504 Yard Grills & Drinks")).toBe(true);
+    expect(isPlausibleName("Ikeja Club")).toBe(true);
+    expect(isPlausibleName("The Alcove Events Studios")).toBe(true);
+  });
+
   it("rejects directory tails and domains inside names", () => {
     expect(isPlausibleName("Araromi Youth Development Centre Lagos. « HEYPLACES.COM.NG")).toBe(false);
     expect(isPlausibleName("GlowMart Beauty www.glowmart.ng")).toBe(false);

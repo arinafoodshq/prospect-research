@@ -56,7 +56,7 @@ export interface FetchPageDeps {
   fetcher: (url: string, timeoutMs: number) => Promise<{ text: string; socials?: string[] } | { failure: "blocked" | "empty" | "timeout"; detail: string }>;
 }
 
-export const FETCH_TIMEOUT_MS = 10_000;
+export const FETCH_TIMEOUT_MS = 8_000;
 export const FETCH_MAX_CHARS_DEFAULT = 12_000;
 export const FETCH_MAX_CHARS_MAX = 60_000;
 export const FETCH_RAW_CAP_BYTES = 2_000_000;
