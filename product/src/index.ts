@@ -29,6 +29,7 @@ import { draft, ONBOARD_FIELD_KEYS, type RewriteTone } from "./research/phases";
 import { ResearchWorkflow } from "./orchestrator";
 import * as delivery from "./delivery/routes";
 import { openSecret } from "./delivery/crypto";
+import { profileOwned, runOwned, prospectOwned, draftOwned, notYours } from "./scope";
 import { consumeDeliveryBatch, enqueueDueJobs, warmSmtpRelay, type DeliveryJob } from "./delivery/processor";
 import { containerRelay, providerFor, smtpProvider, type ProviderId } from "./delivery/providers";
 import type { Container } from "@cloudflare/containers";
@@ -217,7 +218,12 @@ export function extractBusinessName(text: string): string | null {
   return null;
 }
 
-const postProfile: Handler = async ({ req, env }) => {
+const postProfile: Handler = async ({ req, env, sess }) => {
+  // Ownership (owner directive 2026-11-04): the profile belongs to the
+  // signed-in user from here on. The /api gate guarantees a session in
+  // production; tests run under a stable fixture identity.
+  const ownerEmail = sess?.email ?? null;
+  if (!ownerEmail) return err("signin_required", 401);
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -241,10 +247,10 @@ const postProfile: Handler = async ({ req, env }) => {
     if (parsed.body[f] !== undefined) provenance[f] = "stated";
   }
   await env.DB.prepare(
-    `INSERT INTO business_profile (id, name, website_url, description, services, value_proposition, target_market, service_area, constraints_json, provenance, status, version, confirmed_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO business_profile (id, owner_email, name, website_url, description, services, value_proposition, target_market, service_area, constraints_json, provenance, status, version, confirmed_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
-    id, cleanName,
+    id, ownerEmail, cleanName,
     typeof websiteUrl === "string" ? websiteUrl : null,
     str(parsed.body["description"], ""),
     JSON.stringify(parsed.body["services"] ?? []),
@@ -258,7 +264,8 @@ const postProfile: Handler = async ({ req, env }) => {
   return json(serializeProfile(row as ProfileRow), 201);
 };
 
-const getProfileById: Handler = async ({ env, params }) => {
+const getProfileById: Handler = async ({ env, params, sess }) => {
+  if (!(await profileOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const row = await getProfile(env, params["id"] as string);
   if (!row) return err("profile_not_found", 404);
   return json(serializeProfile(row));
@@ -275,7 +282,8 @@ const ANSWER_FIELDS: Record<string, { col: string; json: boolean }> = {
   constraints: { col: "constraints_json", json: true },
 };
 
-const postAnswers: Handler = async ({ req, env, params }) => {
+const postAnswers: Handler = async ({ req, env, params, sess }) => {
+  if (!(await profileOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const row = await getProfile(env, params["id"] as string);
   if (!row) return err("profile_not_found", 404);
   const parsed = await readJson(req);
@@ -301,7 +309,8 @@ const postAnswers: Handler = async ({ req, env, params }) => {
   return json(serializeProfile((await getProfile(env, row.id)) as ProfileRow));
 };
 
-const postConfirm: Handler = async ({ env, params }) => {
+const postConfirm: Handler = async ({ env, params, sess }) => {
+  if (!(await profileOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const row = await getProfile(env, params["id"] as string);
   if (!row) return err("profile_not_found", 404);
   // Idempotent: re-confirming (stop run -> edit brief -> start again) must
@@ -314,25 +323,29 @@ const postConfirm: Handler = async ({ env, params }) => {
 
 const TERMINAL_RUN = ["complete", "stopped", "failed"];
 
-const postRun: Handler = async ({ req, env }) => {
+const postRun: Handler = async ({ req, env, sess }) => {
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
   const profileId = parsed.body["profile_id"];
   if (typeof profileId !== "string" || profileId === "") return err("missing_profile_id", 400);
+  // A run can only be started for a profile the caller owns (owner directive
+  // 2026-11-04); the run inherits the profile's owner for list scoping.
+  if (!(await profileOwned(env.DB, sess?.email, profileId))) return notYours();
   const profile = await getProfile(env, profileId);
   if (!profile) return err("profile_not_found", 404);
   if (profile.status !== "confirmed") return err("brief_not_confirmed", 400);
+  const runOwner = (profile as unknown as { owner_email?: string | null }).owner_email ?? sess?.email ?? null;
   const existing = await env.DB.prepare("SELECT id, status FROM research_run WHERE profile_id = ?").bind(profileId).all<{ id: string; status: string }>();
   if ((existing.results ?? []).some((r) => !TERMINAL_RUN.includes(r.status))) return err("run_active", 409);
   const id = makeId("run");
   const wfId = makeId("wf");
   const now = nowIso();
   await env.DB.prepare(
-    `INSERT INTO research_run (id, profile_id, workflow_instance_id, plan, status, stop_reason, budgets, consumed, started_at, finished_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO research_run (id, profile_id, owner_email, workflow_instance_id, plan, status, stop_reason, budgets, consumed, started_at, finished_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
-    id, profileId, wfId, JSON.stringify({ queries: [] }), "created", null,
+    id, profileId, runOwner, wfId, JSON.stringify({ queries: [] }), "created", null,
     JSON.stringify({
       searches: DEFAULT_CAPS.searches, fetches: DEFAULT_CAPS.fetches,
       candidates: DEFAULT_CAPS.candidates, cost_usd: DEFAULT_CAPS.cost_usd,
@@ -357,13 +370,15 @@ const postRun: Handler = async ({ req, env }) => {
   return json(serializeRun((await getRun(env, id)) as RunRow), 201);
 };
 
-const getRunById: Handler = async ({ env, params }) => {
+const getRunById: Handler = async ({ env, params, sess }) => {
+  if (!(await runOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const row = await getRun(env, params["id"] as string);
   if (!row) return err("run_not_found", 404);
   return json(serializeRun(row));
 };
 
-const postResume: Handler = async ({ req, env, params }) => {
+const postResume: Handler = async ({ req, env, params, sess }) => {
+  if (!(await runOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const row = await getRun(env, params["id"] as string);
   if (!row) return err("run_not_found", 404);
   const parsed = await readJson(req);
@@ -412,7 +427,8 @@ const postResume: Handler = async ({ req, env, params }) => {
  * awaiting_approval — same grounded rules, same audit, idempotent per
  * prospect because the studio filters existing drafts client-side.
  */
-const postDraftMissing: Handler = async ({ req, env, params }) => {
+const postDraftMissing: Handler = async ({ req, env, params, sess }) => {
+  if (!(await runOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const run = await getRun(env, params["id"] as string);
   if (!run) return err("run_not_found", 404);
   // Any status: this is an explicit owner action from the studio. During a
@@ -448,9 +464,9 @@ const postDraftMissing: Handler = async ({ req, env, params }) => {
   return json({ ok: true, note: (outcome as { detail?: string }).detail ?? "" });
 };
 
-const getProspects: Handler = async ({ env, params }) => {
+const getProspects: Handler = async ({ env, params, sess }) => {
   const runId = params["id"] as string;
-  if (!(await getRun(env, runId))) return err("run_not_found", 404);
+  if (!(await runOwned(env.DB, sess?.email, runId))) return notYours();
   const out = await env.DB.prepare("SELECT * FROM prospect WHERE run_id = ?").bind(runId).all<Record<string, unknown>>();
   const prospects = (out.results ?? []).map((p) => ({
     ...p,
@@ -459,28 +475,29 @@ const getProspects: Handler = async ({ env, params }) => {
   return json({ run_id: runId, prospects });
 };
 
-const getEvidence: Handler = async ({ env, params }) => {
+const getEvidence: Handler = async ({ env, params, sess }) => {
   const runId = params["id"] as string;
-  if (!(await getRun(env, runId))) return err("run_not_found", 404);
+  if (!(await runOwned(env.DB, sess?.email, runId))) return notYours();
   const out = await env.DB.prepare("SELECT * FROM evidence WHERE run_id = ?").bind(runId).all<Record<string, unknown>>();
   return json({ run_id: runId, evidence: out.results ?? [] });
 };
 
-const getDrafts: Handler = async ({ env, params }) => {
+const getDrafts: Handler = async ({ env, params, sess }) => {
   const runId = params["id"] as string;
-  if (!(await getRun(env, runId))) return err("run_not_found", 404);
+  if (!(await runOwned(env.DB, sess?.email, runId))) return notYours();
   return json({ run_id: runId, drafts: await draftsForRun(env, runId) });
 };
 
 /** Owner sets the contact person they know (504Yard pattern: type it there —
  * the greeting personalises). Owner-provided beats model extraction. */
-const postContactPerson: Handler = async ({ req, env, params }) => {
+const postContactPerson: Handler = async ({ req, env, params, sess }) => {
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
   const name = typeof parsed.body["contact_name"] === "string" ? (parsed.body["contact_name"] as string).trim().slice(0, 120) : "";
   const title = typeof parsed.body["contact_title"] === "string" ? (parsed.body["contact_title"] as string).trim().slice(0, 120) : "";
   if (!name && !title) return err("invalid_body", 400, "a name or a title is required");
+  if (!(await prospectOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const p = await env.DB.prepare("SELECT id FROM prospect WHERE id = ?").bind(params["id"] as string)
     .first<{ id: string }>();
   if (!p) return err("prospect_not_found", 404);
@@ -490,7 +507,9 @@ const postContactPerson: Handler = async ({ req, env, params }) => {
   return json({ id: p.id, contact_name: name || null, contact_title: title || null });
 };
 
-const getProspectDetail: Handler = async ({ env, params }) => {  const p = await env.DB.prepare("SELECT * FROM prospect WHERE id = ?").bind(params["id"] as string)
+const getProspectDetail: Handler = async ({ env, params, sess }) => {
+  if (!(await prospectOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
+  const p = await env.DB.prepare("SELECT * FROM prospect WHERE id = ?").bind(params["id"] as string)
     .first<Record<string, unknown>>();
   if (!p) return err("prospect_not_found", 404);
   const assessments = await env.DB.prepare("SELECT * FROM assessment WHERE prospect_id = ?").bind(p["id"])
@@ -526,8 +545,9 @@ const getProspectDetail: Handler = async ({ env, params }) => {  const p = await
   });
 };
 
-const patchDraft: Handler = async ({ req, env, params }) => {
+const patchDraft: Handler = async ({ req, env, params, sess }) => {
   const draftId = params["id"] as string;
+  if (!(await draftOwned(env.DB, sess?.email, draftId))) return notYours();
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -557,8 +577,9 @@ const patchDraft: Handler = async ({ req, env, params }) => {
 
 const REWRITE_TONES = ["warmer", "more_direct", "another"] as const;
 
-const postRewriteDraft: Handler = async ({ req, env, params }) => {
+const postRewriteDraft: Handler = async ({ req, env, params, sess }) => {
   const draftId = params["id"] as string;
+  if (!(await draftOwned(env.DB, sess?.email, draftId))) return notYours();
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -608,8 +629,9 @@ const RETUNE_CHANNELS = ["whatsapp", "email", "dm"] as const;
 /** Write a stored draft into ONE channel's shape and store it as that
  * channel's variant (legacy drafts predate per-channel variants; user
  * report 2026-11-02 — shorten in place, no new campaign required). */
-const postDraftRetune: Handler = async ({ req, env, params }) => {
+const postDraftRetune: Handler = async ({ req, env, params, sess }) => {
   const draftId = params["id"] as string;
+  if (!(await draftOwned(env.DB, sess?.email, draftId))) return notYours();
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -653,8 +675,9 @@ const postDraftRetune: Handler = async ({ req, env, params }) => {
   return json({ draft: updated });
 };
 
-const postTestSend: Handler = async ({ env, params }) => {
+const postTestSend: Handler = async ({ env, params, sess }) => {
   const draftId = params["id"] as string;
+  if (!(await draftOwned(env.DB, sess?.email, draftId))) return notYours();
   const draft = await env.DB.prepare(
     "SELECT id, prospect_id, subject, body, channel_suggestion FROM outreach_draft WHERE id = ?",
   ).bind(draftId).first<{ id: string; prospect_id: string; subject: string; body: string; channel_suggestion: string }>();
@@ -706,8 +729,9 @@ const postTestSend: Handler = async ({ env, params }) => {
   });
 };
 
-const postStart: Handler = async ({ env, params }) => {
+const postStart: Handler = async ({ env, params, sess }) => {
   if (env.ENVIRONMENT === "production") return err("use_workflow", 501);
+  if (!(await runOwned(env.DB, sess?.email, params["id"] as string))) return notYours();
   const row = await getRun(env, params["id"] as string);
   if (!row) return err("run_not_found", 404);
   if (row.status !== "created") return err("run_not_startable", 409);
@@ -746,8 +770,9 @@ const postStart: Handler = async ({ env, params }) => {
 
 const DECISIONS = ["approved", "rejected", "deferred"] as const;
 
-const postDecision: Handler = async ({ req, env, params }) => {
+const postDecision: Handler = async ({ req, env, params, sess }) => {
   const draftId = params["id"] as string;
+  if (!(await draftOwned(env.DB, sess?.email, draftId))) return notYours();
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -794,8 +819,9 @@ const postDecision: Handler = async ({ req, env, params }) => {
   return json({ run_id: prospect.run_id, draft: updated });
 };
 
-const getStatuses: Handler = async ({ env, params }) => {
+const getStatuses: Handler = async ({ env, params, sess }) => {
   const runId = params["id"] as string;
+  if (!(await runOwned(env.DB, sess?.email, runId))) return notYours();
   const run = await getRun(env, runId);
   if (!run) return err("run_not_found", 404);
   const prospects = await env.DB.prepare("SELECT id, status FROM prospect WHERE run_id = ?").bind(runId).all<{ id: string; status: string }>();
@@ -814,9 +840,9 @@ const getStatuses: Handler = async ({ env, params }) => {
   });
 };
 
-const getFollowUps: Handler = async ({ env, params }) => {
+const getFollowUps: Handler = async ({ env, params, sess }) => {
   const runId = params["id"] as string;
-  if (!(await getRun(env, runId))) return err("run_not_found", 404);
+  if (!(await runOwned(env.DB, sess?.email, runId))) return notYours();
   const drafts = await draftsForRun(env, runId);
   const nowMs = Date.now();
   const followUps: Array<Record<string, unknown>> = [];
@@ -898,7 +924,10 @@ const ONBOARD_KEYS = new Set<string>(ONBOARD_FIELD_KEYS);
  * (owner rule 2026-10-30: "get more than one word… e.g. Ikeja, Lagos, Nigeria").
  * Deliberately not rigid: a business may have no fixed base or serve clients
  * globally — the ask offers that way out, and global-sounding answers skip it. */
-export const LOCATION_ASK_PROMPT = "Where are you based, and how far do you serve? For example: 'Ikeja, Lagos, Nigeria', 'Lagos, Nigeria — nationwide', or 'Online / Worldwide' if there is no fixed base.";
+// Module-local on purpose: the Worker entry module may only export handlers
+// (workerd rejects any other export as a bad entrypoint, and `wrangler dev`
+// refuses to boot with it exported). The copy moved to src/onboarding-copy.ts.
+import { LOCATION_ASK_PROMPT } from "./onboarding-copy";
 
 /** Answers that already say where the business plays (no base to pin). */
 const GLOBAL_LOCATION_WORDS = /\b(worldwide|global|globally|international|internationally|online|onlineonly|nationwide|remote|virtual|everywhere|anywhere)\b/i;
@@ -1146,10 +1175,13 @@ route("POST", "/api/transcribe", postTranscribe);
 route("POST", "/api/runs", postRun);
 // Latest run for the signed-in operator (run recovery). Registered BEFORE
 // /api/runs/:id so "latest" is not captured as an id parameter.
-const getLatestRun: Handler = async ({ env }) => {
+const getLatestRun: Handler = async ({ env, sess }) => {
+  // Scoped to the signed-in user (owner directive 2026-11-04): "every data
+  // must be scoped to the user that started it or has it".
+  const email = sess?.email ?? "";
   const row = await env.DB.prepare(
-    "SELECT r.*, p.name AS profile_name FROM research_run r LEFT JOIN business_profile p ON p.id = r.profile_id ORDER BY r.started_at DESC LIMIT 1",
-  ).bind().first<Record<string, unknown>>();
+    "SELECT r.*, p.name AS profile_name FROM research_run r LEFT JOIN business_profile p ON p.id = r.profile_id WHERE r.owner_email = ? ORDER BY r.started_at DESC LIMIT 1",
+  ).bind(email).first<Record<string, unknown>>();
   if (!row) return json({ run: null });
   return json({
     run: { ...serializeRun(row as unknown as RunRow), profile_name: row["profile_name"] ?? null },
@@ -1162,13 +1194,16 @@ const getLatestRun: Handler = async ({ env }) => {
  * client paginates through them on the dashboard. Sorting/slicing happens
  * in JS so the shape is identical in production and in tests.
  */
-  const getRunsList: Handler = async ({ req, env }) => {
+  const getRunsList: Handler = async ({ req, env, sess }) => {
     const url = new URL(req.url);
     const limit = Math.min(50, Math.max(1, Math.floor(Number(url.searchParams.get("limit") ?? 10) || 10)));
     const offset = Math.max(0, Math.floor(Number(url.searchParams.get("offset") ?? 0) || 0));
+    // Scoped to the signed-in user (owner directive 2026-11-04): nobody sees
+    // another user's runs, not even their count.
+    const email = sess?.email ?? "";
     const runsRes = await env.DB.prepare(
-      "SELECT r.id, r.profile_id, r.status, r.stop_reason, r.started_at, r.finished_at, r.created_at, p.name AS profile_name FROM research_run r LEFT JOIN business_profile p ON p.id = r.profile_id",
-    ).bind().all<Record<string, unknown>>();
+      "SELECT r.id, r.profile_id, r.owner_email, r.status, r.stop_reason, r.started_at, r.finished_at, r.created_at, p.name AS profile_name FROM research_run r LEFT JOIN business_profile p ON p.id = r.profile_id WHERE r.owner_email = ?",
+    ).bind(email).all<Record<string, unknown>>();
     const all = [...(runsRes.results ?? [])];
     all.sort((a, b) => String(b["created_at"] ?? "").localeCompare(String(a["created_at"] ?? "")));
     // Per-run counts in one scan (no fancy SQL: the mock and prod agree).
@@ -1213,14 +1248,21 @@ route("GET", "/api/runs", getRunsList);
  * runs existed while Pending review looked empty). Every row carries its
  * campaign name; the client groups and paginates.
  */
-const getBoard: Handler = async ({ env }) => {
+const getBoard: Handler = async ({ env, sess }) => {
+  // Scoped to the signed-in user (owner directive 2026-11-04): only the
+  // user's own runs are listed, so only their prospects and drafts can
+  // reach the board. Unowned runs contribute nothing.
+  const email = sess?.email ?? "";
   const dr = await env.DB.prepare("SELECT prospect_id, status, created_at FROM outreach_draft").bind().all<Record<string, unknown>>();
   const pr = await env.DB.prepare("SELECT id, run_id, name FROM prospect").bind().all<Record<string, unknown>>();
-  const runs = await env.DB.prepare("SELECT id, profile_id FROM research_run").bind().all<Record<string, unknown>>();
+  const runs = await env.DB.prepare("SELECT id, profile_id FROM research_run WHERE owner_email = ?").bind(email).all<Record<string, unknown>>();
   const profs = await env.DB.prepare("SELECT id, name FROM business_profile").bind().all<Record<string, unknown>>();
+  const ownRuns = new Set<string>((runs.results ?? []).map((r) => String(r["id"])));
   const prospectOf = new Map<string, { name: string; run_id: string }>();
   for (const p of pr.results ?? []) {
-    prospectOf.set(String(p["id"]), { name: String(p["name"] ?? ""), run_id: String(p["run_id"] ?? "") });
+    const runId = String(p["run_id"] ?? "");
+    if (!ownRuns.has(runId)) continue; // another user's prospect: invisible here
+    prospectOf.set(String(p["id"]), { name: String(p["name"] ?? ""), run_id: runId });
   }
   const campaignOf = new Map<string, string>();
   for (const r of runs.results ?? []) {
@@ -1228,16 +1270,17 @@ const getBoard: Handler = async ({ env }) => {
     const prof = (profs.results ?? []).find((x) => String(x["id"]) === pid);
     campaignOf.set(String(r["id"]), String(prof?.["name"] ?? "Campaign"));
   }
-  const drafts = (dr.results ?? []).map((d) => {
-    const p = prospectOf.get(String(d["prospect_id"])) ?? { name: "", run_id: "" };
-    return {
+  const drafts = (dr.results ?? []).flatMap((d) => {
+    const p = prospectOf.get(String(d["prospect_id"]));
+    if (!p) return []; // another user's (or unknown) prospect: invisible here
+    return [{
       prospect_id: String(d["prospect_id"]),
       name: p.name,
       status: String(d["status"] ?? "draft"),
       run_id: p.run_id,
       campaign: campaignOf.get(p.run_id) ?? "Campaign",
       created_at: d["created_at"] ?? null,
-    };
+    }];
   });
   return json({ drafts });
 };
@@ -1266,23 +1309,23 @@ route("POST", "/api/connections/:id/verify", (c) => delivery.postVerifyConnectio
 route("GET", "/api/relay-health", (c) => delivery.getRelayHealth(c.req, c.env));
 route("POST", "/api/connections/:id/disconnect", (c) => delivery.postDisconnect(c.req, c.env, c.params, c.sess?.email ?? null));
 route("POST", "/api/campaigns", (c) => delivery.postCampaign(c.req, c.env, c.sess?.email ?? null));
-route("GET", "/api/campaigns", (c) => delivery.getCampaigns(c.req, c.env));
-route("GET", "/api/campaigns/:id", (c) => delivery.getCampaignById(c.req, c.env, c.params));
+route("GET", "/api/campaigns", (c) => delivery.getCampaigns(c.req, c.env, c.sess?.email ?? null));
+route("GET", "/api/campaigns/:id", (c) => delivery.getCampaignById(c.req, c.env, c.params, c.sess?.email ?? null));
 route("PATCH", "/api/campaigns/:id", (c) => delivery.patchCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
 route("POST", "/api/campaigns/:id/approve", (c) => delivery.postApproveCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
-route("POST", "/api/campaigns/:id/cancel", (c) => delivery.postCancelCampaign(c.req, c.env, c.params));
-route("POST", "/api/campaigns/:id/pause", (c) => delivery.postPauseCampaign(c.req, c.env, c.params));
-route("POST", "/api/campaigns/:id/resume", (c) => delivery.postResumeCampaign(c.req, c.env, c.params));
-route("POST", "/api/campaigns/:id/process", (c) => delivery.postProcessCampaign(c.req, c.env, c.params));
+route("POST", "/api/campaigns/:id/cancel", (c) => delivery.postCancelCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
+route("POST", "/api/campaigns/:id/pause", (c) => delivery.postPauseCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
+route("POST", "/api/campaigns/:id/resume", (c) => delivery.postResumeCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
+route("POST", "/api/campaigns/:id/process", (c) => delivery.postProcessCampaign(c.req, c.env, c.params, c.sess?.email ?? null));
 route("GET", "/api/assist/mailto", (c) => delivery.getAssistMailto(c.req, c.env));
 route("GET", "/api/assist/wa", (c) => delivery.getAssistWa(c.req, c.env));
-route("GET", "/api/suppressions", (c) => delivery.getSuppressions(c.req, c.env));
-route("POST", "/api/suppressions", (c) => delivery.postSuppression(c.req, c.env));
-route("DELETE", "/api/suppressions/:email", (c) => delivery.deleteSuppression(c.req, c.env, c.params));
+route("GET", "/api/suppressions", (c) => delivery.getSuppressions(c.req, c.env, c.sess?.email ?? null));
+route("POST", "/api/suppressions", (c) => delivery.postSuppression(c.req, c.env, c.sess?.email ?? null));
+route("DELETE", "/api/suppressions/:email", (c) => delivery.deleteSuppression(c.req, c.env, c.params, c.sess?.email ?? null));
 route("GET", "/api/unsubscribe", (c) => delivery.getUnsubscribe(c.req, c.env));
-route("POST", "/api/prospects/:id/contacts", (c) => delivery.postContact(c.req, c.env, c.params));
-route("GET", "/api/prospects/:id/contacts", (c) => delivery.getContacts(c.req, c.env, c.params));
-route("GET", "/api/prospects/:id/timeline", (c) => delivery.getTimeline(c.req, c.env, c.params));
+route("POST", "/api/prospects/:id/contacts", (c) => delivery.postContact(c.req, c.env, c.params, c.sess?.email ?? null));
+route("GET", "/api/prospects/:id/contacts", (c) => delivery.getContacts(c.req, c.env, c.params, c.sess?.email ?? null));
+route("GET", "/api/prospects/:id/timeline", (c) => delivery.getTimeline(c.req, c.env, c.params, c.sess?.email ?? null));
 
 // --- Sign-in (the product sends email/WhatsApp, so live API use requires it) --
 route("GET", "/api/auth/start", (c) => auth.startGoogleLogin(c.req, c.env));
@@ -1362,8 +1405,12 @@ export default {
         } else {
           // Direct-route tests: the REJECTION is skipped, but a session is
           // still resolved when a valid cookie is present — ownership-aware
-          // handlers (sender authority) must see the caller.
-          sess = await auth.getSession(env, req).catch(() => null);
+          // handlers (sender authority) must see the caller. With no cookie,
+          // a stable fixture identity stands in so every handler still sees
+          // ONE user: data it creates is stamped and scoped to that identity,
+          // exactly as production stamps and scopes to the signed-in user.
+          sess = await auth.getSession(env, req).catch(() => null)
+            ?? { email: "test@fixture.local", name: "Test" };
         }
       }
       // Audit trail: one row per API request — who, what, input, output.

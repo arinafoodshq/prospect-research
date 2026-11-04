@@ -318,7 +318,7 @@ await new Promise((r) => setTimeout(r, 1200)); // 3 of 5 mock ticks landed
 await tick(); await tick();
 ok(els["sidebar"].hidden === false, "sidebar rides along on the progress view");
 ok(els["stage-wrap"].hidden === false, "campaign stage strip shows on the progress view");
-ok(els["progress-kicker"].textContent === "EXAMPLE DATA", "progress kicker marks the example run");
+ok(els["progress-kicker"].textContent === "Example data", "progress kicker marks the example run");
 ok(els["stat-found"].textContent === "25" && els["stat-opened"].textContent === "14" && els["stat-kept"].textContent === "3",
   "progress stats count found/opened/kept (" + els["stat-found"].textContent + "/" + els["stat-opened"].textContent + "/" + els["stat-kept"].textContent + ")");
 ok(/Searched for offices/.test(els["progress-steps"].innerHTML), "finished steps render past-tense");
@@ -355,7 +355,7 @@ ok(els["shortlist-title"].textContent === "Six buyers worth your time.", "title 
 ok(els["prospect-list"].children.length === 2, "ready tab lists 2 qualified, saw " + els["prospect-list"].children.length);
 {
   const card = els["prospect-list"].children[0].innerHTML;
-  ok(/STRONG FIT/.test(card), "card shows the fit badge");
+  ok(/Strong fit/.test(card), "card shows the fit badge");
   ok(/Why now/.test(card) && /How to reach them/.test(card), "card shows why-now and route");
   ok(/Source:/.test(card), "card cites its source");
   ok(/Still unconfirmed:/.test(card), "card lists open questions");
@@ -369,13 +369,13 @@ const tabTarget = (t) => evt({ target: { getAttribute: (k) => (k === "data-tab" 
 await fire(els["shortlist-tabs"], "click", tabTarget("warm"));
 await tick();
 ok(els["prospect-list"].children.length === 2
-  && /GOOD FIT, NO SIGNAL YET/.test(els["prospect-list"].children[0].innerHTML),
+  && /Good fit, no signal yet/.test(els["prospect-list"].children[0].innerHTML),
   "warm tab lists no-signal picks");
 ok(/patient intro/.test(els["prospect-list"].children[0].innerHTML), "warm card suggests a patient intro");
 await fire(els["shortlist-tabs"], "click", tabTarget("look"));
 await tick();
 ok(els["prospect-list"].children.length === 2
-  && /NEEDS A LOOK/.test(els["prospect-list"].children[0].innerHTML),
+  && /Needs a look/.test(els["prospect-list"].children[0].innerHTML),
   "look tab lists needs-review picks");
 ok(/northgatebank\.ng/.test(els["prospect-list"].children[0].innerHTML), "look card shows the published route (routeless leads never reach this list)");
 ok(/human look/.test(els["shortlist-sub"].textContent), "look tab warns the picks need review");
@@ -412,7 +412,7 @@ ok(els["shortlist-count"].textContent === "5 selected · nothing is sent yet", "
 await fire(els["btn-to-drafts"], "click", evt());
 await tick(); await tick(); await tick();
 ok(visible("view-drafts"), "shortlist -> drafts view");
-ok(els["drafts-kicker"].textContent === "EXAMPLE DATA", "drafts kicker marks the example run");
+ok(els["drafts-kicker"].textContent === "Example data", "drafts kicker marks the example run");
 ok(els["draft-list"].children.length === 1, "studio shows one surface at a time");
 {
   const html = els["draft-list"].children[0].innerHTML;
@@ -437,8 +437,8 @@ ok(els["draft-list"].children.length === 1, "studio shows one surface at a time"
 }
 ok(/selected picks/.test(els["drafts-note"].innerHTML), "drafts note explains the filter (note: " + JSON.stringify(els["drafts-note"].innerHTML.slice(0, 120)) +
   " list=" + els["draft-list"].children.length + ")");
-ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-note"].innerHTML),
-  "drafts note names selected picks without drafts");
+ok(/2 picks have no message yet: Northgate Bank Branch, FitLife Gym Ikeja\./.test(els["drafts-note"].innerHTML),
+  "drafts note names selected picks without drafts (count + names, never a wall)");
 
 {
   const studio = () => els["draft-list"].children[0];
@@ -449,10 +449,10 @@ ok(/No draft yet for Northgate Bank Branch, FitLife Gym Ikeja/.test(els["drafts-
     await tick(); await tick();
   };
   await clickOn("approve");
-  ok(/approved/.test(studio().querySelector(".decision").textContent), "approve marks the draft approved");
-  await clickOn("studio-next");
-  ok(/MESSAGE 2 OF 3/.test(studio().innerHTML), "pager advances to the next message");
-  ok(/Your note to St. Raphael Clinic/.test(studio().innerHTML), "pager shows the next pick");
+  // Approve is a loop: the studio lands on the next message still waiting.
+  ok(/MESSAGE 2 OF 3/.test(studio().innerHTML), "approve advances to the next waiting message");
+  ok(/Approved\. 2 messages still waiting/.test(studio().querySelector("#studio-status").textContent), "approve says what happened");
+  ok(/Your note to St. Raphael Clinic/.test(studio().innerHTML), "the next waiting pick is on screen");
   await clickOn("studio-tab", { id: "whatsapp" });
   ok(/WhatsApp version:/.test(studio().innerHTML), "whatsapp tab shows the per-channel variant");
   ok(!/\[source 1\]/.test(studio().innerHTML), "citation markers never render in the studio");
@@ -621,7 +621,7 @@ ok(els["stage-wrap"].hidden !== false, "no stage strip on the dashboard itself")
   await tick(); await tick();
   ok(els["runs-wrap"].hidden === false, "see all reveals the full search history");
   ok(els["runs-list"].innerHTML.split("<li").length - 1 === 8, "the full list paginates to 8 rows");
-  ok(/Runs 1\u20138 of 9/.test(els["runs-page-label"].textContent), "pager labels the page");
+  ok(/Showing 1 to 8 of 9 searches/.test(els["runs-page-label"].textContent), "pager labels the page in plain words");
   ok(/47 waiting|businesses/.test(els["runs-list"].innerHTML), "history rows keep the plain counts");
   await fire(els["btn-runs-next"], "click", evt());
   ok(els["runs-list"].innerHTML.indexOf("demo-run-1") >= 0, "next page reveals the oldest search");

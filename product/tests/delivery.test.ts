@@ -13,6 +13,9 @@ import {
 
 type Row = Record<string, any>;
 const TEST_KEY = btoa("0123456789abcdef0123456789abcdef");
+// The signed-in user every ownership-scoped call acts as (owner directive
+// 2026-11-04: data belongs to the user who started it).
+const OWNER = "owner@test.local";
 
 function makeMockDb() {
   const tables: Record<string, Row[]> = {
@@ -363,9 +366,9 @@ describe("delivery routes", () => {
   async function mockConn(R: any, env: any, secret: unknown = {}) {
     const res = await R.postConnection(req("https://t.local/api/connections", "POST", {
       provider: "mock", label: "Mock", sender_email: "me@co.ng", secret,
-    }), env);
+    }), env, OWNER);
     const conn = await res.json();
-    await R.postVerifyConnection(req(`https://t.local/api/connections/${conn.id}/verify`, "POST"), env, { id: conn.id });
+    await R.postVerifyConnection(req(`https://t.local/api/connections/${conn.id}/verify`, "POST"), env, { id: conn.id }, OWNER);
     return conn.id as string;
   }
 
@@ -394,18 +397,18 @@ describe("delivery routes", () => {
     const { R, env } = await setup();
     const bad = await R.postCampaign(req("https://t.local/api/campaigns", "POST", {
       name: "c", recipients: [{ email: "nope", subject: "s", body: "b" }],
-    }), env);
+    }), env, OWNER);
     expect(bad.status).toBe(400);
     const dup = await R.postCampaign(req("https://t.local/api/campaigns", "POST", {
       name: "c", recipients: [
         { email: "a@x.co", subject: "s", body: "b" },
         { email: "a@x.co", subject: "s", body: "b" },
       ],
-    }), env);
+    }), env, OWNER);
     expect((await dup.json()).error).toBe("duplicate_recipient");
     const many = await R.postCampaign(req("https://t.local/api/campaigns", "POST", {
       name: "c", recipients: Array.from({ length: 501 }, (_, i) => ({ email: `u${i}@x.co`, subject: "s", body: "b" })),
-    }), env);
+    }), env, OWNER);
     expect(many.status).toBe(400);
   });
 
@@ -413,20 +416,20 @@ describe("delivery routes", () => {
     const { R, env } = await setup();
     const created = await R.postConnection(req("https://t.local/api/connections", "POST", {
       provider: "mock", label: "M", sender_email: "me@co.ng", secret: {},
-    }), env);
+    }), env, OWNER);
     const connId = (await created.json()).id as string;
     const cmp = await (await R.postCampaign(req("https://t.local/api/campaigns", "POST", {
       name: "c", connection_id: connId, recipients: [{ email: "a@x.co", subject: "s", body: "b" }],
-    }), env)).json();
+    }), env, OWNER)).json();
     const early = await R.postApproveCampaign(
-      req(`https://t.local/api/campaigns/${cmp.id}/approve`, "POST", { scheduled_at_utc: new Date().toISOString() }), env, { id: cmp.id });
+      req(`https://t.local/api/campaigns/${cmp.id}/approve`, "POST", { scheduled_at_utc: new Date().toISOString() }), env, { id: cmp.id }, OWNER);
     expect(early.status).toBe(400);
-    await R.postVerifyConnection(req(`https://t.local/api/connections/${connId}/verify`, "POST"), env, { id: connId });
+    await R.postVerifyConnection(req(`https://t.local/api/connections/${connId}/verify`, "POST"), env, { id: connId }, OWNER);
     const ok = await R.postApproveCampaign(
-      req(`https://t.local/api/campaigns/${cmp.id}/approve`, "POST", { scheduled_at_utc: new Date().toISOString() }), env, { id: cmp.id });
+      req(`https://t.local/api/campaigns/${cmp.id}/approve`, "POST", { scheduled_at_utc: new Date().toISOString() }), env, { id: cmp.id }, OWNER);
     expect(ok.status).toBe(200);
     expect((await ok.json()).status).toBe("scheduled");
-    const locked = await R.patchCampaign(req(`https://t.local/api/campaigns/${cmp.id}`, "PATCH", { name: "x" }), env, { id: cmp.id });
+    const locked = await R.patchCampaign(req(`https://t.local/api/campaigns/${cmp.id}`, "PATCH", { name: "x" }), env, { id: cmp.id }, OWNER);
     expect(locked.status).toBe(409);
   });
 
@@ -441,28 +444,28 @@ describe("delivery routes", () => {
         { email: "a@x.co", subject: "s", body: "b" },
         { email: "b@x.co", subject: "s", body: "b" },
       ],
-    }), env)).json();
+    }), env, OWNER)).json();
     await R.postApproveCampaign(req(`https://t.local/api/campaigns/${cmp.id}/approve`, "POST", {
       scheduled_at_utc: new Date(Date.now() - 1000).toISOString(),
-    }), env, { id: cmp.id });
-    const done = await (await R.postProcessCampaign(req(`https://t.local/api/campaigns/${cmp.id}/process`, "POST"), queued, { id: cmp.id })).json();
+    }), env, { id: cmp.id }, OWNER);
+    const done = await (await R.postProcessCampaign(req(`https://t.local/api/campaigns/${cmp.id}/process`, "POST"), queued, { id: cmp.id }, OWNER)).json();
     expect(done.summary).toEqual({ enqueued: 2, skipped: 0 });
     const { consumeDeliveryBatch } = await import("../src/delivery/processor");
     await consumeDeliveryBatch(db, { credKeyB64: TEST_KEY, unsubBaseUrl: "https://t.local/api/unsubscribe?token=" },
       jobs.splice(0).map((body) => ({ body, attempts: 1, ack: () => {}, retry: () => {} })));
-    const finished = await (await R.getCampaignById(req(`https://t.local/api/campaigns/${cmp.id}`), env, { id: cmp.id })).json();
+    const finished = await (await R.getCampaignById(req(`https://t.local/api/campaigns/${cmp.id}`), env, { id: cmp.id }, OWNER)).json();
     expect(finished.status).toBe("complete");
     expect(finished.stats).toEqual({ accepted: 2 });
     const cmp2 = await (await R.postCampaign(req("https://t.local/api/campaigns", "POST", {
       name: "c2", connection_id: connId, recipients: [{ email: "c@x.co", subject: "s", body: "b" }],
-    }), env)).json();
+    }), env, OWNER)).json();
     await R.postApproveCampaign(req(`https://t.local/api/campaigns/${cmp2.id}/approve`, "POST", {
       scheduled_at_utc: new Date(Date.now() + 3600000).toISOString(),
-    }), env, { id: cmp2.id });
-    await R.postCancelCampaign(req(`https://t.local/api/campaigns/${cmp2.id}/cancel`, "POST"), env, { id: cmp2.id });
-    const blocked = await R.postProcessCampaign(req(`https://t.local/api/campaigns/${cmp2.id}/process`, "POST"), env, { id: cmp2.id });
+    }), env, { id: cmp2.id }, OWNER);
+    await R.postCancelCampaign(req(`https://t.local/api/campaigns/${cmp2.id}/cancel`, "POST"), env, { id: cmp2.id }, OWNER);
+    const blocked = await R.postProcessCampaign(req(`https://t.local/api/campaigns/${cmp2.id}/process`, "POST"), env, { id: cmp2.id }, OWNER);
     expect(blocked.status).toBe(409);
-    const detail = await (await R.getCampaignById(req(`https://t.local/api/campaigns/${cmp2.id}`), env, { id: cmp2.id })).json();
+    const detail = await (await R.getCampaignById(req(`https://t.local/api/campaigns/${cmp2.id}`), env, { id: cmp2.id }, OWNER)).json();
     expect(detail.recipients[0].status).toBe("cancelled");
   });
 
@@ -500,17 +503,17 @@ describe("delivery routes", () => {
   it("suppression API blocks approval-time recipients", async () => {
     const { R, env } = await setup();
     const connId = await mockConn(R, env);
-    expect((await R.postSuppression(req("https://t.local/api/suppressions", "POST", { email: "no@x.co" }), env)).status).toBe(201);
+    expect((await R.postSuppression(req("https://t.local/api/suppressions", "POST", { email: "no@x.co" }), env, OWNER)).status).toBe(201);
     const cmp = await (await R.postCampaign(req("https://t.local/api/campaigns", "POST", {
       name: "c", connection_id: connId,
       recipients: [
         { email: "no@x.co", subject: "s", body: "b" },
         { email: "yes@x.co", subject: "s", body: "b" },
       ],
-    }), env)).json();
+    }), env, OWNER)).json();
     const approved = await (await R.postApproveCampaign(req(`https://t.local/api/campaigns/${cmp.id}/approve`, "POST", {
       scheduled_at_utc: new Date().toISOString(),
-    }), env, { id: cmp.id })).json();
+    }), env, { id: cmp.id }, OWNER)).json();
     const byEmail = Object.fromEntries(approved.recipients.map((r: any) => [r.email, r.status]));
     expect(byEmail["no@x.co"]).toBe("suppressed");
     expect(byEmail["yes@x.co"]).toBe("queued");
@@ -562,6 +565,13 @@ describe("contact tracking", () => {
     const R = await import("../src/delivery/routes");
     const { db, tables } = makeMockDb();
     tables["prospect"].push({ id: "pr_1", run_id: "run_1", name: "Venue One" });
+    // The prospect's run, owned by the caller (ownership chain: prospect ->
+    // run -> owner).
+    tables["research_run"].push({
+      id: "run_1", profile_id: "bp_1", owner_email: OWNER, workflow_instance_id: "wf_1",
+      plan: "{}", status: "created", stop_reason: null, budgets: "{}", consumed: "{}",
+      started_at: new Date().toISOString(), finished_at: null, created_at: new Date().toISOString(),
+    });
     return { R, db, tables, env: { DB: db } };
   }
 
@@ -569,29 +579,29 @@ describe("contact tracking", () => {
     const { R, tables, env } = await setup();
     const res = await R.postContact(req("https://t.local/api/prospects/pr_1/contacts", "POST", {
       channel: "whatsapp", note: "Sent intro", contacted_at: "2026-10-28T10:00:00.000Z",
-    }), env, { id: "pr_1" });
+    }), env, { id: "pr_1" }, OWNER);
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.channel).toBe("whatsapp");
     expect(body.contacted_at).toBe("2026-10-28T10:00:00.000Z");
     expect(tables["activity"].find((a) => a.event === "contacted")?.note).toBe("outbound:whatsapp");
-    const list = await (await R.getContacts(req("https://t.local/x"), env, { id: "pr_1" })).json();
+    const list = await (await R.getContacts(req("https://t.local/x"), env, { id: "pr_1" }, OWNER)).json();
     expect(list.contacts).toHaveLength(1);
   });
 
   it("rejects bad channel, bad date, unknown prospect", async () => {
     const { R, env } = await setup();
-    expect((await R.postContact(req("https://t.local/x", "POST", { channel: "smoke-signal" }), env, { id: "pr_1" })).status).toBe(400);
-    expect((await R.postContact(req("https://t.local/x", "POST", { channel: "email", contacted_at: "yesterday-ish" }), env, { id: "pr_1" })).status).toBe(400);
-    expect((await R.postContact(req("https://t.local/x", "POST", { channel: "email" }), env, { id: "nope" })).status).toBe(404);
-    expect((await R.getTimeline(req("https://t.local/x"), env, { id: "nope" })).status).toBe(404);
+    expect((await R.postContact(req("https://t.local/x", "POST", { channel: "smoke-signal" }), env, { id: "pr_1" }, OWNER)).status).toBe(400);
+    expect((await R.postContact(req("https://t.local/x", "POST", { channel: "email", contacted_at: "yesterday-ish" }), env, { id: "pr_1" }, OWNER)).status).toBe(400);
+    expect((await R.postContact(req("https://t.local/x", "POST", { channel: "email" }), env, { id: "nope" }, OWNER)).status).toBe(404);
+    expect((await R.getTimeline(req("https://t.local/x"), env, { id: "nope" }, OWNER)).status).toBe(404);
   });
 
   it("timeline merges contacts and activity newest-first", async () => {
     const { R, tables, env } = await setup();
-    await R.postContact(req("https://t.local/x", "POST", { channel: "email", contacted_at: "2026-10-27T10:00:00.000Z" }), env, { id: "pr_1" });
-    await R.postContact(req("https://t.local/x", "POST", { channel: "phone", contacted_at: "2026-10-28T10:00:00.000Z" }), env, { id: "pr_1" });
-    const tl = await (await R.getTimeline(req("https://t.local/x"), env, { id: "pr_1" })).json();
+    await R.postContact(req("https://t.local/x", "POST", { channel: "email", contacted_at: "2026-10-27T10:00:00.000Z" }), env, { id: "pr_1" }, OWNER);
+    await R.postContact(req("https://t.local/x", "POST", { channel: "phone", contacted_at: "2026-10-28T10:00:00.000Z" }), env, { id: "pr_1" }, OWNER);
+    const tl = await (await R.getTimeline(req("https://t.local/x"), env, { id: "pr_1" }, OWNER)).json();
     const contacts = tl.timeline.filter((t: any) => t.kind === "contact");
     expect(contacts.map((t: any) => t.channel)).toEqual(["phone", "email"]);
     expect(tl.timeline.length).toBeGreaterThan(2);

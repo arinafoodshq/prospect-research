@@ -163,16 +163,17 @@ input::placeholder, textarea::placeholder { color: var(--dim); }
 fieldset { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 1rem; }
 legend { padding: 0 0.5rem; font-weight: 700; }
 
-/* Buttons: pill, 48px minimum touch target. */
+/* Buttons: one control family — 44px tall, 12px radius, 600 weight
+   (style guide: buttons, inputs and tabs share ONE height and ONE radius). */
 button {
   background: var(--accent);
   color: var(--accent-ink);
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--r-sm);
   padding: 0.7rem 1.4rem;
   min-height: var(--touch);
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border-strong); }
@@ -523,13 +524,12 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .card h3 { margin: 0.2rem 0 0.5rem; font-size: 1.25rem; }
 .card h4 { margin: 0.9rem 0 0.2rem; font-size: 1rem; }
 .card p { margin: 0.35rem 0; }
-.kicker { color: var(--accent); font-weight: 700; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; margin: 0; }
+.kicker { color: var(--accent); font-weight: 700; font-size: 0.8rem; margin: 0; }
 .muted { color: var(--muted); }
 .small { font-size: 0.88rem; }
 .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 .tag {
   display: inline-block; font-size: 0.75rem; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase;
   border-radius: var(--radius-pill); padding: 0.32rem 0.95rem;
 }
 .tag-green { background: rgba(94, 221, 176, 0.14); color: var(--success); }
@@ -810,15 +810,16 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); margin-top: var(--s6); }
 .home-card { border-radius: var(--r-lg); padding: var(--s5); }
 .tabs { display: flex; gap: var(--s1); padding: var(--s1); background: var(--mist); border-radius: var(--r-md); margin-bottom: var(--s3); flex-wrap: wrap; }
-.tab { flex: 1; min-height: 44px; border: 0; background: transparent; border-radius: var(--r-sm); font: 600 14px var(--font-body); color: var(--ink-soft); cursor: pointer; padding: 0 var(--s3); display: flex; gap: var(--s2); align-items: center; justify-content: center; }
+.tab { flex: 1; min-height: 44px; min-width: 0; border: 0; background: transparent; border-radius: var(--r-sm); font: 600 14px var(--font-body); color: var(--ink-soft); cursor: pointer; padding: 0 10px; white-space: nowrap; display: flex; gap: var(--s2); align-items: center; justify-content: center; }
 .tab[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px rgba(27, 42, 58, .1); }
 .tab .n { background: var(--line); border-radius: var(--r-pill); padding: 0 8px; font-size: 12px; }
 .tab[aria-selected="true"] .n { background: var(--sky-wash); color: var(--sky-deep); }
 .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
-.row { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-md); border: 1px solid var(--line); background: var(--paper); min-height: 64px; }
-.row:hover { border-color: var(--border-strong); }
-.row .name { font-weight: 600; flex: 1; min-width: 0; }
-.row .name small { display: block; font-weight: 400; color: var(--ink-soft); font-size: 13px; }
+/* Scoped to .rows: the bare .row class is the app's generic button row. */
+.rows .row { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-md); border: 1px solid var(--line); background: var(--paper); min-height: 64px; }
+.rows .row:hover { border-color: var(--border-strong); }
+.rows .row .name { font-weight: 600; flex: 1; min-width: 0; }
+.rows .row .name small { display: block; font-weight: 400; color: var(--ink-soft); font-size: 13px; }
 .row-foot { display: flex; justify-content: center; margin-top: var(--s3); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-height: 44px; padding: 0 var(--s5); border-radius: var(--r-sm); border: 1.5px solid transparent; font: 600 15px var(--font-body); text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
 .btn-primary { background: var(--sky); color: #fff; }
@@ -889,8 +890,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .checklist li.active { color: var(--text); font-weight: 700; }
 .step-top { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
 .step-count { color: var(--accent); font-weight: 700; white-space: nowrap; }
-.bar { display: block; height: 0.4rem; background: var(--border); border-radius: var(--radius-pill); margin-top: 0.55rem; }
-.bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
+.checklist .bar { display: block; height: 0.4rem; background: var(--border); border-radius: var(--radius-pill); margin-top: 0.55rem; }
+.checklist .bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 #progress-setaside { list-style: none; padding: 0; margin: 0.6rem 0; display: grid; gap: 0.6rem; }
 #progress-setaside li {
   background: var(--surface-deep); border: 1px solid var(--border);
@@ -1219,7 +1220,7 @@ ul.routes { list-style: none; margin: 0; padding: 0; }
 .sb-nav { display: flex; flex-direction: column; gap: 0.2rem; }
 .sb-item {
   display: inline-flex; align-items: center; gap: 0.45rem; width: 100%; text-align: left;
-  background: none; border: 0; border-radius: 10px;
+  background: none; border: 0; border-radius: var(--r-sm);
   padding: 0.55rem 0.75rem;
   font: inherit; font-weight: 600; color: var(--muted);
   cursor: pointer;
@@ -1253,8 +1254,7 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
   display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
 }
 .stage-label {
-  color: var(--dim); font-size: 0.72rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--dim); font-size: 0.78rem; font-weight: 700;
 }
 .stage-slot { margin: 0.55rem 0 0; }
 .stage-slot .stage-strip { padding: 0; max-width: none; }
@@ -1441,7 +1441,7 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
   box-shadow: 0 1px 2px rgba(11, 18, 32, 0.04);
   margin-bottom: 1.2rem;
 }
-.campaign-card .kicker { color: var(--accent-deep); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; margin: 0 0 0.2rem; }
+.campaign-card .kicker { color: var(--accent-deep); font-weight: 700; font-size: 0.72rem; margin: 0 0 0.2rem; }
 .campaign-card h3 { font-family: var(--font-display); font-size: 1.35rem; margin: 0 0 0.25rem; }
 .campaign-card .meta { color: var(--muted); margin: 0 0 0.4rem; }
 
@@ -1463,3 +1463,259 @@ button.l-signin { background: none; border: 0; padding: 0; cursor: pointer; font
 .campaign summary .meta { text-align: right; }
 .pager { align-items: center; }
 .pager .meta { color: var(--dim); }
+
+/* ============================================================
+   Style-guide completion pass (2026-11-04, dashboard.html + style-guide.md).
+   Gaps the earlier layers left: the status chip system, sidebar sizing to
+   the reference, and the plain-language search history. Appended last so
+   these exact rules win the cascade without touching older sheets.
+   ============================================================ */
+
+/* Status chips (reference section 4): pill, tinted wash, colour dot PLUS a
+   text label — colour is never the only signal. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: var(--r-pill);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.chip::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.chip-wait { background: var(--sand-wash); color: var(--sand); }
+.chip-done { background: var(--sage-wash); color: var(--sage-ink); }
+.chip-info { background: var(--sky-wash); color: var(--sky-deep); }
+.chip-no { background: var(--rose-wash); color: var(--rose); }
+
+/* Sidebar to the reference: 20px icons, 19px brand, white hover on the
+   mist sidebar (the old rule hovered white-on-white). */
+.sb-brand { font-size: 19px; }
+.sb-ico { width: 20px; height: 20px; }
+.sb-item:hover { background: var(--paper); color: var(--ink); }
+
+/* Recent-search rows: the whole summary stays quiet; the run history rows
+   (behind "See all") keep the 44px Open door at a comfortable size. */
+.runs-list .run-open { min-height: 44px; }
+
+/* A quiet chip variant for the legacy run-status pills so the expanded
+   history matches the new palette (was paper-grey). */
+.run-status.st-awaiting_approval { color: var(--sand); background: var(--sand-wash); }
+.run-status.st-complete { color: var(--sage-ink); background: var(--sage-wash); }
+.run-status.st-failed, .run-status.st-stopped { color: var(--rose); background: var(--rose-wash); }
+.waiting-flag { color: var(--sand); }
+
+/* ============================================================
+   Responsive pass (2026-11-04, owner: "let text in buttons not be
+   squeezed, wrap smart, consider mobile, use responsive fonts").
+   - Fluid type: display sizes breathe with the viewport between the
+     guide's floor and ceiling (38 / 22 / 18 / 16 / 14 / 13).
+   - Buttons never squeeze: labels stay on one line; groups drop to
+     full-width rows on small screens instead of compressing.
+   - Smart wrapping: headlines balance, body text avoids orphans.
+   ============================================================ */
+
+/* Fluid type (min at 320px, max at the guide's scale) */
+.hero-title { font-size: clamp(26px, 5vw, 38px); }
+.sec-head h2 { font-size: clamp(19px, 2.2vw, 22px); }
+.hero-lead { font-size: clamp(16px, 1.6vw, 18px); }
+.camp .big { font-size: clamp(26px, 4.5vw, 32px); }
+.view-plain > h2, .display { font-size: clamp(1.9rem, 4.5vw, 2.6rem); }
+.stat-num { font-size: clamp(1.9rem, 4.5vw, 2.6rem); }
+
+/* Smart wrapping */
+.hero-title, .sec-head h2 { text-wrap: balance; }
+.hero-lead, .empty p, .hint, .run span.d { text-wrap: pretty; }
+
+/* Buttons: a label is never compressed — one line, natural width */
+.btn, button { white-space: nowrap; }
+.btn-quiet { white-space: nowrap; }
+
+/* Inputs to the guide: white, 1.5px hairline, sky focus ring */
+input, textarea, select {
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+}
+input:hover, textarea:hover, select:hover { border-color: var(--border-strong); }
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--sky);
+  box-shadow: 0 0 0 4px var(--sky-wash);
+}
+
+/* ---------- Small screens (phones, 520px and under) ---------- */
+@media (max-width: 520px) {
+  /* Hero: actions become two full-width 44px targets; copy keeps air. */
+  .hero { padding: var(--s6) var(--s4); }
+  .hero-actions { gap: var(--s2); }
+  .hero-actions .btn { flex: 1 1 100%; }
+  .reassure { font-size: 13px; }
+
+  /* Campaign cards: the CTA spans the card, never squeezed. */
+  .camp .btn { width: 100%; }
+
+  /* Tabs fold to a 2x2 grid so four labels never compress to mush. */
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; }
+
+  /* Message rows: the name gets its own line; chip + action share the
+     second — nothing is truncated or crushed. */
+  .rows .row { flex-wrap: wrap; row-gap: var(--s2); }
+  .rows .row .name { flex: 1 1 100%; }
+  .rows .row .chip { margin-right: auto; }
+
+  /* Recent searches: sentence on one line, chip drops below. */
+  .run { flex-wrap: wrap; row-gap: var(--s2); }
+  .run > div { flex: 1 1 100%; }
+
+  /* Journey tiles stack with breathing room. */
+  .journey { gap: var(--s3); }
+  .step { padding: var(--s4) var(--s3); }
+}
+
+/* Mid screens (tablets, 521px to 1000px): two columns of breathing room. */
+@media (min-width: 521px) and (max-width: 1000px) {
+  .hero-actions .btn { flex: 0 0 auto; }
+  .camp .btn { width: 100%; }
+}
+
+/* Very wide screens: cap the two-column split so lines stay ~70ch. */
+@media (min-width: 1400px) {
+  .two { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); }
+}
+
+/* ============================================================
+   Campaigns page pass (2026-11-04, design-excellence review).
+   One card per send: status is a word + colour chip (never
+   colour alone), counts ride an honest meta sentence, the
+   recipient list caps at five with the real remainder stated.
+   ============================================================ */
+.campaigns .campaign {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s3) var(--s4);
+}
+.camp-top { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.camp-top h4 { margin: 0; font-size: 1rem; flex: 1 1 auto; min-width: 0; }
+.camp-top .secondary { min-height: 38px; padding: 0.35rem 0.9rem; font-size: 0.86rem; }
+.campaign .meta { color: var(--ink-soft); font-size: 0.86rem; margin: 0.35rem 0 0.5rem; }
+.camp-recs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.camp-recs li { display: flex; align-items: center; gap: var(--s3); padding: 0.4rem 0; border-top: 1px solid var(--mist-line, var(--line)); min-width: 0; }
+.camp-recs li:first-child { border-top: 0; }
+.camp-recs .r-mail { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 0.9rem; color: var(--ink); }
+.camp-more { color: var(--ink-soft); font-size: 0.86rem; }
+.chip-mini { font-size: 12px; padding: 2px 10px; }
+.campaigns .empty { margin-top: var(--s2); }
+
+/* The scheduler's recipient rows: hairline-separated summary rows,
+   the message one tap away (no walls of boxes). */
+#campaign-wizard details.campaign {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 0.8rem var(--s4);
+}
+#campaign-wizard details.campaign summary {
+  display: flex; align-items: baseline; gap: var(--s3); cursor: pointer;
+  padding: 0.35rem 0; list-style: none;
+}
+#campaign-wizard details.campaign summary::-webkit-details-marker { display: none; }
+#campaign-wizard details.campaign summary .r-name { font-weight: 600; }
+#campaign-wizard details.campaign summary .meta { color: var(--ink-soft); font-size: 0.85rem; margin-left: auto; text-align: right; overflow-wrap: anywhere; }
+#campaign-wizard details.campaign label { margin-top: 0.8rem; }
+#campaign-wizard details.campaign[open] summary { border-bottom: 1px solid var(--line); padding-bottom: 0.6rem; margin-bottom: 0.4rem; }
+
+/* The old 2px rule above the monitor becomes a hairline (guide: hairlines before borders). */
+.campaigns { border-top: 1px solid var(--line); padding-top: var(--s4); }
+
+/* Empty-state action rows centre with their card. */
+.empty .row { justify-content: center; }
+
+/* ============================================================
+   Journey pass (2026-11-04, owner feedback on the live run).
+   - The stage trail becomes a CHAIN: numbered steps plugged into
+     each other with chevrons, done steps carry a check, the
+     current step glows. A step is clickable only when its stage
+     has data; the cursor says which.
+   - The running research phase pulses (dotted animation), counts
+     never regress.
+   - Clickable things get the pointer cursor.
+   ============================================================ */
+
+/* --- Stage trail: one connected chain --- */
+.steps ol { counter-reset: stage; display: flex; flex-wrap: wrap; gap: 0; align-items: stretch; }
+.steps li {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--paper);
+  border-radius: var(--r-sm);
+  padding: 0.28rem 0.8rem 0.28rem 0.35rem;
+  margin-right: 17px;
+  font-size: 0.85rem; font-weight: 400; color: var(--ink-soft);
+  counter-increment: stage;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.steps li::before {
+  content: counter(stage);
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--mist); color: var(--ink-soft);
+  font-size: 12px; font-weight: 700; flex: 0 0 auto;
+}
+/* The > that plugs this step into the next one. */
+.steps li::after {
+  content: ""; position: absolute;
+  right: -13px; top: 50%;
+  width: 8px; height: 8px;
+  border-top: 2px solid var(--border-strong);
+  border-right: 2px solid var(--border-strong);
+  transform: translateY(-50%) rotate(45deg);
+}
+.steps li:last-child { margin-right: 0; }
+.steps li:last-child::after { display: none; }
+.steps li.done { border-color: var(--success); color: var(--success); }
+.steps li.done::before { content: "\2713"; background: var(--success); color: #fff; }
+.steps li.done::after { border-color: var(--success); }
+.steps li.active {
+  border-color: var(--sky); color: var(--ink); font-weight: 600;
+  background: var(--sky-wash);
+}
+.steps li.active::before { background: var(--sky); color: #fff; }
+.steps li.locked { opacity: 0.55; cursor: default; }
+.steps li:not(.locked) { cursor: pointer; }
+.steps li:not(.locked):hover { border-color: var(--sky); }
+@media (prefers-reduced-motion: reduce) {
+  .steps li, .steps li::before { transition: none; }
+}
+
+/* --- Clickable affordances --- */
+#prospect-list li.pick { cursor: pointer; }
+#prospect-list li.pick .pick-tick { cursor: default; }
+#prospect-list li.pick .pick-tick input[type="checkbox"] { cursor: pointer; }
+.draft-row { cursor: pointer; }
+
+/* --- Home tabs: the count pill never clips out of the tab --- */
+.tab { flex: 0 1 auto; padding: 0 8px 0 14px; gap: 8px; }
+.tab .n { flex: 0 0 auto; line-height: 20px; margin-left: 2px; }
+
+/* --- Running research phase: a pulsing dot, not just bold text --- */
+.checklist li.active::before {
+  border: 0; background: var(--success);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+/* --- Writing burst note keeps its dot aligned --- */
+#drafts-note .hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* --- Social profile links in the send cards --- */
+.socials { margin-top: 0.7rem; border-top: 1px solid var(--line); padding-top: 0.7rem; }
+.social-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; margin: 0 8px 8px 0;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--paper); color: var(--ink);
+  font-size: 0.86rem; font-weight: 600; text-decoration: none;
+}
+.social-link:hover { border-color: var(--sky); }
+.social-ico svg { width: 15px; height: 15px; display: block; color: var(--sky); }

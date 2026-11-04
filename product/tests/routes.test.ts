@@ -5,7 +5,8 @@
  * against an in-memory mock implementing prepare/bind/first/all/run.
  */
 import { describe, expect, it, vi } from "vitest";
-import app, { LOCATION_ASK_PROMPT, needsLocationDisambiguation, extractSiteUrl } from "../src/index";
+import app, { needsLocationDisambiguation, extractSiteUrl } from "../src/index";
+import { LOCATION_ASK_PROMPT } from "../src/onboarding-copy";
 import { sha256Hex } from "../src/auth";
 import { dedupeKey } from "../src/db";
 import { sealSecret } from "../src/delivery/crypto";
@@ -223,6 +224,7 @@ async function call(
 function seedProfile(db: ReturnType<typeof makeMockDb>, overrides: Row = {}) {
   db.__tables.business_profile.push({
     id: "bp_1",
+    owner_email: "test@fixture.local", // the synthesized skip-signin identity
     name: "Acme Catering",
     website_url: null,
     description: "Corporate catering",
@@ -244,6 +246,7 @@ function seedRun(db: ReturnType<typeof makeMockDb>, overrides: Row = {}) {
   db.__tables.research_run.push({
     id: "run_1",
     profile_id: "bp_1",
+    owner_email: "test@fixture.local", // the synthesized skip-signin identity
     workflow_instance_id: "wf_1",
     plan: JSON.stringify({ queries: [] }),
     status: "created",
@@ -590,7 +593,9 @@ describe("prospect detail", () => {
     const db = makeMockDb();
     const res = await call(db, "GET", "/api/prospects/nope");
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe("prospect_not_found");
+    // Unknown and not-yours are deliberately indistinguishable (no existence
+    // leak through the ownership guard).
+    expect(res.body.error).toBe("not_found");
   });
 
   it("returns prospect with assessments, linked evidence and contact routes", async () => {
@@ -617,7 +622,8 @@ describe("draft edits", () => {
     const db = makeMockDb();
     const res = await call(db, "PATCH", "/api/drafts/nope", { body: "x [ev_1]" });
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe("draft_not_found");
+    // Unknown and not-yours are deliberately indistinguishable.
+    expect(res.body.error).toBe("not_found");
   });
 
   it("PATCH rejects empty, mistyped and overlong edits with 400", async () => {
@@ -683,7 +689,8 @@ describe("synchronous start (dev path)", () => {
     const db = makeMockDb();
     const res = await call(db, "POST", "/api/runs/nope/start", {});
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe("run_not_found");
+    // Unknown and not-yours are deliberately indistinguishable.
+    expect(res.body.error).toBe("not_found");
   });
 
   it("runs research synchronously to awaiting_approval with prospects and drafts", async () => {
@@ -1066,7 +1073,7 @@ describe("studio rewrite + test-send", () => {
     const db = seededStudio();
     const nope = await call(db, "POST", "/api/drafts/nope/rewrite", { tone: "warmer" });
     expect(nope.status).toBe(404);
-    expect(nope.body.error).toBe("draft_not_found");
+    expect(nope.body.error).toBe("not_found"); // unknown and not-yours look alike
     const bad = await call(db, "POST", "/api/drafts/dr_1/rewrite", { tone: "shouty" });
     expect(bad.status).toBe(400);
     expect(bad.body.error).toBe("unknown_tone");
@@ -1099,7 +1106,7 @@ describe("studio rewrite + test-send", () => {
     await seedConn(db);
     const res = await call(db, "POST", "/api/drafts/nope/test-send", {}, { CRED_KEY: TEST_KEY });
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe("draft_not_found");
+    expect(res.body.error).toBe("not_found"); // unknown and not-yours look alike
   });
 
   it("test-send needs a connected sender", async () => {
@@ -1227,5 +1234,116 @@ describe("sender ownership (send authority, owner directive 2026-11-03)", () => 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.connections.map((c: { id: string }) => c.id)).toEqual(["conn_a"]);
+  });
+});
+
+describe("per-user data scoping (owner directive 2026-11-04: every datum is scoped to the user that started it or has it)", () => {
+  async function sessioned(db: ReturnType<typeof makeMockDb>, email: string): Promise<string> {
+    const token = "tok-" + email;
+    db.__tables.user_session.push({
+      token_hash: await sha256Hex(token), email, name: email,
+      created_at: new Date().toISOString(), expires_at: Date.now() + 60_000,
+    });
+    return token;
+  }
+  /** User A's world: profile -> run -> prospect -> draft. */
+  function seedUserA(db: ReturnType<typeof makeMockDb>): void {
+    db.__tables.business_profile.push({
+      id: "bp_a", owner_email: "a@x.com", name: "A Catering", website_url: null,
+      description: "d", services: "[]", value_proposition: "v", target_market: "t",
+      service_area: "{}", constraints_json: "{}", provenance: "{}", status: "confirmed",
+      version: 1, confirmed_at: null, created_at: "t",
+    });
+    db.__tables.research_run.push({
+      id: "run_a", profile_id: "bp_a", owner_email: "a@x.com", workflow_instance_id: "wf_a",
+      plan: "{}", status: "awaiting_approval", stop_reason: null, budgets: "{}", consumed: "{}",
+      started_at: "t", finished_at: null, created_at: "t",
+    });
+    db.__tables.prospect.push({ id: "pr_a", run_id: "run_a", name: "A Prospect", status: "qualified" });
+    db.__tables.outreach_draft.push({
+      id: "dr_a", prospect_id: "pr_a", channel_suggestion: "email", contact_value: "a@p.co",
+      subject: "s", body: "b", status: "draft", created_at: "t",
+    });
+    // A second user's run sits next to it in the same database.
+    db.__tables.research_run.push({
+      id: "run_b", profile_id: "bp_a", owner_email: "b@x.com", workflow_instance_id: "wf_b",
+      plan: "{}", status: "created", stop_reason: null, budgets: "{}", consumed: "{}",
+      started_at: "t", finished_at: null, created_at: "t",
+    });
+  }
+  const asUser = (db: ReturnType<typeof makeMockDb>, token: string, path: string) =>
+    (app as any).fetch(
+      new Request(`https://test.local${path}`, { headers: { cookie: `pr_sess=${token}` } }),
+      { DB: db, MODEL_API_KEY: "test" }, {});
+
+  it("another user's profile, run, prospects, drafts and board rows are invisible (404 / empty)", async () => {
+    const db = makeMockDb();
+    seedUserA(db);
+    const b = await sessioned(db, "b@x.com");
+    expect((await asUser(db, b, "/api/profiles/bp_a")).status).toBe(404);
+    expect((await asUser(db, b, "/api/runs/run_a")).status).toBe(404);
+    expect((await asUser(db, b, "/api/runs/run_a/prospects")).status).toBe(404);
+    expect((await asUser(db, b, "/api/runs/run_a/evidence")).status).toBe(404);
+    expect((await asUser(db, b, "/api/runs/run_a/drafts")).status).toBe(404);
+    expect((await asUser(db, b, "/api/runs/run_a/statuses")).status).toBe(404);
+    expect((await asUser(db, b, "/api/prospects/pr_a")).status).toBe(404);
+    expect((await asUser(db, b, "/api/drafts/dr_a/decision", )).status).toBe(404);
+    // Anonymous and not-yours are indistinguishable: the same 404 body.
+    const nope = await asUser(db, b, "/api/runs/run_a") as Response;
+    expect(((await nope.json()) as { error: string }).error).toBe("not_found");
+    // List endpoints exclude the other user's rows entirely.
+    const runs = (await (await asUser(db, b, "/api/runs")).json()) as { runs: { id: string }[] };
+    expect(runs.runs.map((r) => r.id)).toEqual(["run_b"]); // b sees only their own
+    const latest = (await (await asUser(db, b, "/api/runs/latest")).json()) as { run: { id: string } | null };
+    expect(latest.run?.id ?? null).toBe("run_b");
+    const board = (await (await asUser(db, b, "/api/board")).json()) as { drafts: unknown[] };
+    expect(board.drafts).toEqual([]);
+  });
+
+  it("the owner still sees their own data (no false negatives)", async () => {
+    const db = makeMockDb();
+    seedUserA(db);
+    const a = await sessioned(db, "a@x.com");
+    expect((await asUser(db, a, "/api/profiles/bp_a")).status).toBe(200);
+    expect((await asUser(db, a, "/api/runs/run_a")).status).toBe(200);
+    const prospects = (await (await asUser(db, a, "/api/runs/run_a/prospects")).json()) as { prospects: { id: string }[] };
+    expect(prospects.prospects.map((p) => p.id)).toEqual(["pr_a"]);
+    const drafts = (await (await asUser(db, a, "/api/runs/run_a/drafts")).json()) as { drafts: { id: string }[] };
+    expect(drafts.drafts.map((d) => d.id)).toEqual(["dr_a"]);
+  });
+
+  it("legacy rows (owner_email NULL) are hidden from everyone, never shared", async () => {
+    const db = makeMockDb();
+    db.__tables.business_profile.push({
+      id: "bp_legacy", owner_email: null, name: "Legacy", website_url: null,
+      description: "d", services: "[]", value_proposition: "v", target_market: "t",
+      service_area: "{}", constraints_json: "{}", provenance: "{}", status: "confirmed",
+      version: 1, confirmed_at: null, created_at: "t",
+    });
+    db.__tables.research_run.push({
+      id: "run_legacy", profile_id: "bp_legacy", owner_email: null, workflow_instance_id: "wf_l",
+      plan: "{}", status: "created", stop_reason: null, budgets: "{}", consumed: "{}",
+      started_at: "t", finished_at: null, created_at: "t",
+    });
+    for (const email of ["a@x.com", "b@x.com"]) {
+      const tok = await sessioned(db, email);
+      expect((await asUser(db, tok, "/api/profiles/bp_legacy")).status).toBe(404);
+      expect((await asUser(db, tok, "/api/runs/run_legacy")).status).toBe(404);
+      const runs = (await (await asUser(db, tok, "/api/runs")).json()) as { runs: unknown[] };
+      expect(runs.runs).toEqual([]);
+    }
+  });
+
+  it("profiles created while signed in are stamped with the session's email", async () => {
+    const db = makeMockDb();
+    const tok = await sessioned(db, "new@x.com");
+    const res = await (app as any).fetch(
+      new Request("https://test.local/api/profiles", {
+        method: "POST", headers: { "content-type": "application/json", cookie: `pr_sess=${tok}` },
+        body: JSON.stringify({ name: "Fresh Catering", description: "Cakes for offices" }),
+      }),
+      { DB: db, MODEL_API_KEY: "test" }, {});
+    expect(res.status).toBe(201);
+    expect(db.__tables.business_profile[0].owner_email).toBe("new@x.com");
   });
 });

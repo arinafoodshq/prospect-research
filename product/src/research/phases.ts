@@ -78,6 +78,10 @@ export interface DraftProposal {
   contact_value: string;
   subject?: string | null;
   body: string;
+  /** Per-prospect offer fit (owner 2026-11-04): one sentence in the owner's
+   *  voice naming the concrete connection between the offer and THIS
+   *  prospect ("event grilling for the events you host"). */
+  angle?: string;
   next_action: string;
   follow_up_days?: number;
   /** Prospect-evidence ids backing the draft's claims (audited in code). */
@@ -1393,6 +1397,7 @@ export async function draft(
       await saveDraft(db, {
         prospect_id: t.id, channel_suggestion: prop.channel_suggestion ?? prop.channel,
         subject: prop.subject ?? null, body: prop.body, next_action: prop.next_action,
+        ...(prop.angle ? { angle: prop.angle } : {}),
         ...(prop.follow_up_days !== undefined ? { follow_up_days: prop.follow_up_days } : {}),
         ...(prop.variants ? { variants: prop.variants } : {}),
       });

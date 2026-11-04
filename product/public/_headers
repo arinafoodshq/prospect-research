@@ -1,0 +1,7 @@
+# Asset freshness: the app must never run a stale bundle after a deploy.
+# (Found live 2026-11-04: after deploys the browser heuristically reused the
+# previous app.js, so owners saw old UI — the "Open status board" studio and
+# the dashboard landing-loop came back from cache alone.) Small assets;
+# revalidate every time.
+/*
+  Cache-Control: no-cache

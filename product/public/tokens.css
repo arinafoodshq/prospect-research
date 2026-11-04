@@ -49,6 +49,9 @@
   --navy-deep: var(--sky-wash);
   --ink-strong: var(--ink);
   --white: #FFFFFF;
+  --paper-soft: var(--mist);
+  --success-soft: var(--sage-wash);
+  --gold: var(--marigold);
 
   /* Radius: one scale, used everywhere (controls 12, rows 16, cards 24) */
   --r-xs: 8px;

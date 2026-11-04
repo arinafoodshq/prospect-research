@@ -80,7 +80,7 @@ export interface ContactRoute {
 
 export interface OutreachDraft {
   id: string; prospect_id: string; channel_suggestion: string;
-  subject: string | null; body: string; next_action: string;
+  subject: string | null; body: string; angle: string | null; next_action: string;
   follow_up_days: number | null; status: DraftStatus;
   edited_by_human: boolean; decided_at: string | null; created_at: string;
 }
@@ -380,7 +380,7 @@ export async function saveRoute(
 /** Draft writer: prospect must be shortlisted; body must carry an evidence citation marker. */
 export async function saveDraft(
   db: Db,
-  input: { prospect_id: string; channel_suggestion: string; subject: string | null; body: string; next_action: string; follow_up_days?: number; variants?: { whatsapp?: string; email?: string; dm?: string } },
+  input: { prospect_id: string; channel_suggestion: string; subject: string | null; body: string; angle?: string | null; next_action: string; follow_up_days?: number; variants?: { whatsapp?: string; email?: string; dm?: string } },
 ): Promise<string> {
   const prospect = await db.prepare("SELECT id, status FROM prospect WHERE id = ?").bind(input.prospect_id).first<{ id: string; status: ProspectStatus }>();
   if (!prospect) throw new DbValidationError(`prospect ${input.prospect_id} does not exist`);
@@ -397,10 +397,10 @@ export async function saveDraft(
   // bracket-marker regex here: the regex silently dropped grounded drafts.
   const id = makeId("dr");
   await db.prepare(
-    `INSERT INTO outreach_draft (id, prospect_id, channel_suggestion, subject, body, next_action, follow_up_days, variants, status, edited_by_human, decided_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 0, NULL, ?)`,
+    `INSERT INTO outreach_draft (id, prospect_id, channel_suggestion, subject, body, angle, next_action, follow_up_days, variants, status, edited_by_human, decided_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 0, NULL, ?)`,
 ).bind(id, input.prospect_id, input.channel_suggestion, input.subject === null ? null : sanitizeText(input.subject),
-sanitizeText(input.body), sanitizeText(input.next_action), input.follow_up_days ?? null,
+sanitizeText(input.body), input.angle ? sanitizeText(input.angle) : null, sanitizeText(input.next_action), input.follow_up_days ?? null,
 input.variants ? JSON.stringify(input.variants) : null, nowIso()).run();
   return id;
 }
@@ -546,7 +546,7 @@ export async function followUpsDue(db: Db, run_id: string, nowMs: number): Promi
     .map((r) => ({
       id: r["id"] as string, prospect_id: r["prospect_id"] as string,
       channel_suggestion: r["channel_suggestion"] as string, subject: r["subject"] as string | null,
-      body: r["body"] as string, next_action: r["next_action"] as string,
+      body: r["body"] as string, angle: (r["angle"] as string | null) ?? null, next_action: r["next_action"] as string,
       follow_up_days: r["follow_up_days"] as number | null, status: r["status"] as DraftStatus,
       edited_by_human: (r["edited_by_human"] as number) === 1, decided_at: r["decided_at"] as string | null,
       created_at: r["created_at"] as string,

@@ -8,6 +8,7 @@ PRAGMA foreign_keys = ON;
 -- 1. business_profile — the confirmed brief input.
 CREATE TABLE IF NOT EXISTS business_profile (
   id TEXT PRIMARY KEY,
+  owner_email TEXT,                  -- signed-in user who started it (NULL = legacy, hidden)
   name TEXT NOT NULL,
   website_url TEXT,
   description TEXT NOT NULL,
@@ -22,11 +23,13 @@ CREATE TABLE IF NOT EXISTS business_profile (
   confirmed_at TEXT,                 -- nullable ISO 8601 UTC
   created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_business_profile_owner ON business_profile(owner_email);
 
 -- 2. research_run — one bounded research execution (1:1 Workflow instance).
 CREATE TABLE IF NOT EXISTS research_run (
   id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL REFERENCES business_profile(id),
+  owner_email TEXT,                  -- stamped from the profile at creation
   workflow_instance_id TEXT NOT NULL,
   plan TEXT NOT NULL,                -- JSON search plan
   status TEXT NOT NULL CHECK (status IN (
@@ -41,6 +44,7 @@ CREATE TABLE IF NOT EXISTS research_run (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_research_run_profile ON research_run(profile_id);
+CREATE INDEX IF NOT EXISTS idx_research_run_owner ON research_run(owner_email);
 
 -- 3. evidence — every sourced claim fragment (immutable once written).
 CREATE TABLE IF NOT EXISTS evidence (
@@ -117,6 +121,7 @@ CREATE TABLE IF NOT EXISTS outreach_draft (
   channel_suggestion TEXT NOT NULL,
   subject TEXT,                      -- nullable
   body TEXT NOT NULL,
+  angle TEXT,                        -- per-prospect offer fit (owner 2026-11-04), nullable
   next_action TEXT NOT NULL,
   follow_up_days INTEGER,            -- nullable
   status TEXT NOT NULL CHECK (status IN ('draft','approved','rejected','deferred')),
@@ -159,6 +164,7 @@ CREATE TABLE IF NOT EXISTS sender_connection (
 CREATE TABLE IF NOT EXISTS campaign (
   id TEXT PRIMARY KEY,
   run_id TEXT REFERENCES research_run(id),  -- nullable
+  owner_email TEXT,                  -- signed-in user who created it (NULL = legacy, hidden)
   name TEXT NOT NULL,
   connection_id TEXT REFERENCES sender_connection(id),  -- nullable until approve
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','scheduled','sending','paused','complete','cancelled','failed')),
@@ -170,6 +176,7 @@ CREATE TABLE IF NOT EXISTS campaign (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_campaign_status ON campaign(status);
+CREATE INDEX IF NOT EXISTS idx_campaign_owner ON campaign(owner_email);
 
 -- 11. campaign_recipient — per-recipient job; idempotency_key guards duplicates.
 CREATE TABLE IF NOT EXISTS campaign_recipient (
@@ -205,13 +212,18 @@ CREATE TABLE IF NOT EXISTS delivery_attempt (
 );
 CREATE INDEX IF NOT EXISTS idx_attempt_recipient ON delivery_attempt(recipient_id);
 
--- 13. suppression — do-not-contact list; email unique.
+-- 13. suppression — do-not-contact list; email unique (a recipient's opt-out
+-- holds deployment-wide, whatever campaign reached them). owner_email records
+-- whose account added the row (NULL = system/legacy); reads are scoped to the
+-- owner plus system rows, the send-time check stays global for safety.
 CREATE TABLE IF NOT EXISTS suppression (
   email TEXT PRIMARY KEY,
+  owner_email TEXT,
   reason TEXT NOT NULL CHECK (reason IN ('unsubscribed','bounced','complaint','manual')),
   source TEXT NOT NULL DEFAULT 'local',
   created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_suppression_owner ON suppression(owner_email);
 
 -- 14. contact_event — every touch with a prospect, any channel, manual or campaign.
 CREATE TABLE IF NOT EXISTS contact_event (

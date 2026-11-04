@@ -4,6 +4,7 @@
  * Secrets are sealed with CRED_KEY and never returned to callers.
  */
 import { DbValidationError, makeId, nowIso, type Db } from "../db";
+import { runOwned, campaignOwned, prospectOwned, notYours } from "../scope";
 import { hmacHex, openSecret, sealSecret, verifyUnsub } from "./crypto";
 import { enqueueDueJobs } from "./processor";
 import {
@@ -328,6 +329,9 @@ async function insertRecipients(db: Db, campaignId: string, list: RecipientInput
 }
 
 export async function postCampaign(req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
+  // Ownership (owner directive 2026-11-04): a campaign belongs to its
+  // creator; the run it draws recipients from must be theirs too.
+  if (!owner) return err("signin_required", 401);
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -336,6 +340,7 @@ export async function postCampaign(req: Request, env: DeliveryEnv, owner?: strin
   if (!Array.isArray(recipients) || recipients.length === 0) return err("missing_recipients", 400);
   if (recipients.length > 500) return err("too_many_recipients", 400, "max 500 per campaign in this MVP");
   if (run_id !== undefined) {
+    if (!(await runOwned(env.DB, owner, String(run_id)))) return notYours();
     const run = await env.DB.prepare("SELECT id FROM research_run WHERE id = ?").bind(run_id).first<{ id: string }>();
     if (!run) return err("run_not_found", 400);
   }
@@ -352,9 +357,9 @@ export async function postCampaign(req: Request, env: DeliveryEnv, owner?: strin
   const id = makeId("cmp");
   const now = nowIso();
   await env.DB.prepare(
-    `INSERT INTO campaign (id, run_id, name, connection_id, status, scheduled_at_utc, timezone, approved_at, stats_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, typeof run_id === "string" ? run_id : null, (name as string).trim(),
+    `INSERT INTO campaign (id, run_id, owner_email, name, connection_id, status, scheduled_at_utc, timezone, approved_at, stats_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, typeof run_id === "string" ? run_id : null, owner, (name as string).trim(),
     typeof connection_id === "string" ? connection_id : null, "draft", scheduled, validTimezone(timezone),
     null, "{}", now, now).run();
   const recErr = await insertRecipients(env.DB, id, recipients as RecipientInput[]);
@@ -379,18 +384,22 @@ export async function campaignDetail(db: Db, id: string | undefined): Promise<Re
   return { ...row, stats: parseMeta(row["stats_json"] as string | null), recipients, attempts };
 }
 
-export async function getCampaigns(_req: Request, env: DeliveryEnv): Promise<Response> {
-  const out = await env.DB.prepare("SELECT * FROM campaign").all<Record<string, unknown>>();
+export async function getCampaigns(_req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
+  // Scoped (owner directive 2026-11-04): only the caller's campaigns.
+  if (!owner) return err("signin_required", 401);
+  const out = await env.DB.prepare("SELECT * FROM campaign WHERE owner_email = ?").bind(owner).all<Record<string, unknown>>();
   return json({ campaigns: out.results ?? [] });
 }
 
-export async function getCampaignById(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function getCampaignById(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const detail = await campaignDetail(env.DB, params["id"]);
   if (!detail) return err("campaign_not_found", 404);
   return json(detail);
 }
 
 export async function patchCampaign(req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const row = await env.DB.prepare("SELECT * FROM campaign WHERE id = ?").bind(params["id"]).first<Record<string, unknown>>();
   if (!row) return err("campaign_not_found", 404);
   if (row["status"] !== "draft") return err("campaign_locked", 409, "only draft campaigns can be edited; cancel and recreate to change an approved campaign");
@@ -429,6 +438,7 @@ export async function patchCampaign(req: Request, env: DeliveryEnv, params: Para
 }
 
 export async function postApproveCampaign(req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const row = await env.DB.prepare("SELECT * FROM campaign WHERE id = ?").bind(params["id"]).first<Record<string, unknown>>();
   if (!row) return err("campaign_not_found", 404);
   if (row["status"] !== "draft") return err("campaign_locked", 409, "only draft campaigns can be approved");
@@ -473,7 +483,8 @@ async function setCampaignStatus(db: Db, id: string | undefined, to: string, fro
   return row;
 }
 
-export async function postCancelCampaign(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postCancelCampaign(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const row = await setCampaignStatus(env.DB, params["id"], "cancelled", ["draft", "scheduled", "sending", "paused"]);
   if (!row) return err("campaign_not_cancellable", 409);
   const recs = await env.DB.prepare("SELECT * FROM campaign_recipient WHERE campaign_id = ?").bind(params["id"]).all<Record<string, unknown>>();
@@ -485,19 +496,22 @@ export async function postCancelCampaign(_req: Request, env: DeliveryEnv, params
   return json(await campaignDetail(env.DB, params["id"]));
 }
 
-export async function postPauseCampaign(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postPauseCampaign(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const row = await setCampaignStatus(env.DB, params["id"], "paused", ["scheduled", "sending"]);
   if (!row) return err("campaign_not_pausable", 409);
   return json(await campaignDetail(env.DB, params["id"]));
 }
 
-export async function postResumeCampaign(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postResumeCampaign(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const row = await setCampaignStatus(env.DB, params["id"], "scheduled", ["paused"]);
   if (!row) return err("campaign_not_resumable", 409);
   return json(await campaignDetail(env.DB, params["id"]));
 }
 
-export async function postProcessCampaign(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postProcessCampaign(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!(await campaignOwned(env.DB, owner, String(params["id"])))) return notYours();
   const row = await env.DB.prepare("SELECT * FROM campaign WHERE id = ?").bind(params["id"]).first<Record<string, unknown>>();
   if (!row) return err("campaign_not_found", 404);
   if (row["status"] !== "scheduled" && row["status"] !== "sending") {
@@ -534,12 +548,17 @@ export async function getAssistWa(req: Request, _env: DeliveryEnv): Promise<Resp
 
 const REASONS = ["unsubscribed", "bounced", "complaint", "manual"];
 
-export async function getSuppressions(_req: Request, env: DeliveryEnv): Promise<Response> {
-  const out = await env.DB.prepare("SELECT * FROM suppression").all<Record<string, unknown>>();
+export async function getSuppressions(_req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
+  // The do-not-contact list is scoped to the caller plus system-wide rows
+  // (owner NULL): a user never browses another user's recipients.
+  if (!owner) return err("signin_required", 401);
+  const out = await env.DB.prepare("SELECT * FROM suppression WHERE owner_email = ? OR owner_email IS NULL")
+    .bind(owner).all<Record<string, unknown>>();
   return json({ suppressions: out.results ?? [] });
 }
 
-export async function postSuppression(req: Request, env: DeliveryEnv): Promise<Response> {
+export async function postSuppression(req: Request, env: DeliveryEnv, owner?: string | null): Promise<Response> {
+  if (!owner) return err("signin_required", 401);
   const parsed = await readJson(req);
   if (!parsed.ok) return parsed.res;
   if (!isObj(parsed.body)) return err("invalid_body", 400);
@@ -549,16 +568,21 @@ export async function postSuppression(req: Request, env: DeliveryEnv): Promise<R
   if (!REASONS.includes(reason)) return err("invalid_reason", 400);
   const existing = await env.DB.prepare("SELECT email FROM suppression WHERE email = ?").bind(email).first<{ email: string }>();
   if (!existing) {
-    await env.DB.prepare("INSERT INTO suppression (email, reason, source, created_at) VALUES (?, ?, ?, ?)")
-      .bind(email, reason, "api", nowIso()).run();
+    await env.DB.prepare("INSERT INTO suppression (email, owner_email, reason, source, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(email, owner, reason, "api", nowIso()).run();
   }
   return json({ email, suppressed: true }, 201);
 }
 
-export async function deleteSuppression(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function deleteSuppression(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
+  if (!owner) return err("signin_required", 401);
   const email = (params["email"] || "").trim().toLowerCase();
-  const existing = await env.DB.prepare("SELECT email FROM suppression WHERE email = ?").bind(email).first<{ email: string }>();
-  if (!existing) return err("suppression_not_found", 404);
+  const row = await env.DB.prepare("SELECT owner_email FROM suppression WHERE email = ?").bind(email)
+    .first<{ owner_email: string | null }>();
+  if (!row) return err("suppression_not_found", 404);
+  // System rows (owner NULL, e.g. a recipient's unsubscribe) belong to the
+  // deployment, not to the caller: only their owner or nobody may remove them.
+  if (row.owner_email !== null && row.owner_email !== owner) return notYours();
   await env.DB.prepare("DELETE FROM suppression WHERE email = ?").bind(email).run();
   return json({ email, suppressed: false });
 }
@@ -574,8 +598,18 @@ export async function getUnsubscribe(req: Request, env: DeliveryEnv): Promise<Re
   const email = String(rec["email"]).toLowerCase();
   const existing = await env.DB.prepare("SELECT email FROM suppression WHERE email = ?").bind(email).first<{ email: string }>();
   if (!existing) {
-    await env.DB.prepare("INSERT INTO suppression (email, reason, source, created_at) VALUES (?, ?, ?, ?)")
-      .bind(email, "unsubscribed", "unsubscribe-link", nowIso()).run();
+    // The opt-out is recorded against the campaign's owner (the recipient
+    // reached them through that owner's send), so the owner sees it in
+    // their suppression list. Recipient row → campaign → owner.
+    let campaignOwner: string | null = null;
+    const campId = rec["campaign_id"] ? String(rec["campaign_id"]) : null;
+    if (campId) {
+      const c = await env.DB.prepare("SELECT owner_email FROM campaign WHERE id = ?").bind(campId)
+        .first<{ owner_email: string | null }>();
+      campaignOwner = c?.owner_email ?? null;
+    }
+    await env.DB.prepare("INSERT INTO suppression (email, owner_email, reason, source, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(email, campaignOwner, "unsubscribed", "unsubscribe-link", nowIso()).run();
   }
   if (rec["status"] === "queued" || rec["status"] === "scheduled" || rec["status"] === "sending") {
     await env.DB.prepare("UPDATE campaign_recipient SET status = ?, updated_at = ? WHERE id = ?").bind("suppressed", nowIso(), id).run();
@@ -590,8 +624,9 @@ export async function getUnsubscribe(req: Request, env: DeliveryEnv): Promise<Re
 
 const CONTACT_CHANNELS = ["email", "whatsapp", "telegram", "phone", "sms", "in_person", "other"];
 
-export async function postContact(req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function postContact(req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
   const prospectId = params["id"] as string;
+  if (!(await prospectOwned(env.DB, owner, prospectId))) return notYours();
   const prospect = await env.DB.prepare("SELECT id, run_id FROM prospect WHERE id = ?").bind(prospectId)
     .first<{ id: string; run_id: string }>();
   if (!prospect) return err("prospect_not_found", 404);
@@ -625,8 +660,9 @@ export async function postContact(req: Request, env: DeliveryEnv, params: Params
   return json(row, 201);
 }
 
-export async function getContacts(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function getContacts(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
   const prospectId = params["id"] as string;
+  if (!(await prospectOwned(env.DB, owner, prospectId))) return notYours();
   const prospect = await env.DB.prepare("SELECT id FROM prospect WHERE id = ?").bind(prospectId).first<{ id: string }>();
   if (!prospect) return err("prospect_not_found", 404);
   const out = await env.DB.prepare("SELECT * FROM contact_event WHERE prospect_id = ?").bind(prospectId).all<Record<string, unknown>>();
@@ -634,8 +670,9 @@ export async function getContacts(_req: Request, env: DeliveryEnv, params: Param
   return json({ prospect_id: prospectId, contacts: rows });
 }
 
-export async function getTimeline(_req: Request, env: DeliveryEnv, params: Params): Promise<Response> {
+export async function getTimeline(_req: Request, env: DeliveryEnv, params: Params, owner?: string | null): Promise<Response> {
   const prospectId = params["id"] as string;
+  if (!(await prospectOwned(env.DB, owner, prospectId))) return notYours();
   const prospect = await env.DB.prepare("SELECT id FROM prospect WHERE id = ?").bind(prospectId).first<{ id: string }>();
   if (!prospect) return err("prospect_not_found", 404);
   const contacts = await env.DB.prepare("SELECT * FROM contact_event WHERE prospect_id = ?").bind(prospectId).all<Record<string, unknown>>();

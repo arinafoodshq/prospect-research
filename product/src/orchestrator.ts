@@ -186,15 +186,29 @@ export class ResearchWorkflow {
    * stops (model failures, plan errors) remain fatal. */
   private async runSweepPhases(sweep: number, share: { searches?: number; fetches?: number; candidates?: number }): Promise<string | null> {
     for (const name of ["discover", "investigate", "assess"] as const) {
+      // Budget stops complete the step normally (dispatch returns the stop
+      // instead of throwing): a mid-sweep budget pause is an honest outcome,
+      // and throwing it made Workflows retry a spent budget 5 times — the run
+      // looked frozen for ~10 minutes at "47 of 56" (run_71a74ac3,
+      // run_064223c3). Non-budget stops (model failures, plan errors) remain
+      // fatal. The regex catch stays as a safety net for any throw.
+      let r: { budgetStopped: boolean; stop_reason?: string } | undefined;
       try {
-        await this.phase(name, () => this.dispatch(name, name === "assess" ? undefined : share));
+        r = await this.phase(
+          name,
+          () => this.dispatch(name, name === "assess" ? undefined : share, false),
+        ) as { budgetStopped: boolean; stop_reason?: string } | undefined;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (/^\w+ stopped: budget_/.test(msg)) {
-          this.runtime.log(`sweep ${sweep}: ${msg} — ranking what exists`);
+          this.runtime.log(`sweep ${sweep}: ${msg} — ranking what exists (thrown stop caught)`);
           return msg;
         }
         throw e;
+      }
+      if (r && r.budgetStopped) {
+        this.runtime.log(`sweep ${sweep}: ${name} stopped: ${r.stop_reason} — ranking what exists`);
+        return `${name} stopped: ${r.stop_reason}`;
       }
     }
     return null;
@@ -370,7 +384,7 @@ export class ResearchWorkflow {
     return null;
   }
 
-  private async phase(name: WorkflowPhase, fn: () => Promise<unknown>): Promise<void> {
+  private async phase(name: WorkflowPhase, fn: () => Promise<unknown>): Promise<unknown> {
     this.runtime.log(`phase ${name} started`);
     // Status markers inside steps: replay-safe (cached on wake), unlike bare
     // D1 writes which would re-execute and trip transition validation.
@@ -380,8 +394,9 @@ export class ResearchWorkflow {
       await this.runtime.step(`status:${marker}`, () => setRunStatus(db, run_id, marker));
     }
     try {
-      await this.runtime.step(`phase:${name}`, fn);
+      const out = await this.runtime.step(`phase:${name}`, fn);
       this.runtime.log(`phase ${name} completed`);
+      return out;
     } catch (err) {
       this.runtime.log(`phase ${name} failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
@@ -501,9 +516,23 @@ export class ResearchWorkflow {
     return { queries: [] };
   }
 
-  private async dispatch(phase: Exclude<WorkflowPhase, "plan" | "close">, capsOverride?: { searches?: number; fetches?: number; candidates?: number }): Promise<void> {
+  private async dispatch(
+    phase: Exclude<WorkflowPhase, "plan" | "close">,
+    capsOverride?: { searches?: number; fetches?: number; candidates?: number },
+    allowBudgetStopThrow = true,
+  ): Promise<{ budgetStopped: boolean; stop_reason?: string }> {
     const outcome = await this.execPhase(phase, capsOverride);
-    if (outcome.status === "stopped") throw new Error(`${phase} stopped: ${outcome.stop_reason}`);
+    if (outcome.status === "stopped") {
+      // A budget_* stop is an honest mid-run outcome, not a failure: when the
+      // caller allows it, complete the step normally with the stop attached so
+      // Workflows never retries a spent budget (the retry loop read as a
+      // frozen run). Non-budget stops keep the throw (step retry covers them).
+      if (!allowBudgetStopThrow && /^budget_/.test(outcome.stop_reason)) {
+        return { budgetStopped: true, stop_reason: outcome.stop_reason };
+      }
+      throw new Error(`${phase} stopped: ${outcome.stop_reason}`);
+    }
+    return { budgetStopped: false };
   }
 
   /** close: all drafts decided -> run complete; activity log appended. */

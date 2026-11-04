@@ -2648,3 +2648,320 @@ component specs, copy rules, Nielsen heuristics, illustration system.
 
 Next per the guide's hand-off checklist: apply the same tokens/copy to
 Messages, Campaigns and Email accounts pages, and the 375px/768px pass.
+
+## 2026-11-04 (afternoon) — per-user data scoping + Messages/Campaigns UI + live bug fixes
+
+Change (owner directive 2026-11-04: "every data must be scoped to the user
+that started it or has it"; owner reports: blank Messages with 142 waiting,
+shortlist unlabeled, dashboard stuck on the landing):
+
+- **Data scoping (security fix).** business_profile had NO owner column and
+  /api/runs, /api/runs/latest, /api/board returned EVERY user's runs to any
+  signed-in user (owner saw other sessions' "142 messages" / "59 buyers").
+  Now: owner_email stamped at creation on business_profile, research_run,
+  campaign, suppression (migration 0010_data_owner.sql applied LOCAL and
+  REMOTE; schema.sql updated for fresh installs); every list endpoint
+  filters by the session email; every item handler resolves the ownership
+  chain (draft -> prospect -> run -> profile -> owner) and returns a
+  generic 404 (unknown and not-yours indistinguishable). Sender
+  connections were already owner-scoped (0009). Suppression reads are
+  owner-scoped; the send-time opt-out check stays global on purpose
+  (an unsubscribe must always hold). Legacy rows (owner_email NULL) are
+  hidden from everyone, never shared; claim SQL provided to the owner.
+  Four isolation tests added (second user sees 404s/empty lists; owner
+  still sees own data; NULL-owner rows hidden; new profiles stamped).
+- **Messages studio** no longer blocks on one evidence fetch per message
+  (142 waiting = 142 calls before first paint): overview renders from the
+  drafts alone, evidence hydrates one-by-one in the background and
+  on-demand on open; loading state paints before any fetch; failures land
+  in an error card with Try again (never a blank page).
+- **Campaigns page** (design-excellence pass): one card per send with a
+  status chip (word + colour), honest meta sentence ("Sends at 17:56. 6
+  sent, 2 waiting."), recipients capped at 5 with the real remainder
+  stated, scheduler empty states carry the illustration + one primary
+  action, page counts in plain words. Shortlist kicker now names the
+  campaign. Empty-state action rows centre.
+- **Live bug (owner report: dashboard stuck on the landing, landing
+  Dashboard link looped).** Root cause found with browsermcp + wrangler
+  tail: renderStatuses treated "no runs" as "not loaded" and re-fetched
+  itself forever (64 calls observed) - showView("status") was never
+  reached. Latent bug exposed by the scoping fix (before it, /api/runs
+  always returned cross-user rows, so the cache was never empty). Fixed:
+  loaded state is "cache and board are arrays (possibly empty)"; null
+  board still means refetch. Verified live: 2 boot calls, dashboard
+  renders, "You are all caught up." honest empty state.
+- Also: wrangler.jsonc dev.enable_containers=false comment made honest
+  (Windows dev has no Docker; deploys keep the container binding). Deploys
+  used --containers-rollout=none (container unchanged).
+
+Evidence: 496/496 vitest (17 files, +4 scoping isolation tests), SMOKE
+PASS, tsc clean. Remote D1 migration 0010 applied (pragma verified
+owner_email present). Deployed b679de0c (after a07ff243 -> 78c6f31a ->
+b679de0c). Live checks: /api/runs 401 without session; /api/runs (authed)
+returns only own rows; /demo 200 with new shell; dashboard loop dead
+(2 calls) in the owner's browser via browsermcp.
+
+Status: scoping verified (tests + live API probes); legacy data hidden
+(user-stated acceptance pending; claim SQL: UPDATE business_profile/
+research_run/campaign/suppression SET owner_email='<email>' WHERE
+owner_email IS NULL). Messages loading-state screenshot inconclusive in
+demo (data loads too fast to observe); error path covered by code + smoke
+DOM stubs. 375px re-verify of the new campaigns/monitor CSS pending.
+
+Next: re-run the 375px/768px screenshot pass over the final build, then
+the style-guide QA checklist on Messages + Email accounts.
+
+## 2026-11-04 (evening) — journey chain, live progress, real-time messages, approve loop
+
+Change (owner feedback on the live run: stuck-on-landing after deploys,
+phases stepping backwards, dead approve/reject buttons, the 80-name wall,
+"messages should generate in real time"):
+
+- **Stage trail -> a chained journey.** Each step is numbered (done steps
+  carry a check), steps plug into each other with chevron connectors, the
+  current step glows sky. Stages without data are locked: display-only,
+  dimmed, aria-disabled, default cursor; reachable steps get the pointer.
+  Clicking a locked step does nothing by design.
+- **Research phases**: the running phase pulses (checklist dot animates,
+  reduced-motion safe) instead of just going bold; found/opened/kept
+  counts never regress within a run (the QA loop re-visits phases
+  server-side; a backwards number reads as lost work).
+- **Approve is a loop with a voice**: Approve lands on the next still-
+  waiting message and says "Approved. N messages still waiting."; the last
+  approval opens the scheduler. Every decision shows progress or an honest
+  error (silent failures read as dead buttons). "Reject instead" ->
+  "Mark as not a fit" (style-guide vocabulary).
+- **Messages stream in real time.** The "No draft yet for [80 names]"
+  wall is now "N picks have no message yet: 3 names and M more. Write
+  their messages now". While the server writes, a watch polls every 3.5s
+  and renders each message as it lands; the empty state becomes "Your
+  messages are being written." with a live dot; the watch self-stops
+  (view closed, ~14s quiet, 5 min cap). The owner confirmed the write
+  worked but was invisible before: "feeding them one after the other in
+  real time and in batch is great for ux".
+- **Dashboard freshness**: openDashboard nulls runs+board (renderStatuses'
+  refetch convention) so Home always paints the live state - a run started
+  after page load now appears without a reload (was "all caught up" mid-
+  run).
+- **Asset freshness**: public/_headers sends Cache-Control: no-cache for
+  every asset. Found live: after deploys the browser heuristically reused
+  the previous app.js, so owners saw the old UI (the landing-loop bug
+  "returned" from cache alone). Verified: stale-cache goto showed the
+  landing; after revalidation the same URL renders the dashboard.
+- Home tabs: the count pill no longer clips out of the tab (own line
+  height, no flex squeeze). Shortlist pick rows get the pointer cursor.
+
+Evidence: 496/496 vitest, SMOKE PASS (approve assertions rewritten for the
+auto-advance loop; drafts-note assertion updated to the compact copy; DOM
+stub guards for setAttribute/classList.contains), tsc clean. Deployed
+9c64c1c2 then e58da480 (with _headers). Live via browsermcp in the owner's
+session: trail all pointer + no locked (run exists), count pill 20px line,
+hero "132 messages are ready for you to check" (the streamed write batch
+visible on Home).
+
+Limitations: the streaming watch needs the page open (leaving is fine: the
+server keeps writing; reopening shows the result). Draft speed itself is
+the model's, not the UI's. 375px pass redone for Messages only (screenshot
+taken signed-out; signed-in mobile pass still pending).
+
+Next: run the style-guide QA checklist over Messages + Email accounts with
+the owner, then claim-or-drop the legacy rows decision.
+
+## 2026-11-04 (late) — offer relevance, per-prospect angle, WhatsApp shape, social routes
+
+Change (owner report: a draft to an event venue claimed "we help venues
+increase bookings and simplify client coordination" - 504 Yard grills
+chicken; WhatsApp messages long with space-only filler lines; social pages
+absent from the send panel; "Your offer" panel generic):
+
+- **THE OFFER RULE in the draft prompt** (meta.ts proposeDrafts): the offer
+  sentence must state what the business actually sells in the owner's own
+  words from the brief; claiming services the brief does not mention
+  (bookings growth, marketing, coordination) is a failed draft.
+- **Per-prospect angle** persisted end-to-end: drafts table gains `angle`
+  (migration 0011 applied LOCAL + REMOTE; schema.sql updated); the draft
+  burst writes one sentence naming the concrete connection in the owner's
+  voice with the right trade name ("Live event grilling for the weddings
+  and corporate events you host" for a venue; "Grill packs for your staff
+  lunch days" for an office); the studio's why-card shows "What you sell"
+  + "Why this pick fits". Legacy drafts fall back to an offer+category
+  shape; nothing invents a service.
+- **Message shape**: bodies <=120 words, 2-4 short paragraphs, no
+  whitespace-only lines (prompt); the renderer also merges hard-wrapped
+  lines and drops space-only lines so " \n \n" filler never renders.
+  WhatsApp variants stay <=60 words.
+- **Social routes in every send card**: Instagram/Facebook/X/TikTok links
+  with small platform glyphs open the prospect's page for a DM; the DM
+  tab keeps its card, WhatsApp and Email tabs now carry them too.
+
+Evidence: 496/496 vitest, SMOKE PASS, tsc clean; migration 0011 remote +
+local applied; deployed b35f6097. Angle quality lands on the NEXT draft
+burst (existing drafts keep their text; the fallback shape covers them).
+
+## 2026-11-04 (night) — image-budget rule (global) + demo video capture started
+
+Change (owner report: a 9-image request was rejected with `AiError: Image
+count 9 exceeds limit 8 per request` during screenshot-heavy demo capture):
+
+- **Global image-budget rule recorded**: created
+  `~/.config/opencode/AGENTS.md` (auto-loaded by OpenCode global precedence —
+  deliberately NOT added to the `instructions` array, which would double-load
+  it) and strengthened section 6 of `~/.config/opencode/instructions.md`:
+  max 8 images per request; browser-tool screenshots auto-attach (no
+  opt-out), so captures go to `--path` files and are verified via `ffprobe`
+  dimensions or DOM `eval` checks; look at at most 1–2 images per run; on
+  the AiError do not retry with the same attachments.
+  Rationale (owner instruction 2026-11-04): the 400 error blocked a turn and
+  this rule prevents recurrence in every project.
+
+Demo video capture (submission deliverable, real data, owner's Chrome via
+browsermcp): frames saved to
+`C:\Users\User\AppData\Local\Temp\opencode\demo-frames\`:
+- Captured: f01 landing (hero + resume card), f10 dashboard (132 hero +
+  journey), f06 messages studio (trail + 131 rows + badges), f07 message
+  detail with why-card (fact + source link + hypothesis), f08 WhatsApp tab
+  + send card (scrolled to wa-test-num + Open on my number).
+- Capture recipe found after 5s-screenshot timeouts: app views stay
+  "unstable" while JS timers/pollers run — eval-nuke all timers, patch
+  `window.fetch` to block `/api/` (original kept in `window.__of` for
+  unpatch), kill CSS animations, then viewport screenshot works (1920×911).
+  `screenshot --full` is unreliable (renders at content width: 384px on the
+  studio). Stage views reached via eval `li[data-view=...]` clicks
+  (`#step-nav`); direct `/progress` URL boot-redirects to the dashboard.
+- Verified: f06 shows the full stage trail (Onboard, Confirm profile,
+  Research run, Shortlist, Messages active) — the trail story is covered
+  without a separate progress-shot dependency.
+
+Remaining: f02 confirm-profile, f03 progress (via trail click), f04
+shortlist, f05 pick detail with sources, f09 wa.me handoff on the owner's
+own number (+2348029056826, pre-filled, never sent), f12 campaigns; then
+ffmpeg assembly per demo-direction.md (1920×1080 letterboxed from
+1900–1920×911 frames, drawtext captions with the VO beats, ≈3:00) and the
+9:16 X clip. Frame verification from here: ffprobe + DOM evals only (image
+budget).
+
+## 2026-11-04 (night 2) — owner takes over recording; capture work stopped
+
+Owner decision: they will record the demo themselves with a fresh method
+that shows what we offer, using another account for a clean slate. All
+frame-capture work stopped. Browser tab left on a fresh boot of the app
+(debug patches cleared by reload).
+
+Two product observations found during capture (logged, NOT fixed — out of
+scope while the owner records; fix only on owner request):
+
+- **Progress view on a parked run misleads**: for the real run
+  (run_2cf7de52…, awaiting_approval) the /progress view shows "Working now /
+  Finding the buyers that truly fit." and "0 kept so far". Cause: the client
+  kept-counter (api.js getProgressSnapshot) counts prospects with status
+  qualified/shortlisted only, but this run's prospects sit in
+  `investigating` (87) + `disqualified` (15) = 102 total (verified by
+  fetching /api/runs/:id/prospects in the owner's session). The shortlist
+  and dashboard show the real 87/132; only /progress contradicts them after
+  parking. Recording note for the owner: film /progress during a LIVE run;
+  use dashboard/shortlist/messages after it parks.
+- **Confirm-profile card is empty on a fresh boot** via the trail click: the
+  handler (app.js step-nav, v === "profile") only calls showView — the full
+  brief fields exist only in the page state after the onboarding
+  createProfile response, so after a reload the card renders header +
+  buttons with no fields. The /demo MockApi path renders it fully populated
+  (createProfile builds the fields). Fresh-run recordings are unaffected
+  (the card is populated right after onboarding).
+
+Submission doc fixed in BOTH copies (repo root + ~/.opencode/plan/):
+Team Name `TechAssembly`, Track `Startups Track`, rationale rewritten for
+the startups field (verified by reading both files back). Gitignored, never
+pushed.
+
+Status: hackathon-submission.md ready for form-filling; demo-direction.md
+(shot list + VO beats) ready for the owner's own recording; my captured
+frames remain in C:\Users\User\AppData\Local\Temp\opencode\demo-frames\ (f01
+landing, f02 profile-empty, f03 progress-parked, f06 studio, f07 why-card,
+f08 WhatsApp send card, f10 dashboard) — usable as reference only, the owner
+is recording fresh. Image-budget rule now global (see night entry above).
+Unresolved (owner decision): whether to fix the parked-run progress header +
+kept counter after the recording — one-line change candidate in
+getProgressSnapshot kept-count (count investigating? no — decide the honest
+definition: kept should count shortlisted/approved; the parked header should
+read from run.status, not the active-state default). Owner + deadline own
+the call.
+
+## 2026-11-04 (night 3) — run frozen at "47 of 56": sweep-share budget stop retried 5x; fixed + deployed
+
+Owner report (fresh clean-slate account maryodidi2@gmail.com, recording run):
+/progress froze at "47 of 56" pages opened with "Working now", 0 kept so far;
+dashboard "Check what we have so far" went to /messages instead of /progress;
+console showed /api/runs/:id/start -> 501.
+
+Diagnosis (evidence: wrangler workflows instances describe
+wf_9f849933-3cef-42d4-a221-4fe7bc07eb36 + audit_log + D1):
+
+- The run is a Cloudflare Workflow (ResearchWorkflowEntrypoint). Sweep 1
+  share = HALF of remaining budget (orchestrator.ts run(): left=min(2,...)),
+  so investigate got 40 of the 80-fetch cap. It opened 40 pages (+7
+  no-fetch prospects = 47 marked investigating), then returned
+  stopped("budget_fetches") — an honest, by-design mid-run pause
+  ("rank what exists"), 9 candidates intentionally left for later sweeps.
+- THE BUG: dispatch() threw the budget stop INSIDE the Workflow step, so
+  Workflows retried the spent-budget step 5 times (20s exponential, each
+  instant-fail) before runSweepPhases' catch could classify it. ~10 minutes
+  of retry theater read as a frozen run. Same failure killed run_064223c3
+  (the comment at orchestrator.ts:184 warned it).
+- The 501 on /start is by design in production (use_workflow, index.ts:733)
+  and ALREADY tolerated client-side (api.js treats HTTP 501 as
+  already-running) — expected console noise, no fix.
+
+Fixes (deployed b7e5aefc5 — version 7e5aefc5-ebdb-41f9-bf7d-6f0b6823ebdc):
+
+- orchestrator.ts: dispatch(phase, capsOverride, allowBudgetStopThrow) —
+  budget_* stops now COMPLETE the step normally with the stop attached
+  ({budgetStopped:true}); runSweepPhases reads the result instead of relying
+  on the throw; regex catch kept as safety net; phase() returns the step
+  result. Non-budget stops still throw (step retry covers real failures).
+  Rank/draft keep the old semantics (default true).
+- app.js: dashboard hero check button is state-aware via data-mode:
+  working search -> showView("progress") + pollProgress(false) (owner asked
+  "why not progress"); waiting -> drafts; failed/caught-up -> drafts
+  (unchanged default; stale data-mode cannot leak — every branch sets it).
+
+Evidence: 496/496 vitest, tsc clean, SMOKE PASS, deployed
+(Version 7e5aefc5-ebdb-41f9-bf7d-6f0b6823ebdc). The owner's RUNNING instance
+is pinned to the old version (Workflow instances pin their version) — it
+self-healed anyway: after the 5th retry the catch ran, status:assessing-1
+completed, and the run proceeds rank -> draft -> awaiting_approval with the
+47 investigated prospects. Future runs flow through the budget pause in
+seconds with no frozen window.
+
+## 2026-11-04 (night 4) — speed rework: read-first note (verify), tag pre-speed
+
+The owner supplied an architecture proposal (architecture.md, agent-prompt.md,
+architecture.png, pool.test.mjs at repo root; demo is already recorded, so the
+deadline pressure for the video is off). Per the prompt's order of work:
+read-first note with file/line references, confirming every claim in source:
+
+(a) **Discovery is NOT a multi-turn agentic loop.** Each search is ONE
+    single-shot model burst: meta.ts `search()` (line 740) builds a request
+    with only the built-in web_search tool (maxToolCalls 4) and makes ONE
+    `callResponses` call; the 13–31s per search is model+search latency in a
+    single round-trip. The discover phase then loops over the plan's queries
+    in **batches of 3 behind a barrier** (phases.ts 370–386,
+    Promise.allSettled) — this corrects the proposal's "serial LLM loop"
+    claim; it is serial-ish (batch barrier), not one-at-a-time. 0.6
+    (parallel discovery) is therefore feasible: mapPool(limit 6) over
+    queries, no semantic change.
+(b) **Model + endpoint**: muse-spark-1.3 (env MODEL_ID) via
+    `https://api.meta.ai/v1/responses` (meta.ts:247), called directly —
+    NO AI Gateway in the path (grep confirms none). The proposal's
+    "route through AI Gateway" is Phase 1+ work, not existing.
+(c) **N+1 confirmed**: phases.ts:577 — investigateOne calls
+    `listEvidence(db, run_id)` (full-run evidence read) PER PROSPECT, plus a
+    per-social-route SELECT (line 664).
+(d) **UI progress reading**: client polls GET /api/runs/:id + /prospects
+    every 10s (app.js:3833 setInterval; also pollProgress on view switches);
+    renderProgressSnapshot (app.js:1170) renders counters from the run row
+    plus prospect statuses. audit_log already carries duration_ms per model
+    call; per-PHASE durations are the missing timing (added next).
+
+Also verified: assess and draft run strictly serial `for (const p of
+prospects)` loops (phases.ts:1083); Workers' 6-simultaneous-connections
+limit is why batches are ≤5/3 — a sliding window of 6 stays inside it.

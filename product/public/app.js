@@ -68,7 +68,7 @@
       complete: "research finished. Messages are ready for review.",
       failed: "stopped early. You can retry it any time."
     }[run.status];
-    return name + " — " + (state2 || "is at “" + run.status + "”.");
+    return name + " · " + (state2 || "is at “" + run.status + "”.");
   }
 
   function checkResumableRun() {
@@ -162,6 +162,13 @@
 
   function openDashboard() {
     adoptPendingRun();
+    // Fresh every time: Home is the live status screen. A run that started
+    // after this page loaded must appear without a manual reload (owner
+    // 2026-11-04: the dashboard said "all caught up" while a run was
+    // working, because it painted the boot-time cache). The null sentinel
+    // is renderStatuses' "refetch now" convention.
+    state.runsCache = null;
+    state.board = null;
     // A cold dashboard with no adopted run races its own boot: adopt the
     // latest run (any status) FIRST, then fetch — otherwise the board
     // fetched nothing and painted an unlabeled empty campaign (owner
@@ -177,15 +184,8 @@
           }, function () { /* the board still renders, empty */ }));
         }
       }
-      // The board is AGGREGATED across all campaigns — one fetch, no run
-      // context needed (owner 2026-11-04).
-      if (api.getBoard) {
-        jobs.push(api.getBoard().then(function (r) {
-          state.board = r.drafts || [];
-        }, function () { /* the board still renders, empty */ }));
-      }
-      // The status board reads the runs cache (campaign label + switcher),
-      // so the runs fetch lands BEFORE the board paints.
+      // The status board's own data pass fetches runs + board fresh (the
+      // nulls above); no duplicate board call here.
       jobs.push(renderRuns());
       Promise.all(jobs).then(function () { renderStatuses(); });
     });
@@ -212,11 +212,10 @@
     }
   }
 
-  // Every run, any status or stage (owner request 2026-11-03): the
-  // dashboard lists them all with pagination — nothing is lost because a
-  // newer run started. Rows are COMPACT and carry the campaign NAME (a
-  // small label, recognition over recall), a local timestamp, and the
-  // waiting count (visibility of what needs you, per campaign).
+  // Every run, any status or stage (owner request 2026-11-03): the Home
+  // card shows the latest four; "See all N searches" expands this compact
+  // paginated history so nothing is lost when a newer run starts. Rows
+  // carry the campaign NAME, a local timestamp and plain counts.
   var RUNS_PAGE_SIZE = 8;
   function renderRuns() {
     var list = $("runs-list");
@@ -226,9 +225,8 @@
     return api.getRuns(RUNS_PAGE_SIZE, page * RUNS_PAGE_SIZE).then(function (res) {
       var runs = res.runs || [];
       state.runsCache = runs;
-      renderWaitingStrip();
       if (!runs.length) {
-        list.innerHTML = '<li class="board-empty">' + illust("start") + "<p>No runs yet — describe your business and meet your first buyers.</p></li>";
+        list.innerHTML = '<li class="board-empty">' + illust("start") + "<p>No searches yet. Describe your business and meet your first buyers.</p></li>";
         $("runs-pager").hidden = true;
         return;
       }
@@ -246,30 +244,14 @@
       var total = res.total || runs.length;
       var start = page * RUNS_PAGE_SIZE + 1;
       var end = start + runs.length - 1;
-      $("runs-page-label").textContent = "Runs " + start + "\u2013" + end + " of " + total;
+      $("runs-page-label").textContent = "Showing " + start + " to " + end + " of " + total + " searches";
       $("runs-pager").hidden = total <= RUNS_PAGE_SIZE;
       $("btn-runs-prev").disabled = page === 0;
       $("btn-runs-next").disabled = end >= total;
     }, function () {
-      list.innerHTML = '<li class="hint">Could not load your runs. Try again in a moment.</li>';
+      list.innerHTML = '<li class="hint">Could not load your searches. Try again in a moment.</li>';
       $("runs-pager").hidden = true;
     });
-  }
-
-  // The latest pending issues, IRRESPECTIVE of campaign (owner 2026-11-04):
-  // one row per campaign with undecided messages, most recent first. This
-  // is what "Waiting for you" means on a multi-campaign dashboard.
-  function renderWaitingStrip() {
-    var strip = $("waiting-strip");
-    if (!strip) return;
-    var waiting = (state.runsCache || []).filter(function (r) { return (r.waiting || 0) > 0; });
-    if (!waiting.length) { strip.hidden = true; strip.innerHTML = ""; return; }
-    strip.hidden = false;
-    strip.innerHTML = waiting.map(function (r) {
-      return '<div class="waiting-row"><span class="campaign-chip">' + esc(r.profile_name || "Campaign") + "</span>" +
-        '<span class="run-meta">' + (r.waiting === 1 ? "1 message" : esc(r.waiting) + " messages") + " waiting for your approval</span>" +
-        '<button type="button" class="linklike" data-act="open-messages" data-id="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '" data-profile-name="' + esc(r.profile_name || "") + '">Review &rarr;</button></div>';
-    }).join("");
   }
 
   // Post-sign-in return lands on the owner's home (the dashboard), not the
@@ -340,8 +322,16 @@
       items.forEach(function (li) {
         var v = li.getAttribute("data-view");
         var vi = STAGES.indexOf(v), ni = STAGES.indexOf(name);
+        // Reachability (owner 2026-11-04: a stage you cannot reach must not
+        // look clickable): onboard + profile always; run stages need a run.
+        var reachable = vi <= 1 ? true : !!state.runId;
         li.classList.toggle("active", v === name);
         li.classList.toggle("done", vi >= 0 && ni > vi);
+        li.classList.toggle("locked", !reachable);
+        if (li.setAttribute) {
+          if (reachable) li.removeAttribute("aria-disabled");
+          else li.setAttribute("aria-disabled", "true");
+        }
       });
     }
     // Sidebar active state: which app section is on screen.
@@ -1179,6 +1169,13 @@
 
   function renderProgressSnapshot(snap) {
     state.runStatus = snap.status; // the shortlist gate reads this (never fake-zero mid-run)
+    // Counts only grow within one run: the QA loop can revisit an earlier
+    // phase, and a regressing number reads as lost work (owner 2026-11-04).
+    if (state.statRun !== state.runId) { state.statRun = state.runId; state.statMax = { found: 0, opened: 0, kept: 0, phase: 0 }; }
+    var m = state.statMax;
+    snap.found = Math.max(snap.found, m.found); m.found = snap.found;
+    snap.opened = Math.max(snap.opened, m.opened); m.opened = snap.opened;
+    snap.kept = Math.max(snap.kept, m.kept); m.kept = snap.kept;
     $("stat-found").textContent = String(snap.found);
     $("stat-opened").textContent = String(snap.opened);
     $("stat-kept").textContent = String(snap.kept);
@@ -1305,9 +1302,9 @@
 
   function fitBadge(p) {
     var tab = tabOf(p);
-    if (tab === "ready") return "STRONG FIT";
-    if (tab === "warm") return p.verdict === "qualified" ? "GOOD FIT" : "GOOD FIT, NO SIGNAL YET";
-    return "NEEDS A LOOK";
+    if (tab === "ready") return "Strong fit";
+    if (tab === "warm") return p.verdict === "qualified" ? "Good fit" : "Good fit, no signal yet";
+    return "Needs a look";
   }
 
   function fitClass(p) {
@@ -1338,6 +1335,16 @@
   function renderShortlist() {
     var shown = shownProspects();
     var list = $("prospect-list");
+    // Which campaign is this list from? Always labelled (owner 2026-11-04:
+    // multi-campaign views need the label, recognition over recall).
+    var kick = $("shortlist-kicker");
+    if (kick) {
+      var camp = (state.profile && state.profile.name) || "";
+      kick.textContent = camp
+        ? (isDemo() ? "Example data. " : "") + camp
+        : (isDemo() ? "Example data" : "");
+      kick.hidden = !kick.textContent;
+    }
     // Quality gate before display (owner report 2026-11-03): the shortlist
     // never shows a "0 buyers" state that fills with buyers seconds later.
     // Before the first fetch lands -> progress card. Mid-run, an explicit
@@ -1540,7 +1547,7 @@
       "<span class=\"route-value\">" +
       (person.contact_name
         ? esc(person.contact_name) + (person.contact_title ? " · " + esc(person.contact_title) : "")
-        : "<em>Not named yet — add them when you know.</em>") +
+        : "<em>Not named yet. Add them when you know.</em>") +
       "</span></li>" +
       "<li class=\"route route-edit\"><input data-field=\"person-name\" placeholder=\"Contact person's name\" maxlength=\"120\" />" +
       "<input data-field=\"person-title\" placeholder=\"Their role (optional)\" maxlength=\"120\" />" +
@@ -1562,8 +1569,8 @@
     shortlisted: "Shortlisted",
     drafted: "Draft written",
     approved: "Approved",
-    rejected: "Rejected",
-    deferred: "Deferred",
+    rejected: "Not a fit",
+    deferred: "Paused",
     disqualified: "Set aside",
     "auto: contact logged": "Contact logged",
   };
@@ -1638,8 +1645,8 @@
   var STUDIO_TABS = ["whatsapp", "email", "dm"];
   var STUDIO_TAB_LABEL = { whatsapp: "WhatsApp", email: "Email", dm: "Direct message" };
   var STUDIO_SENDER = {
-    whatsapp: "Manual send: the button below opens WhatsApp with this message pre-filled — you press send.",
-    email: "Manual send: opens your email app with the draft pre-filled — you press send.",
+    whatsapp: "Manual send: the button below opens WhatsApp with this message pre-filled. You press send.",
+    email: "Manual send: opens your email app with the draft pre-filled. You press send.",
     dm: "Manual send: open their profile and paste the message yourself."
   };
 
@@ -1717,11 +1724,11 @@
 
   /** Internal verdict codes never reach the owner — translated, not shown. */
   var VERDICT_HUMAN = {
-    qualified: "Strong fit — the research saw a live buying signal.",
-    no_signal: "Good fit — no dated buying signal yet, so a patient introduction is suggested.",
-    needs_research: "Promising — a few things still need verifying before you reach out.",
-    manual_review: "You should make the final call here — the research is not sure.",
-    disqualified: "Set aside — it did not pass your must-haves.",
+    qualified: "Strong fit: the research saw a live buying signal.",
+    no_signal: "Good fit: no dated buying signal yet, so a patient introduction is suggested.",
+    needs_research: "Promising: a few things still need verifying before you reach out.",
+    manual_review: "You should make the final call here. The research is not sure.",
+    disqualified: "Set aside: it did not pass your must-haves.",
   };
   function verdictHuman(v) {
     return VERDICT_HUMAN[v] || "";
@@ -1755,9 +1762,32 @@
   function ownerEmail() {
     try { return localStorage.getItem("owner_email") || ""; } catch (e) { return ""; }
   }
+  /** Social profile links with platform glyphs — every channel shows them:
+   *  a DM or a comment is a route like any other (owner 2026-11-04). */
+  function socialsHtml(routes) {
+    var socials = (routes || []).filter(function (r) { return r.channel === "social_profile"; }).slice(0, 3);
+    if (!socials.length) return "";
+    var icon = function (r) {
+      var h = "";
+      try { h = new URL(r.value).hostname.replace(/^www\./, "").toLowerCase(); } catch (e) { /* generic */ }
+      if (h.indexOf("instagram") >= 0) return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/></svg>';
+      if (h.indexOf("facebook") >= 0 || h === "fb.com") return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 8h3V5h-3c-2.2 0-4 1.8-4 4v2H7v3h3v7h3v-7h3l1-3h-4V9c0-.6.4-1 1-1z" fill="currentColor"/></svg>';
+      if (h === "x.com" || h.indexOf("twitter") >= 0) return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7.2 9.4L4.4 20h2.6l5.4-5.2L16.8 20H20l-7.5-9.8L18.9 4h-2.6l-4.8 4.6L8.2 4H4z" fill="currentColor"/></svg>';
+      if (h.indexOf("tiktok") >= 0) return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3c.4 2.4 1.9 3.9 4.3 4.2v2.9c-1.6.1-3-.4-4.3-1.3v6.1c0 3.5-2.4 5.6-5.4 5.6-2.9 0-5.1-2.1-5.1-5 0-3 2.4-5.1 5.6-4.9v3c-.3-.1-.6-.1-.9-.1-1.3 0-2.2.9-2.2 2.1 0 1.3 1 2.1 2.3 2.1 1.5 0 2.5-1 2.5-2.8V3H15z" fill="currentColor"/></svg>';
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+    };
+    return "<div class=\"socials\"><p class=\"kicker kicker-dim\">Their social pages</p>" +
+      socials.map(function (r) {
+        return "<a class=\"social-link\" href=\"" + esc(r.value) + "\" target=\"_blank\" rel=\"noopener\">" +
+          '<span class="social-ico" aria-hidden="true">' + icon(r) + "</span>" + esc(routeLabel(r)) +
+          "<span aria-hidden=\"true\">&nearr;</span></a>";
+      }).join("") + "</div>";
+  }
+
   function studioSendHtml(d, p, st) {
     var routes = ((st.evidence[d.prospectId] || {}).routes) || [];
     var person = (p && p.contact_name) || "";
+    var socials = socialsHtml(routes);
     if (st.tab === "whatsapp") {
       var phones = routes.filter(function (r) { return r.channel === "phone"; });
       var btns = phones.slice(0, 4).map(function (r, i) {
@@ -1781,7 +1811,8 @@
         "<div class=\"wa-test\"><label for=\"wa-test-num\">Test on yourself first</label>" +
         "<input id=\"wa-test-num\" data-field=\"wa-test-num\" value=\"" + esc(waTestNum()) + "\" placeholder=\"Your own WhatsApp number\" />" +
         "<button type=\"button\" data-act=\"wa-test\">Open on my number</button>" +
-        "<p class=\"muted small\">Opens the same message on YOUR WhatsApp — the lead never sees a test.</p></div></div>";
+        "<p class=\"muted small\">Opens the same message on YOUR WhatsApp — the lead never sees a test.</p></div>" +
+        socials + "</div>";
     }
     if (st.tab === "email") {
       var emails = routes.filter(function (r) { return r.channel === "email"; });
@@ -1795,15 +1826,12 @@
         "<div class=\"wa-test\"><label for=\"mail-test-email\">Test on yourself first</label>" +
         "<input id=\"mail-test-email\" data-field=\"mail-test-email\" value=\"" + esc(ownerEmail()) + "\" placeholder=\"Your own email\" />" +
         "<button type=\"button\" data-act=\"mail-test\">Email it to me</button>" +
-        "<p class=\"muted small\">Arrives in your own inbox — the lead never sees a test.</p></div></div>";
+        "<p class=\"muted small\">Arrives in your own inbox — the lead never sees a test.</p></div>" +
+        socials + "</div>";
     }
-    var socials = routes.filter(function (r) { return r.channel === "social_profile"; });
-    if (!socials.length) return "";
+    if (!socials) return "";
     return "<div class=\"card send-card\"><p class=\"kicker kicker-dim\">Open their profile to DM</p>" +
-      socials.slice(0, 3).map(function (r) {
-        return "<a class=\"link-gold\" href=\"" + esc(r.value) + "\" target=\"_blank\" rel=\"noopener\">Open " +
-          esc(routeLabel(r)) + "</a>";
-      }).join(" ") + "</div>";
+      socials + "</div>";
   }
 
   function rationaleRemainder(rationale) {
@@ -1828,6 +1856,41 @@
     return "View source: " + esc(label);
   }
 
+  // --- Live message writing ------------------------------------------------
+  // While the server writes, Messages polls quietly and renders each message
+  // the moment it lands (owner 2026-11-04: "messages should generate in real
+  // time and the ready ones shown"). The watch self-stops: view closed,
+  // several quiet ticks, or a hard cap.
+  var draftsWatch = null; // interval id while a writing burst is live
+  function startDraftsWatch() {
+    stopDraftsWatch();
+    if (!api.getDrafts) return;
+    state.draftsWriting = true;
+    var seen = -1, idle = 0, ticks = 0;
+    draftsWatch = setInterval(function () {
+      if (!state.runId) { stopDraftsWatch(); return; }
+      var view = $("view-drafts");
+      if (view && view.hidden) { stopDraftsWatch(); return; } // closed the page: the server keeps writing
+      ticks += 1;
+      if (ticks > 90) { state.draftsWriting = false; stopDraftsWatch(); return; } // ~5 min: honest state takes over
+      api.getDrafts(state.runId).then(function (res) {
+        var n = (res.drafts || []).length;
+        if (n !== seen) {
+          idle = 0;
+          seen = n;
+          if (n > 0) state.draftsWriting = false;
+          if (view && !view.hidden) renderDrafts(); // list and note rebuild with fresh counts
+        } else {
+          idle += 1;
+          if (idle >= 4) { state.draftsWriting = false; stopDraftsWatch(); } // quiet ≈14s: burst finished or stalled
+        }
+      }, function () { /* transient network trouble: keep watching */ });
+    }, 3500);
+  }
+  function stopDraftsWatch() {
+    if (draftsWatch) { clearInterval(draftsWatch); draftsWatch = null; }
+  }
+
   function renderDrafts() {
     // Which campaign owns these messages? Always labelled (owner
     // 2026-11-04: multi-campaign views need the label, recognition over
@@ -1838,6 +1901,18 @@
       schip.hidden = !campName;
       if (campName) schip.textContent = campName;
     }
+    // An honest loading state painted BEFORE any fetch: the studio must
+    // never sit blank while data reads (user report 2026-11-04: opening
+    // Messages showed an empty page while the fetch ran).
+    var wrap = $("draft-list");
+    if (wrap) {
+      wrap.innerHTML = '<div class="studio-loading" aria-live="polite">' +
+        '<p class="kicker kicker-dim">Your messages</p>' +
+        "<h3>Fetching your messages.</h3>" +
+        '<p class="hint">One moment. The list lands here as soon as it is read.</p></div>';
+    }
+    var noteEl = $("drafts-note");
+    if (noteEl) noteEl.textContent = "";
     // Cold open (reloaded page): the prospect list may not be loaded yet —
     // the top-up needs it to name the missing picks.
     var ensureProspects = (state.prospects && state.prospects.length)
@@ -1871,7 +1946,12 @@
         return p ? p.name : id;
       });
       if (missing.length) {
-        notes.push("No draft yet for " + missing.join(", ") + ".");
+        // A count with a taste of the names, never a wall of 80 (owner
+        // 2026-11-04: the full list in prose was unreadable).
+        var taste = missing.slice(0, 3).map(function (n) { return esc(n); }).join(", ");
+        var moreTxt = missing.length > 3 ? " and " + (missing.length - 3) + " more" : "";
+        notes.push(missing.length + " picks have no message yet" +
+          (taste ? ": " + taste + moreTxt : "") + ".");
         if (api.draftMissing) {
           // The button carries PROSPECT IDS (owner bug 2026-11-04: it used to
           // carry names, so the server matched nothing and the click did
@@ -1880,30 +1960,64 @@
             esc(missingIds.join(",")) + '">Write their messages now</button>');
         }
       }
-      $("drafts-note").innerHTML = notes.join(" ");
-      var wrap = $("draft-list");
-      wrap.innerHTML = "";
-      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {}, busy: false,
+      if (noteEl) noteEl.innerHTML = notes.join(" ");
+      state.studio = { list: drafts, idx: 0, tab: null, editing: false, evidence: {}, evidencePending: {}, busy: false,
         // Overview first (owner report 2026-11-03): Messages opens showing
         // ALL the messages, never straight into "message 1 of 1".
         overview: true };
       if (!drafts.length) {
-        wrap.innerHTML = "<p class=\"hint\">No drafts for your selected picks yet. The research may still be writing, or nothing qualified.</p>";
+        if (wrap) {
+          if (state.draftsWriting) {
+            // The server is writing right now: say so and keep the page
+            // alive — the watch renders each message the moment it lands
+            // (owner 2026-11-04: a dead "no messages" state while writing
+            // was the worst moment of the whole flow).
+            wrap.innerHTML = '<div class="empty">' + illust("calm") +
+              '<p class="kicker kicker-dim"><span class="live-dot" aria-hidden="true"></span> Writing now</p>' +
+              "<h3>Your messages are being written.</h3>" +
+              "<p>Each one appears here the moment it is ready. You can stay and watch, or leave and come back. Nothing sends without your approval.</p></div>";
+          } else {
+            wrap.innerHTML = '<div class="empty">' + illust("calm") +
+              "<h3>No messages yet</h3><p>The research may still be writing, or nothing on your list qualified. Open this page again after the run moves.</p></div>";
+          }
+        }
         showView("drafts");
         return;
       }
-      return Promise.all(drafts.map(function (d) {
-        return api.getEvidence(d.prospectId).then(function (r) { return r; }, function () { return null; });
-      })).then(function (all) {
-        all.forEach(function (r, i) { state.studio.evidence[drafts[i].prospectId] = r; });
-        var div = document.createElement("div");
-        div.className = "studio";
-        div.addEventListener("click", onStudioClick);
-        state.studio.el = div;
+      // The overview renders from the drafts alone: the list must never wait
+      // on one network call per message (user report 2026-11-04: 142 waiting
+      // messages meant 142 evidence calls before the first pixel).
+      var div = document.createElement("div");
+      div.className = "studio";
+      div.addEventListener("click", onStudioClick);
+      state.studio.el = div;
+      if (wrap) {
+        wrap.innerHTML = "";
         wrap.appendChild(div);
-        renderStudioInner();
-        showView("drafts");
+      }
+      renderStudioInner();
+      showView("drafts");
+      // Evidence hydrates afterwards, one message at a time, quietly: the
+      // detail view fetches its own on open if the background has not
+      // reached it yet.
+      var st = state.studio;
+      var chain = Promise.resolve();
+      drafts.forEach(function (d) {
+        chain = chain.then(function () {
+          if (state.studio !== st || st.evidence[d.prospectId]) return null;
+          return api.getEvidence(d.prospectId).then(function (r) {
+            if (state.studio === st) st.evidence[d.prospectId] = r;
+          }, function () { return null; });
+        });
       });
+      return null;
+    }).catch(function () {
+      // Every failure lands in a visible, honest state with a way out —
+      // never a blank page (user report 2026-11-04).
+      if (!wrap) return;
+      wrap.innerHTML = '<div class="empty">' + illust("calm") +
+        "<h3>Your messages did not load</h3><p>Something went wrong while reading them. Nothing was sent and nothing was lost.</p>" +
+        '<div class="row"><button type="button" class="btn btn-primary" data-act="retry-drafts">Try again</button></div></div>';
     });
   }
 
@@ -1919,7 +2033,7 @@
       var dec = decisionOf(d);
       var preview = (d.variants && (d.variants.whatsapp || d.variants.email)) || d.body || "";
       var first = firstSentence(preview) || "(no message text yet)";
-      var decLabel = { approved: "Approved", pending: "Waiting for you", deferred: "Deferred", rejected: "Rejected" }[dec] || "Waiting for you";
+      var decLabel = { approved: "Approved", pending: "Waiting for you", deferred: "Paused", rejected: "Not a fit" }[dec] || "Waiting for you";
       return "<li><button type=\"button\" class=\"draft-row\" data-act=\"studio-open\" data-id=\"" + i + "\">" +
         "<span class=\"draft-row-name\">" + esc(pname) + "</span>" +
         "<span class=\"draft-row-dec " + esc(dec) + "\">" + esc(decLabel) + "</span>" +
@@ -2047,7 +2161,25 @@
     if (act === "studio-open") {
       // From the overview list: open that message (index rides data-id).
       var i = parseInt(ds.id, 10);
-      if (st.list[i]) { st.idx = i; st.overview = false; st.tab = null; st.editing = false; renderStudioInner(); }
+      if (st.list[i]) {
+        st.idx = i; st.overview = false; st.tab = null; st.editing = false;
+        renderStudioInner();
+        // Evidence for this message on demand: the background hydration may
+        // not have reached it yet. One fetch, then the panel fills in.
+        var d0 = st.list[i];
+        if (!st.evidence[d0.prospectId] && !st.evidencePending[d0.prospectId]) {
+          st.evidencePending[d0.prospectId] = true;
+          api.getEvidence(d0.prospectId).then(function (r) {
+            if (state.studio === st) {
+              st.evidence[d0.prospectId] = r;
+              st.evidencePending[d0.prospectId] = false;
+              if (!st.overview) renderStudioInner();
+            }
+          }, function () {
+            if (state.studio === st) st.evidencePending[d0.prospectId] = false;
+          });
+        }
+      }
       return;
     }
     var d = studioDraft();
@@ -2134,19 +2266,65 @@
     if (act === "studio-test") { studioTest(d); return; }
     if (act === "approve") {
       // "Approve and schedule" earns its label: approving the last undecided
-      // message carries the owner to the campaign scheduler.
+      // message carries the owner to the campaign scheduler. Every step
+      // says what is happening — a silent failure read as a dead button
+      // (owner 2026-11-04).
+      st.busy = true;
+      studioStatus("Approving…");
       decideDraft(d.prospectId, act, state.studio.el).then(function () {
+        st.busy = false;
         var rest = state.studio.list.filter(function (x) {
           var dec = decisionOf(x);
           return dec !== "approved" && dec !== "rejected" && dec !== "deferred";
         });
-        if (!rest.length) renderCampaignView();
+        if (!rest.length) { renderCampaignView(); return; }
+        // Approve is a loop: land on the next message still waiting for you.
+        var nextIdx = state.studio.list.indexOf(rest[0]);
+        if (nextIdx >= 0) {
+          state.studio.idx = nextIdx;
+          state.studio.overview = false;
+          state.studio.tab = null;
+          state.studio.editing = false;
+        }
+        renderStudioInner();
+        studioStatus("Approved. " + rest.length + " message" + (rest.length === 1 ? "" : "s") + " still waiting.");
+      }, function () {
+        st.busy = false;
+        renderStudioInner();
+        studioStatus("Could not save the approval just now. Check your connection and try again.");
       });
       return;
     }
     if (act === "save-edit" || act === "reject" || act === "skip") {
-      decideDraft(d.prospectId, act, state.studio.el);
+      studioStatus(act === "reject" ? "Marking as not a fit…" : "Setting aside…");
+      decideDraft(d.prospectId, act, state.studio.el).then(function () {
+        renderStudioInner();
+        studioStatus(act === "reject"
+          ? "Marked as not a fit. It moves to the Not a fit tab."
+          : "Set aside. It moves to the Paused tab.");
+      }, function () {
+        renderStudioInner();
+        studioStatus("Could not save that just now. Check your connection and try again.");
+      });
     }
+  }
+
+  /** Per-prospect offer fit when the draft predates the angle: shape the
+   *  offer by the prospect's category (venue -> event grilling, office ->
+   *  staff lunch packs). Never invents a service the brief lacks. */
+  function offerAngleFallback(p) {
+    var cat = String((p && p.category) || "").toLowerCase();
+    var offer = profileOffer();
+    if (/venue|hall|centre|center|event|wedding|party|banquet/.test(cat)) {
+      return "Event grilling for the events you host. " + offer;
+    }
+    if (/planner|decor|catering/.test(cat)) {
+      return "A live grill stand your clients remember. " + offer;
+    }
+    if (/office|corporate|agency|company|hotel/.test(cat)) {
+      return "Grill packs for your team's lunch days. " + offer;
+    }
+    return offer;
   }
 
   /** The message for the active tab: the per-channel variant when the
@@ -2154,6 +2332,16 @@
   function studioBodyFor(d, tab) {
     var v = (d && d.variants) || {};
     return cleanCitations(v[tab] || d.body);
+  }
+
+  /** Paragraphs from a message body: merge hard-wrapped lines into
+   *  paragraphs and drop lines made only of spaces (models sometimes emit
+   *  " \n \n" filler that renders as odd empty rows). */
+  function studioParas(body) {
+    var blocks = String(body || "").split(/\n\s*\n/).map(function (b) {
+      return b.split("\n").map(function (l) { return l.trim(); }).filter(Boolean).join(" ").trim();
+    }).filter(Boolean);
+    return blocks.map(function (b) { return "<p>" + esc(b) + "</p>"; }).join("");
   }
 
   function renderStudioInner() {
@@ -2174,10 +2362,7 @@
     var hasVariant = !!(d.variants && d.variants[st.tab]);
     if (st.tab === primary) {
       var subj = st.tab === "email" && d.subject ? "<p class=\"studio-subject\">" + esc(d.subject) + "</p>" : "";
-      var paras = esc(shownBody).split("\n").map(function (line) {
-        return "<p>" + (line || "&nbsp;") + "</p>";
-      }).join("");
-      bodyHtml = subj + "<div class=\"studio-text\">" + paras + "</div>" +
+      bodyHtml = subj + "<div class=\"studio-text\">" + studioParas(shownBody) + "</div>" +
         "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
     } else {
       // Per-channel versions: the research wrote a WhatsApp/Email/DM shape
@@ -2188,9 +2373,7 @@
         esc(studioSuggestionLabel(d.channel).toLowerCase()) + " message; it reads fine here.</p>" +
         "<button type=\"button\" class=\"linklike\" data-act=\"studio-retune\"" + (st.busy ? " disabled" : "") +
         ">Write the " + esc(STUDIO_TAB_LABEL[st.tab]) + " version</button>") +
-        "<div class=\"studio-text\">" + esc(shownBody).split("\n").map(function (line) {
-          return "<p>" + (line || "&nbsp;") + "</p>";
-        }).join("") + "</div>" +
+        "<div class=\"studio-text\">" + studioParas(shownBody) + "</div>" +
         "<button type=\"button\" class=\"linklike\" data-act=\"studio-edit\">Tap to edit</button>";
     }
     var n = countWords(shownBody);
@@ -2213,6 +2396,11 @@
     var hypothesis = (p && p.hypothesis) || tidyProse(stripVerdict(p && p.rationale)) ||
       "The research flagged no separate hypothesis.";
     var statusLine = verdictHuman(p && p.verdict);
+    // The offer, then why THIS prospect fits it — the per-prospect angle the
+    // research reasoned out at write time (owner 2026-11-04: a generic
+    // capability line read as out of place). Drafts written before the angle
+    // existed fall back to the offer + category shape.
+    var fit = (d && d.angle) || offerAngleFallback(p);
     var why = "<div class=\"card why\"><p class=\"kicker kicker-dim\">Why this message</p>" +
       "<div class=\"why-row\"><h4 class=\"why-fact\">A fact we found</h4>" +
       (fact ? "<p>" + esc(tidyProse(fact.quote)) + "</p><p class=\"muted small\">" +
@@ -2220,7 +2408,8 @@
         : "<p class=\"muted\">No linked evidence for this draft.</p>") + "</div>" +
       "<div class=\"why-row\"><h4 class=\"why-hyp\">Our hypothesis, not confirmed</h4><p>" + esc(hypothesis) + "</p>" +
       (statusLine ? "<p class=\"status-chip\">" + esc(statusLine) + "</p>" : "") + "</div>" +
-      "<div class=\"why-row\"><h4 class=\"why-dim\">Your offer</h4><p>" + esc(profileOffer()) + "</p></div>" +
+      "<div class=\"why-row\"><h4 class=\"why-dim\">What you sell</h4><p>" + esc(profileOffer()) + "</p>" +
+      "<h4 class=\"why-dim\" style=\"margin-top:0.6rem\">Why this pick fits</h4><p>" + esc(fit) + "</p></div>" +
       "<div class=\"why-row\"><h4 class=\"why-dim\">A small ask</h4><p>" + esc(d.next_action || "Ask for a quick reply.") + "</p></div>" +
       "<p class=\"muted small note-box\">We never claim a problem we have not confirmed. If the facts change, the message says so too.</p></div>";
     st.el.innerHTML =
@@ -2241,7 +2430,7 @@
       "<div class=\"row studio-actions\"><button type=\"button\" data-act=\"approve\">Approve and schedule <span aria-hidden=\"true\">→</span></button>" +
       "<button type=\"button\" class=\"secondary\" data-act=\"studio-test\"" + (st.busy ? " disabled" : "") + ">Send a test to myself</button>" +
       "<button type=\"button\" class=\"linklike\" data-act=\"skip\">Skip this one</button>" +
-      "<button type=\"button\" class=\"linklike\" data-act=\"reject\">Reject instead</button></div>" +
+      "<button type=\"button\" class=\"linklike\" data-act=\"reject\">Mark as not a fit</button></div>" +
       "<p class=\"studio-status\" id=\"studio-status\" aria-live=\"polite\"></p>" +
       "</div>" + why + "</div>";
     if (st.editing) {
@@ -2294,52 +2483,33 @@
     return state.decisions[d.prospectId] ? state.decisions[d.prospectId].decision : d.status;
   }
 
-  // Six rows per page per group; page memory per column.
-  var BOARD_PAGE_SIZE = 6;
-
-  // The dashboard board is ONE plain-language feed across ALL campaigns
-  // (owner 2026-11-04: a per-run board contradicted the general dashboard
-  // — "Ready to review" runs existed while Pending review looked empty).
-  // Layman words, few groups, one priority, campaign chip on every row,
-  // calm illustration when there is nothing to do.
-  var BOARD_GROUPS = [
-    { key: "pending", title: "Waiting for your approval", primary: true,
-      empty: "You're all caught up — no messages are waiting." },
-    { key: "approved", title: "Approved — follow up yourself", suffix: ". Follow up manually (e.g. nudge in 3 days)",
-      empty: "Nothing approved yet. Approve a message and it lands here." },
-    { key: "deferred", title: "Paused — revisit later",
-      empty: "Nothing paused." },
-    { key: "rejected", title: "Not a fit",
-      empty: "Nothing set aside yet." }
-  ];
-
-  /** Small calm inline illustrations (Stripe/Google pattern): soft
-   *  geometry, brand colors, no clipart — they make empty states feel
-   *  like progress, not failure. */
+  /** Small calm inline illustrations (style guide section 5): soft
+   *  geometry, the app palette (sun, sage, sky), no clipart — they make
+   *  empty states feel like progress, not failure. */
   function illust(kind) {
     var head = '<svg viewBox="0 0 96 56" width="96" height="56" aria-hidden="true" style="display:block;margin:0 auto 0.4rem">';
     if (kind === "clear") {
       // All caught up: a soft horizon with a rising check.
       return head +
-        '<circle cx="48" cy="34" r="16" fill="none" stroke="#2e7d5b" stroke-width="2" opacity="0.55"/>' +
-        '<path d="M41 34l5 5 9-11" fill="none" stroke="#2e7d5b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
-        '<path d="M8 44c12-6 24 4 34-2 11-6 24 2 46-4" fill="none" stroke="#c9a227" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>' +
-        '<circle cx="14" cy="20" r="2.4" fill="#c9a227" opacity="0.45"/>' +
-        '<circle cx="80" cy="14" r="1.8" fill="#2e7d5b" opacity="0.4"/></svg>';
+        '<circle cx="48" cy="34" r="16" fill="none" stroke="#4E9C7E" stroke-width="2" opacity="0.55"/>' +
+        '<path d="M41 34l5 5 9-11" fill="none" stroke="#4E9C7E" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M8 44c12-6 24 4 34-2 11-6 24 2 46-4" fill="none" stroke="#E0A93B" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>' +
+        '<circle cx="14" cy="20" r="2.4" fill="#E0A93B" opacity="0.45"/>' +
+        '<circle cx="80" cy="14" r="1.8" fill="#4E9C7E" opacity="0.4"/></svg>';
     }
     if (kind === "start") {
       // First run: a dotted path to a flag — the journey ahead.
       return head +
-        '<path d="M10 40c14 0 18-18 34-18 12 0 14 10 26 10" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1 6"/>' +
-        '<circle cx="74" cy="32" r="9" fill="none" stroke="#2e7d5b" stroke-width="2"/>' +
-        '<path d="M74 27v10M70 30h8" stroke="#2e7d5b" stroke-width="1.8" stroke-linecap="round"/>' +
-        '<circle cx="24" cy="18" r="2.2" fill="#2e7d5b" opacity="0.4"/></svg>';
+        '<path d="M10 40c14 0 18-18 34-18 12 0 14 10 26 10" fill="none" stroke="#3B6FE0" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1 6"/>' +
+        '<circle cx="74" cy="32" r="9" fill="none" stroke="#4E9C7E" stroke-width="2"/>' +
+        '<path d="M74 27v10M70 30h8" stroke="#4E9C7E" stroke-width="1.8" stroke-linecap="round"/>' +
+        '<circle cx="24" cy="18" r="2.2" fill="#3B6FE0" opacity="0.4"/></svg>';
     }
     // Generic calm: two overlapping soft rings.
     return head +
-      '<circle cx="40" cy="28" r="14" fill="none" stroke="#c9a227" stroke-width="1.6" opacity="0.45"/>' +
-      '<circle cx="56" cy="28" r="14" fill="none" stroke="#2e7d5b" stroke-width="1.6" opacity="0.45"/>' +
-      '<circle cx="48" cy="28" r="3" fill="#2e7d5b" opacity="0.5"/></svg>';
+      '<circle cx="40" cy="28" r="14" fill="none" stroke="#E0A93B" stroke-width="1.6" opacity="0.45"/>' +
+      '<circle cx="56" cy="28" r="14" fill="none" stroke="#4E9C7E" stroke-width="1.6" opacity="0.45"/>' +
+      '<circle cx="48" cy="28" r="3" fill="#3B6FE0" opacity="0.5"/></svg>';
   }
 
   // ============ Home (style-guide.md section 7): hero answers "what do I
@@ -2364,14 +2534,20 @@
 
   function renderStatuses() {
     // Self-fetch: the dashboard can be opened cold without a data pass.
-    var needRuns = !state.runsCache || !state.runsCache.length;
-    if (needRuns || !state.board) {
+    // Loaded state is "the cache and board are ARRAYS (possibly empty)":
+    // an empty list is a real state (fresh or scoped-empty account), never
+    // a reason to refetch — an empty cache fed this function back into
+    // itself forever and the dashboard never painted (found live
+    // 2026-11-04: /api/runs + /api/board looped behind the landing). A
+    // null board still means "refetch" (the smoke uses it, callers may too).
+    if (!Array.isArray(state.runsCache) || !Array.isArray(state.board)) {
+      if (!api.getRuns) state.runsCache = state.runsCache || [];
+      if (!api.getBoard) state.board = state.board || [];
       return Promise.all([
         api.getRuns ? api.getRuns(50, 0).then(function (r) { state.runsCache = r.runs || []; }, function () { state.runsCache = state.runsCache || []; }) : Promise.resolve(),
         api.getBoard ? api.getBoard().then(function (r) { state.board = r.drafts || []; }, function () { state.board = []; }) : Promise.resolve()
       ]).then(renderStatuses, renderStatuses);
     }
-    var board = $("status-board");
     var runs = state.runsCache || [];
     var items = (state.board || []).map(function (d) {
       var dec = state.decisions[d.prospect_id] ? state.decisions[d.prospect_id].decision : d.status;
@@ -2406,6 +2582,7 @@
       lead.textContent = "We have found businesses and written a message for each one. Read them, approve the good ones, and you are done.";
       check.hidden = false;
       check.textContent = "Check messages";
+      check.setAttribute("data-mode", "drafts");
     } else if (workingRun) {
       hero.textContent = workingRun.profile_name
         ? "We are still researching for " + workingRun.profile_name + "."
@@ -2413,17 +2590,22 @@
       lead.textContent = (workingRun.found || 0) + " businesses looked at so far. The search keeps running on the server, so you can leave and come back.";
       check.hidden = false;
       check.textContent = "Check what we have so far";
+      // A working search has no messages yet: the button opens the run view
+      // (trail + phases + set-aside), not the empty studio (owner 2026-11-04).
+      check.setAttribute("data-mode", "progress");
     } else if (failedRun) {
       hero.textContent = failedRun.profile_name ? "Your " + failedRun.profile_name + " search stopped early." : "Your search stopped early.";
       lead.textContent = "Nothing was lost. You can continue the same search from where it stopped.";
       check.hidden = false;
       check.textContent = "Continue the search";
+      check.setAttribute("data-mode", "drafts");
     } else {
       hero.textContent = "You are all caught up.";
       lead.textContent = runs.length
         ? "Every message across your campaigns has been checked. Start a new search whenever you like."
         : "Describe what you sell and we will find the businesses that need it, then write the message for each one.";
       check.hidden = runs.length === 0;
+      check.setAttribute("data-mode", "drafts");
     }
 
     // Journey: a true sequence with real counts.
@@ -2431,7 +2613,9 @@
     var s1 = '<li class="step done"><span class="dot" aria-hidden="true">1</span><div><b>Find businesses</b><span>' +
       (totalFound ? "Done. We looked at " + totalFound + " for you." : "Your searches will show here.") + "</span></div></li>";
     var s2 = workingRun || failedRun
-      ? '<li class="step now" aria-current="step"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>You are here. The search is still working.</span></div></li>'
+      ? (waiting.length
+        ? '<li class="step now" aria-current="step"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>You are here. ' + waiting.length + " waiting. The next search is still working.</span></div></li>"
+        : '<li class="step now" aria-current="step"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>You are here. The search is still working.</span></div></li>')
       : (waiting.length
         ? '<li class="step now" aria-current="step"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>You are here. ' + waiting.length + " waiting.</span></div></li>"
         : '<li class="step done"><span class="dot" aria-hidden="true">2</span><div><b>Check the messages</b><span>Done. Everything has been checked.</span></div></li>');
@@ -2460,13 +2644,18 @@
       cardsEl.innerHTML = '<div class="empty">' + illust("start") + "<p>No messages are waiting. Start a new search and the cards will show up here.</p></div>";
     } else {
       cardsEl.innerHTML = shown.map(function (c) {
-        var pct = c.found ? Math.round((c.kept / c.found) * 100) : 0;
+        // The bar answers "how far along is this pile?": decided messages
+        // (kept minus still-waiting) of the kept total — never found vs
+        // kept, which would flatter the number (guide: counts stay honest).
+        var kept = c.kept || 0;
+        var decided = Math.max(0, kept - (c.waiting || 0));
+        var pct = kept ? Math.round((decided / kept) * 100) : 0;
         var initial = esc((c.name.charAt(0) || "C").toUpperCase());
         return '<article class="card camp">' +
           '<header><div class="badge" style="background:var(--sky-wash);color:var(--sky-deep)">' + initial + "</div>" +
           '<div><h3>' + esc(c.name) + '</h3><span class="sub">Last search ' + esc(fmtWhen(c.when)) + "</span></div></header>" +
           '<div><div class="big">' + c.waiting + '</div><div class="sub">' + (c.waiting === 1 ? "message" : "messages") + " waiting for you</div></div>" +
-          '<div class="bar" role="img" aria-label="' + c.kept + " of " + c.found + ' checked"><i style="width:' + pct + '%"></i></div>' +
+          '<div class="bar" role="img" aria-label="' + decided + " of " + kept + ' checked"><i style="width:' + pct + '%"></i></div>' +
           '<button type="button" class="btn btn-primary" data-act="check-campaign" data-id="' + esc(c.runId) + '" data-profile="' + esc(c.profileId || "") + '" data-profile-name="' + esc(c.name) + '">Check ' + c.waiting + " " + (c.waiting === 1 ? "message" : "messages") + "</button>" +
           "</article>";
       }).join("");
@@ -2550,16 +2739,24 @@
   }
 
   // Campaign states, in the owner's words. Raw provider words ("complete",
-  // "queued", "accepted") never reach the screen.
+  // "queued", "accepted") never reach the screen. Each pairs a word with a
+  // colour chip: colour is never the only signal.
   var CAMPAIGN_STATE = {
     complete: "Went out", completed: "Went out", scheduled: "Scheduled",
-    sending: "Going out now", failed: "Failed", error: "Failed"
+    sending: "Going out now", paused: "Paused", draft: "Draft",
+    cancelled: "Cancelled", failed: "Failed", error: "Failed"
+  };
+  var CAMPAIGN_CHIP = {
+    complete: "chip-done", completed: "chip-done", scheduled: "chip-info",
+    sending: "chip-info", paused: "chip-wait", draft: "chip-wait",
+    cancelled: "chip-no", failed: "chip-no", error: "chip-no"
   };
   var RECIPIENT_STATE = {
     sent: "sent", accepted: "sent", delivered: "sent",
     queued: "waiting", scheduled: "waiting",
     failed: "failed", error: "failed", bounced: "failed"
   };
+  var RECIPIENT_CHIP = { sent: "chip-done", waiting: "chip-wait", failed: "chip-no" };
 
   function humanCampaignStat(key, value) {
     if (typeof value !== "number") {
@@ -2578,27 +2775,45 @@
       var div = document.createElement("div");
       div.className = "campaigns";
       var list = res.campaigns || [];
+      // The page's own <h3 class="sec-h">Email sends</h3> sits above the
+      // monitor; the renderer only fills the rows (no duplicate heading).
       if (!list.length) {
-        div.innerHTML = "<h3>Email sends</h3><p class=\"hint\">No sends yet. Approve messages, then schedule a send.</p>";
+        div.innerHTML = '<div class="empty">' + illust("calm") + "<h3>Nothing has gone out yet</h3><p>Approve messages, then schedule a send and every recipient will be listed here.</p></div>";
       } else {
-        div.innerHTML = "<h3>Email sends</h3>" + list.map(function (c) {
-          var recs = (c.recipients || []).map(function (r) {
-            return "<li>" + esc(r.email) + " — " + esc(RECIPIENT_STATE[r.status] || r.status) + "</li>";
+        // One card per send: name and status chip on top, an honest meta
+        // sentence (when, counts), then recipients capped at five with the
+        // real remainder stated. Load limits where volume actually happens.
+        div.innerHTML = list.map(function (c) {
+          var recList = c.recipients || [];
+          var shownRecs = recList.slice(0, 5);
+          var recs = shownRecs.map(function (r) {
+            var word = RECIPIENT_STATE[r.status] || r.status;
+            return "<li><span class=\"r-mail\">" + esc(r.email) + "</span>" +
+              "<span class=\"chip chip-mini " + (RECIPIENT_CHIP[word] || "chip-info") + "\">" + esc(word) + "</span></li>";
           }).join("");
-          var stats = c.stats && Object.keys(c.stats).length
-            ? " · " + esc(Object.keys(c.stats).map(function (k) { return humanCampaignStat(k, c.stats[k]); }).join(", ")) : "";
+          if (recList.length > 5) recs += "<li class=\"camp-more\">and " + (recList.length - 5) + " more</li>";
+          var statBits = [];
+          if (c.stats && Object.keys(c.stats).length) {
+            Object.keys(c.stats).forEach(function (k) {
+              if (typeof c.stats[k] === "number") statBits.push(humanCampaignStat(k, c.stats[k]));
+            });
+          }
           // Times in the owner's clock, never ISO strings; internal ids
           // never reach the screen.
           var when = "";
           if (c.scheduled_at_utc) {
             var past = true;
             try { past = new Date(c.scheduled_at_utc).getTime() <= Date.now(); } catch (e) { /* assume sent */ }
-            when = " · " + (past ? "Sent " : "Sends ") + esc(cleanTime(c.scheduled_at_utc));
+            when = (past ? "Sent at " : "Sends at ") + esc(cleanTime(c.scheduled_at_utc));
           }
+          var meta = [when].concat(statBits).filter(Boolean).join(". ");
           var cancel = (c.status === "scheduled" || c.status === "sending")
             ? " <button type=\"button\" class=\"secondary\" data-act=\"cancel-campaign\" data-id=\"" + esc(c.id) + "\">Cancel</button>" : "";
-          return "<div class=\"campaign\"><h4>" + esc(c.name) + ". " + esc(CAMPAIGN_STATE[c.status] || c.status) + "</h4>" +
-            "<p class=\"meta\">" + when + stats + "</p><ul>" + recs + "</ul>" + cancel + "</div>";
+          return "<div class=\"campaign\"><div class=\"camp-top\"><h4>" + esc(c.name) + "</h4>" +
+            "<span class=\"chip " + (CAMPAIGN_CHIP[c.status] || "chip-info") + "\">" + esc(CAMPAIGN_STATE[c.status] || c.status) + "</span>" +
+            cancel + "</div>" +
+            (meta ? "<p class=\"meta\">" + meta + ".</p>" : "") +
+            (recs ? "<ul class=\"camp-recs\">" + recs + "</ul>" : "") + "</div>";
         }).join("");
       }
       board.appendChild(div);
@@ -2621,9 +2836,9 @@
     if (!api.getLatestRun) { wrap.hidden = true; return; }
     return api.getLatestRun().then(function (res) {
       var run = res && res.run;
-      // Awaiting-approval runs live in the waiting strip now (the latest
-      // pending issues across ALL campaigns); the banner is only for work
-      // that must CONTINUE (running/failed/stopped).
+      // Awaiting-approval runs surface in the campaign cards and Recent
+      // searches now; the banner is only for work that must CONTINUE
+      // (running/failed/stopped).
       if (!run || run.status === "complete" || run.status === "awaiting_approval") { wrap.hidden = true; return; }
       currentCampaignRun = run;
       state.runStatus = run.status;
@@ -3029,8 +3244,9 @@
     var monitor = $("sends-monitor");
     if (monitor) renderCampaigns(monitor);
     if (!state.runId) {
-      wiz.innerHTML = "<p>No campaign yet. Describe your business to start your first one.</p>" +
-        "<div class=\"row\"><button type=\"button\" data-act=\"go-onboard\">Start a campaign</button></div>";
+      wiz.innerHTML = '<div class="empty">' + illust("start") +
+        "<h3>No campaign yet</h3><p>Describe your business to start your first one. Research, messages and sends all live under it.</p></div>" +
+        "<div class=\"row\"><button type=\"button\" class=\"btn btn-primary\" data-act=\"go-onboard\">Start a campaign</button></div>";
       return;
     }
     // The send scheduler needs approved messages first: say where the work
@@ -3043,10 +3259,12 @@
         wizLoad.done();
         var waiting = drafts.length;
         wiz.innerHTML = waiting
-          ? "<p>This campaign has " + waiting + " message" + (waiting === 1 ? "" : "s") +
-            " waiting for your review. Approve them in Messages, then come back here to schedule a send.</p>" +
-            "<div class=\"row\"><button type=\"button\" data-act=\"go-drafts\">Open messages</button></div>"
-          : "<p>Nothing qualified for messages in this campaign yet.</p>";
+          ? '<div class="empty">' + illust("start") +
+            "<h3>" + waiting + " message" + (waiting === 1 ? "" : "s") + " still waiting for you</h3>" +
+            "<p>Approve them in Messages first, then come back here to schedule the send. Nothing sends without your approval.</p>" +
+            "<div class=\"row\"><button type=\"button\" class=\"btn btn-primary\" data-act=\"go-drafts\">Open messages</button></div></div>"
+          : '<div class="empty">' + illust("calm") +
+            "<h3>Nothing qualified yet</h3><p>The research has not written messages for this campaign yet. Open this page again when the run moves.</p></div>";
         return;
       }
       // Connections and per-lead details load in parallel: one slow call must
@@ -3058,8 +3276,9 @@
         wizLoad.done();
         var conns = (outs[0].connections || []).filter(function (c) { return c.status === "connected"; });
         if (!conns.length) {
-          wiz.innerHTML = "<p>No verified email account yet. Connect one first, then come back.</p>" +
-            "<div class=\"row\"><button type=\"button\" data-act=\"go-senders\">Connect an email account</button></div>";
+          wiz.innerHTML = '<div class="empty">' + illust("start") +
+            "<h3>No verified email account yet</h3><p>Messages send from an account you connect and we test first. Connect one, then come back to schedule.</p>" +
+            "<div class=\"row\"><button type=\"button\" class=\"btn btn-primary\" data-act=\"go-senders\">Connect an email account</button></div></div>";
           return;
         }
         var details = outs[1];
@@ -3088,8 +3307,9 @@
       });
     }, function () {
       wizLoad.done();
-      wiz.innerHTML = "<p>Could not load your campaign. Check your connection and try again.</p>" +
-        "<div class=\"row\"><button type=\"button\" data-act=\"go-campaigns\">Try again</button></div>";
+      wiz.innerHTML = '<div class="empty">' + illust("calm") +
+        "<h3>Could not load your campaign</h3><p>The connection dropped while reading it. Nothing was sent and nothing was lost.</p>" +
+        "<div class=\"row\"><button type=\"button\" class=\"btn btn-primary\" data-act=\"go-campaigns\">Try again</button></div></div>";
     });
   }
 
@@ -3121,7 +3341,7 @@
     var pager = pages > 1
       ? "<div class=\"row pager\"><button type=\"button\" class=\"secondary\" data-act=\"wiz-prev\"" +
         (page === 0 ? " disabled" : "") + ">&#8592; Previous</button>" +
-        "<span class=\"meta\">Page " + (page + 1) + " of " + pages + " · " + rows.length + " recipients</span>" +
+        "<span class=\"meta\">Page " + (page + 1) + " of " + pages + ". " + rows.length + " recipients.</span>" +
         "<button type=\"button\" class=\"secondary\" data-act=\"wiz-next\"" +
         (start + WIZ_PAGE_SIZE >= rows.length ? " disabled" : "") + ">Next &#8594;</button></div>"
       : "";
@@ -3134,7 +3354,7 @@
         var idx = start + i;
         return "<details class=\"campaign\"" + (i === 0 ? " open" : "") + "><summary>" +
           "<span class=\"r-name\">" + esc(r.name) + "</span>" +
-          "<span class=\"meta\">" + esc(r.email || "no email found") + "</span></summary>" +
+          "<span class=\"meta\">" + esc(r.email || "No email found. Add one below.") + "</span></summary>" +
           "<label>To <input data-field=\"rcpt-email\" data-idx=\"" + idx + "\" value=\"" + esc(r.email) + "\" /></label>" +
           "<label>Subject <input data-field=\"rcpt-subject\" data-idx=\"" + idx + "\" value=\"" + esc(r.subject) + "\" /></label>" +
           "<label>Message <textarea data-field=\"rcpt-body\" data-idx=\"" + idx + "\" rows=\"4\">" + esc(r.body) + "</textarea></label></details>";
@@ -3265,7 +3485,7 @@
     var el = $(id);
     if (!el) return;
     if (isDemo()) {
-      el.textContent = "EXAMPLE DATA";
+      el.textContent = "Example data";
       el.hidden = false;
     } else {
       el.textContent = "";
@@ -3443,7 +3663,10 @@
     if (stepNav) {
       stepNav.addEventListener("click", function (e) {
         var li = e.target && e.target.closest ? e.target.closest("li[data-view]") : null;
-        if (!li) return;
+        // Locked stages (no data behind them yet) are display-only: the
+        // cursor already says so (owner 2026-11-04).
+        var locked = !!(li && li.classList && li.classList.contains && li.classList.contains("locked"));
+        if (!li || locked) return;
         var v = li.getAttribute("data-view");
         // The step rail is the dashboard nav (user request 2026-11-02: "how
         // do I navigate to my dashboard"). Jump to any stage the app can
@@ -3542,10 +3765,30 @@
     $("btn-to-drafts").addEventListener("click", renderDrafts);
     $("btn-to-status").addEventListener("click", renderStatuses);
     $("btn-back-shortlist").addEventListener("click", function () { showView("shortlist"); });
-    $("btn-back-drafts").addEventListener("click", function () { showView("drafts"); });
+    $("btn-back-drafts").addEventListener("click", function () {
+      // The dashboard hero decides the destination: a working search has no
+      // messages yet, so "Check what we have so far" opens the run view
+      // (progress), not the empty studio (owner 2026-11-04).
+      var b = $("btn-back-drafts");
+      if (b && b.getAttribute("data-mode") === "progress" && state.runId) {
+        showView("progress");
+        pollProgress(false);
+        return;
+      }
+      showView("drafts");
+    });
     $("btn-back-campaigns").addEventListener("click", function () { showView("drafts"); });
     $("btn-restart").addEventListener("click", restart);
     $("btn-restart-progress").addEventListener("click", restart);
+    // The studio's Try again (error state lives inside draft-list, outside
+    // state.studio's own click scope).
+    var draftListEl = $("draft-list");
+    if (draftListEl) {
+      draftListEl.addEventListener("click", function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-act="retry-drafts"]') : null;
+        if (t) renderDrafts();
+      });
+    }
     // Select all / clear (owner request 2026-11-03).
     $("btn-select-all").addEventListener("click", function () {
       var shown = shownProspects().map(function (p) { return p.id; });
@@ -3568,12 +3811,14 @@
       var ids = (ds.ids || "").split(",").filter(Boolean);
       if (!ids.length) return;
       var note = $("drafts-note");
-      var g = loadingHint(note, "Writing their messages…");
+      // The write is a long server burst: say what is happening, then let
+      // the watch stream each finished message into the list below.
+      note.innerHTML = '<p class="hint"><span class="live-dot" aria-hidden="true"></span> Writing their messages. Each one appears below as it is ready.</p>';
+      startDraftsWatch();
       api.draftMissing(state.runId, ids).then(function () {
-        g.done();
-        renderDrafts();
+        renderDrafts(); // final pass: everything the burst wrote is on screen
       }, function () {
-        g.done();
+        stopDraftsWatch();
         note.innerHTML = "Could not write them just now. Check your connection and try again.";
       });
     });

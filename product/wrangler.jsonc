@@ -10,6 +10,10 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  // Local dev (Windows): `wrangler dev` cannot run the SMTP relay container
+  // here (no Docker); the container binding stays active on deploys. Remove
+  // this block only on a machine with Docker available.
+  "dev": { "enable_containers": false },
   "d1_databases": [
     {
       "binding": "DB",
