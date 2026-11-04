@@ -2509,3 +2509,35 @@ run at awaiting_approval).
 Verification: 492/492 vitest, SMOKE PASS, tsc clean; deployed 2d305802
 (push 6d6f796). The user's click on run_17497978 should now draft all 47
 routable prospects (chunked bursts, a few seconds each).
+## 2026-11-04 v3 (write-messages proven live in the owner's browser)
+
+The owner demanded a real browser test before any "done". Chain of root
+causes, each found by testing against the LIVE run and D1:
+
+1. (earlier today) the note button carried NAMES, not ids — fixed.
+2. proposeDrafts shared a global evidence slice — fixed (per-prospect).
+3. saveDraft: "drafts require a shortlisted prospect" — silently rejected
+   every qualified/investigating pick. The run had 8 shortlisted of 50
+   vetted: 4 model bursts completed and 0 drafts were visible, with no log
+   (the DbValidationError catch swallowed). Fixed: vetted prospects
+   (qualified/investigating/shortlisted) may receive drafts; candidate and
+   disqualified still may not; every rejection is now logged as deferred
+   activity with its reason.
+4. draft() set the run status to awaiting_approval unconditionally — the
+   on-demand path now never touches a live or complete run's status.
+5. Studio: with drafts present and nothing selected, the top-up button
+   vanished (selection resets on reload); the no-selection studio now
+   scopes to EVERYONE still on the list, so the button always covers the
+   not-yet-drafted.
+
+LIVE VERIFICATION (browser MCP on the owner's own Chrome, run_17497978):
+dashboard All-runs list works (8 rows + pager); Open adopts the run;
+studio top-up clicked for real — browser showed "Writing their messages…"
+then "47 messages for your picks"; D1 outreach_draft count for the run =
+47 (8 shortlisted + 18 qualified + 21 investigating), grounded bodies
+("I saw your Property Listings for Sale - Nigeria Property Centre [source
+1]"). The 5 route-less prospects stay honestly undrafted; disqualified
+junk (Wells Fargo Bank, Business Post...) receives nothing.
+
+Deploys through a0c669a7 (pushes bff9e70..7cad0d0). 492/492 vitest, SMOKE
+PASS, tsc clean.
