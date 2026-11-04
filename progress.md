@@ -2455,3 +2455,30 @@ labels, edge buttons, open-a-past-run adoption. Verification: 491/491
 vitest, SMOKE PASS, tsc clean; deployed 2f87a936 (push bf75540). Note: a
 run already in flight keeps the workflow version it started with — the
 keep-rate change applies to runs started after this deploy.
+## 2026-11-04 (write-messages fixed + brand dedup + slim headers)
+
+User: "Write their messages now" did nothing for ~30 non-drafted picks;
+redundant "Prospect Research" rows on messages/dashboard/shortlist; the
+shortlist header was space-consuming.
+
+- Root cause 1 (the dead click): the studio note's button carried prospect
+  NAMES in data-ids where the API expects prospect IDS — the server matched
+  nothing, drafted nothing, and the note re-rendered unchanged. The button
+  now carries ids (names stay for reading); the click handler also falls
+  back to getAttribute when dataset is unavailable.
+- Root cause 2: draft-missing refused runs that were still working (409
+  run_not_ready) — the user clicked from a mid-run peek. The gate is gone:
+  an explicit owner action, the draft phase is bounded and fail-safe, so it
+  drafts whatever is ready whenever it is asked.
+- Brand dedup: the in-page "Prospect Research" logo rows are removed from
+  shortlist, drafts, dashboard, campaigns, and senders (the sidebar owns
+  the brand; demo kickers stay); in-app h2s are compact (1.45rem).
+
+Scoping answer (recorded): everything IS campaign/run-scoped — prospects,
+evidence, routes, drafts, decisions live under the run's id, so messages
+for non-drafted picks generate from THAT run's evidence and contact routes
+with no re-research. Email accounts (sender connections) are the only
+cross-campaign resource, by design (they send for any campaign).
+
+Tests: draft-missing on a running run (no 409, ok:true). Verification:
+492/492 vitest, SMOKE PASS, tsc clean; deployed f7dce344 (push 7fda3de).
