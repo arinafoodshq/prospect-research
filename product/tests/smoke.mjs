@@ -505,21 +505,17 @@ await fire(els["btn-to-status"], "click", evt());
 await tick();
 ok(visible("view-status"), "drafts -> status board view");
 {
-  await tick();
-  const cols = els["status-board"].children.filter((c) => c.className === "column");
-  ok(cols.length === 5, "status board has 5 columns incl. deferred (no sent column), saw " + cols.length);
-  const all = cols.map((c) => c.innerHTML).join("\n");
+  await tick(); await tick();
+  // The board is ONE aggregated feed across ALL campaigns (owner
+  // 2026-11-04): four plain-language groups, campaign chip on every row.
+  const groups = () => els["status-board"].children.filter((c) => c.className.indexOf("board-group") === 0);
+  ok(groups().length === 4, "status board has 4 plain-language groups, saw " + groups().length);
+  const all = groups().map((c) => c.innerHTML).join("\n");
+  ok(/Waiting for your approval/.test(all) && /Approved/.test(all) && /Paused/.test(all) && /Not a fit/.test(all), "layman group names");
   ok(!/\bsent\b/i.test(all), "no 'sent' concept anywhere on the draft board");
-  const campaigns = els["status-board"].children.filter((c) => c.className === "campaigns");
-  ok(campaigns.length === 0, "the board is pure message states; sends live in Campaigns");
   ok(!/ready to send/i.test(all), "no 'ready to send' copy on the board");
   ok(!/Nothing here\./.test(all), "no dead-end 'Nothing here.' microcopy");
-  const followCol = cols.find((c) => /Follow-ups/.test(c.innerHTML));
-  ok(!!followCol, "follow-ups column exists");
-  const approvedName = els["draft-list"].children[0].innerHTML.match(/Your note to ([^.]*)/)[1].trim();
-  const occurrences = followCol.innerHTML.split(approvedName).length - 1;
-  ok(occurrences === 1, "approved draft appears exactly once as a manual follow-up (saw " + occurrences + ")");
-  ok(/manual/i.test(followCol.innerHTML), "follow-ups column is honest that nothing is sent");
+  ok(/campaign-chip/.test(all), "every row labels its campaign");
   ok(/data-act="open-draft"/.test(all), "board items are clickable doors to the message detail");
   // Clicking a board item opens that lead's message in the studio.
   const draftId = all.match(/data-id="([^"]+)"/)[1];
@@ -532,29 +528,29 @@ ok(visible("view-status"), "drafts -> status board view");
     // Per-group pagination (owner 2026-11-04): 8 approved drafts -> two
     // pages, "1–6 of 8", Next reveals the rest, edges disabled.
     const MockApi = sandbox.window.ApiLayer.MockApi;
-    const orig = MockApi.prototype.getDrafts;
-    MockApi.prototype.getDrafts = function () {
+    const orig = MockApi.prototype.getBoard;
+    MockApi.prototype.getBoard = function () {
       return Promise.resolve({ drafts: ["pg1", "pg2", "pg3", "pg4", "pg5", "pg6", "pg7", "pg8"].map(function (id) {
-        return { prospectId: "pr_" + id, status: "approved", channel_suggestion: "email", body: "b", next_action: "n" };
+        return { prospect_id: "pr_" + id, name: "Pick " + id, status: "approved", run_id: "demo-run-1", campaign: "Demo Realty" };
       }) });
     };
-    await sandbox.module.exports.renderDrafts();
+    sandbox.module.exports.state.board = null;
     await sandbox.module.exports.renderStatuses();
-    const colOf = () => els["status-board"].children.filter((c) => c.className === "column").find((c) => /Approved/.test(c.innerHTML));
-    const col = colOf();
+    const groupOf = () => els["status-board"].children.filter((c) => c.className.indexOf("board-group") === 0).find((c) => /Approved/.test(c.innerHTML));
+    const col = groupOf();
     ok(/1\u20136 of 8/.test(col.innerHTML), "approved group paginates to 6 of 8");
     ok(/data-act="board-page" data-col="approved" data-dir="1"/.test(col.innerHTML), "the pager rides the board delegation");
     ok(/data-dir="1" disabled/.test(col.innerHTML) === false && /data-dir="-1" disabled/.test(col.innerHTML), "page 0: Prev disabled, Next enabled");
     els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "board-page", col: "approved", dir: "1" } } }));
     await tick();
-    const col2 = colOf();
+    const col2 = groupOf();
     ok(/7\u20138 of 8/.test(col2.innerHTML), "Next reveals the last page (7\u20138 of 8)");
     ok(/data-dir="1" disabled/.test(col2.innerHTML), "Next is disabled on the last page");
     els["status-board"]._listeners.click.forEach((fn) => fn({ target: { dataset: { act: "board-page", col: "approved", dir: "-1" } } }));
     await tick();
-    ok(/1\u20136 of 8/.test(colOf().innerHTML), "Prev returns to the first page");
-    MockApi.prototype.getDrafts = orig;
-    await sandbox.module.exports.renderDrafts();
+    ok(/1\u20136 of 8/.test(groupOf().innerHTML), "Prev returns to the first page");
+    MockApi.prototype.getBoard = orig;
+    sandbox.module.exports.state.board = null;
     await sandbox.module.exports.renderStatuses();
   }
   ok(visible("view-status"), "back on the board for the next pins");

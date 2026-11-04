@@ -277,6 +277,21 @@
     if (!this._drafts) this._drafts = DEMO_PROSPECTS.slice(0, 4).map(demoDraftFor);
     return Promise.resolve({ drafts: this._drafts.map(function (d) { return Object.assign({}, d); }) });
   };
+  // The aggregated board demo: the same store, labelled with campaign
+  // names so the dashboard teaches the multi-campaign model.
+  MockApi.prototype.getBoard = function () {
+    if (!this._drafts) this._drafts = DEMO_PROSPECTS.slice(0, 4).map(demoDraftFor);
+    return Promise.resolve({
+      drafts: this._drafts.map(function (d, i) {
+        return Object.assign({}, d, {
+          prospect_id: d.prospectId,
+          name: (DEMO_PROSPECTS.filter(function (p) { return p.id === d.prospectId; })[0] || {}).name || d.prospectId,
+          run_id: "demo-run-1",
+          campaign: i < 2 ? "Demo Catering" : "Demo Realty"
+        });
+      })
+    });
+  };
   MockApi.prototype.decideDraft = function (prospectId, decision, editedBody) {
     this._drafts = this._drafts || DEMO_PROSPECTS.slice(0, 4).map(demoDraftFor);
     this._drafts.forEach(function (d) {
@@ -437,6 +452,10 @@
   /** Every run, any status — the dashboard lists and paginates them. */
   RealApi.prototype.getRuns = function (limit, offset) {
     return this._req("/api/runs?limit=" + encodeURIComponent(limit || 10) + "&offset=" + encodeURIComponent(offset || 0));
+  };
+  /** The board, aggregated across ALL campaigns (owner 2026-11-04). */
+  RealApi.prototype.getBoard = function () {
+    return this._req("/api/board");
   };
   RealApi.prototype.createProfile = function (input) {
     // Buyers are what the owner said they serve (q5) — NEVER the decision-

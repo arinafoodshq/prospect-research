@@ -1206,6 +1206,42 @@ const getLatestRun: Handler = async ({ env }) => {
 
 route("GET", "/api/runs/latest", getLatestRun);
 route("GET", "/api/runs", getRunsList);
+
+/**
+ * The dashboard board, AGGREGATED across all campaigns (owner 2026-11-04:
+ * a per-run board contradicted the general dashboard — "Ready to review"
+ * runs existed while Pending review looked empty). Every row carries its
+ * campaign name; the client groups and paginates.
+ */
+const getBoard: Handler = async ({ env }) => {
+  const dr = await env.DB.prepare("SELECT prospect_id, status, created_at FROM outreach_draft").bind().all<Record<string, unknown>>();
+  const pr = await env.DB.prepare("SELECT id, run_id, name FROM prospect").bind().all<Record<string, unknown>>();
+  const runs = await env.DB.prepare("SELECT id, profile_id FROM research_run").bind().all<Record<string, unknown>>();
+  const profs = await env.DB.prepare("SELECT id, name FROM business_profile").bind().all<Record<string, unknown>>();
+  const prospectOf = new Map<string, { name: string; run_id: string }>();
+  for (const p of pr.results ?? []) {
+    prospectOf.set(String(p["id"]), { name: String(p["name"] ?? ""), run_id: String(p["run_id"] ?? "") });
+  }
+  const campaignOf = new Map<string, string>();
+  for (const r of runs.results ?? []) {
+    const pid = String(r["profile_id"] ?? "");
+    const prof = (profs.results ?? []).find((x) => String(x["id"]) === pid);
+    campaignOf.set(String(r["id"]), String(prof?.["name"] ?? "Campaign"));
+  }
+  const drafts = (dr.results ?? []).map((d) => {
+    const p = prospectOf.get(String(d["prospect_id"])) ?? { name: "", run_id: "" };
+    return {
+      prospect_id: String(d["prospect_id"]),
+      name: p.name,
+      status: String(d["status"] ?? "draft"),
+      run_id: p.run_id,
+      campaign: campaignOf.get(p.run_id) ?? "Campaign",
+      created_at: d["created_at"] ?? null,
+    };
+  });
+  return json({ drafts });
+};
+route("GET", "/api/board", getBoard);
 route("GET", "/api/runs/:id", getRunById);
 route("POST", "/api/runs/:id/resume", postResume);
 route("POST", "/api/runs/:id/draft-missing", postDraftMissing);

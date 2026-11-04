@@ -308,11 +308,18 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .why .note-box { margin-top: 0.9rem; }
 
 /* Status board */
-.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
-.column { background: var(--surface-deep); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem; }
-.column h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
-.column ul { list-style: none; padding: 0; margin: 0; }
-.column li { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.5rem; margin-bottom: 0.4rem; font-size: 0.88rem; }
+/* The dashboard board: one plain-language feed across ALL campaigns — a
+   priority group first, calm cards, style-guide radii throughout. */
+.board { display: grid; gap: 0.7rem; }
+.board-group { background: var(--surface-deep); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 0.8rem 0.9rem; }
+.board-group.board-primary { border-color: var(--accent); box-shadow: 0 1px 0 var(--accent-soft); }
+.board-group h3 { margin: 0 0 0.5rem; font-size: 0.98rem; display: flex; align-items: center; gap: 0.4rem; }
+.board-group ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.3rem; }
+.board-group li { display: flex; align-items: center; gap: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.35rem 0.55rem; font-size: 0.88rem; }
+.board-group .campaign-chip { flex-shrink: 0; }
+.board-group .board-item { padding: 0.1rem 0.2rem; }
+.board-empty { text-align: center; padding: 0.7rem 0.4rem 0.4rem; color: var(--muted); }
+.board-empty p { margin: 0; font-size: 0.88rem; }
 
 /* Campaigns */
 .campaigns { margin-top: 1rem; border-top: 2px solid var(--border); padding-top: 0.8rem; }
@@ -362,7 +369,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .site-footer { color: var(--muted); font-size: 0.85rem; }
 
 @media (max-width: 800px) {
-  .shortlist-grid, .board { grid-template-columns: 1fr; }
+  .shortlist-grid { grid-template-columns: 1fr; }
   .choice-row button { flex-basis: 100%; }
   .row { flex-wrap: wrap; }
   #shortlist-bar { flex-wrap: wrap; }

@@ -176,11 +176,13 @@
             state.shortlistLoaded = true;
           }, function () { /* the board still renders, empty */ }));
         }
-        if (!state.drafts.length) {
-          jobs.push(api.getDrafts(state.runId).then(function (r) {
-            state.drafts = r.drafts;
-          }, function () { /* the board still renders, empty */ }));
-        }
+      }
+      // The board is AGGREGATED across all campaigns — one fetch, no run
+      // context needed (owner 2026-11-04).
+      if (api.getBoard) {
+        jobs.push(api.getBoard().then(function (r) {
+          state.board = r.drafts || [];
+        }, function () { /* the board still renders, empty */ }));
       }
       // The status board reads the runs cache (campaign label + switcher),
       // so the runs fetch lands BEFORE the board paints.
@@ -226,7 +228,7 @@
       state.runsCache = runs;
       renderWaitingStrip();
       if (!runs.length) {
-        list.innerHTML = '<li class="hint">No runs yet — every search you start lands here, any status.</li>';
+        list.innerHTML = '<li class="board-empty">' + illust("start") + "<p>No runs yet — describe your business and meet your first buyers.</p></li>";
         $("runs-pager").hidden = true;
         return;
       }
@@ -2285,110 +2287,128 @@
     });
   }
 
-  var STATUS_COLS = [
-    { key: "approved", title: "Approved. Follow up yourself" },
-    { key: "pending", title: "Pending review" },
-    { key: "deferred", title: "Deferred. Revisit later" },
-    { key: "rejected", title: "Rejected" },
-    { key: "followups", title: "Follow-ups (manual. Handled by you)" }
-  ];
-
   function decisionOf(d) {
+    // Studio rows read the adopted run's drafts; board rows carry their own
+    // status. Session decisions always win (deciding in the studio updates
+    // both views instantly).
     return state.decisions[d.prospectId] ? state.decisions[d.prospectId].decision : d.status;
   }
 
-  function emptyCopy(key) {
-    if (!state.drafts.length) {
-      return "<li>" + esc("No drafts yet. Nothing qualified for messages.") + "</li>";
-    }
-    var notes = {
-      approved: "No approved drafts yet. Open Messages and approve one — it lands here.",
-      pending: "All drafts reviewed. Nice. Decided drafts are listed in their columns.",
-      deferred: "No deferred drafts. Drafts you pause will wait here.",
-      rejected: "No rejected drafts. Every draft is still waiting or approved.",
-      followups: "No follow-ups yet. Approve a draft first. Follow-ups are manual; nothing is sent without your approval."
-    };
-    return "<li>" + esc(notes[key] || "Nothing to show here yet.") + "</li>";
-  }
-
-  // The status board paginates per group (owner 2026-11-04: 47 drafts made
-  // Approved a wall of names). Six rows per page, a compact pager under the
-  // list, page memory per column.
+  // Six rows per page per group; page memory per column.
   var BOARD_PAGE_SIZE = 6;
 
+  // The dashboard board is ONE plain-language feed across ALL campaigns
+  // (owner 2026-11-04: a per-run board contradicted the general dashboard
+  // — "Ready to review" runs existed while Pending review looked empty).
+  // Layman words, few groups, one priority, campaign chip on every row,
+  // calm illustration when there is nothing to do.
+  var BOARD_GROUPS = [
+    { key: "pending", title: "Waiting for your approval", primary: true,
+      empty: "You're all caught up — no messages are waiting." },
+    { key: "approved", title: "Approved — follow up yourself", suffix: ". Follow up manually (e.g. nudge in 3 days)",
+      empty: "Nothing approved yet. Approve a message and it lands here." },
+    { key: "deferred", title: "Paused — revisit later",
+      empty: "Nothing paused." },
+    { key: "rejected", title: "Not a fit",
+      empty: "Nothing set aside yet." }
+  ];
+
+  /** Small calm inline illustrations (Stripe/Google pattern): soft
+   *  geometry, brand colors, no clipart — they make empty states feel
+   *  like progress, not failure. */
+  function illust(kind) {
+    var head = '<svg viewBox="0 0 96 56" width="96" height="56" aria-hidden="true" style="display:block;margin:0 auto 0.4rem">';
+    if (kind === "clear") {
+      // All caught up: a soft horizon with a rising check.
+      return head +
+        '<circle cx="48" cy="34" r="16" fill="none" stroke="#2e7d5b" stroke-width="2" opacity="0.55"/>' +
+        '<path d="M41 34l5 5 9-11" fill="none" stroke="#2e7d5b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M8 44c12-6 24 4 34-2 11-6 24 2 46-4" fill="none" stroke="#c9a227" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>' +
+        '<circle cx="14" cy="20" r="2.4" fill="#c9a227" opacity="0.45"/>' +
+        '<circle cx="80" cy="14" r="1.8" fill="#2e7d5b" opacity="0.4"/></svg>';
+    }
+    if (kind === "start") {
+      // First run: a dotted path to a flag — the journey ahead.
+      return head +
+        '<path d="M10 40c14 0 18-18 34-18 12 0 14 10 26 10" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1 6"/>' +
+        '<circle cx="74" cy="32" r="9" fill="none" stroke="#2e7d5b" stroke-width="2"/>' +
+        '<path d="M74 27v10M70 30h8" stroke="#2e7d5b" stroke-width="1.8" stroke-linecap="round"/>' +
+        '<circle cx="24" cy="18" r="2.2" fill="#2e7d5b" opacity="0.4"/></svg>';
+    }
+    // Generic calm: two overlapping soft rings.
+    return head +
+      '<circle cx="40" cy="28" r="14" fill="none" stroke="#c9a227" stroke-width="1.6" opacity="0.45"/>' +
+      '<circle cx="56" cy="28" r="14" fill="none" stroke="#2e7d5b" stroke-width="1.6" opacity="0.45"/>' +
+      '<circle cx="48" cy="28" r="3" fill="#2e7d5b" opacity="0.5"/></svg>';
+  }
+
   function renderStatuses() {
+    if (!state.board && api.getBoard) {
+      // Self-fetch: the board can be opened cold (Back to drafts → board)
+      // without a dashboard pass first (owner 2026-11-04).
+      return api.getBoard().then(function (r) {
+        state.board = r.drafts || [];
+        renderStatuses();
+      }, function () {
+        state.board = [];
+        renderStatuses();
+      });
+    }
     renderRunBanner();
     var board = $("status-board");
+    if (!board) return;
     board.innerHTML = "";
-    var seenFollowups = {};
+    // The adopted run's decisions still override fresh board rows this
+    // session (deciding in the studio updates the board instantly).
+    var items = (state.board || []).map(function (d) {
+      var dec = state.decisions[d.prospectId] ? state.decisions[d.prospectId].decision : d.status;
+      return { prospectId: d.prospect_id, name: d.name || d.prospect_id, campaign: d.campaign || "Campaign",
+        runId: d.run_id, status: dec === "draft" ? "pending" : dec };
+    });
     state.boardPage = state.boardPage || {};
-    STATUS_COLS.forEach(function (c) {
-      var div = document.createElement("div");
-      div.className = "column";
-      div.setAttribute("data-col", c.key);
-      var all = state.drafts.filter(function (d) {
-        var dec = decisionOf(d);
-        if (c.key === "followups") {
-          if (dec !== "approved") return false;
-          if (seenFollowups[d.prospectId]) return false;
-          seenFollowups[d.prospectId] = true;
-          return true;
-        }
-        return dec === c.key;
-      });
+    // Groups are appended as REAL nodes (the smoke's DOM stub keeps
+    // children and innerHTML independent — and it reads better anyway).
+    BOARD_GROUPS.forEach(function (g) {
+      var all = items.filter(function (d) { return d.status === g.key; });
       var pages = Math.max(1, Math.ceil(all.length / BOARD_PAGE_SIZE));
-      state.boardPage[c.key] = Math.min(state.boardPage[c.key] || 0, pages - 1);
-      var page = state.boardPage[c.key];
+      state.boardPage[g.key] = Math.min(state.boardPage[g.key] || 0, pages - 1);
+      var page = state.boardPage[g.key];
       var start = page * BOARD_PAGE_SIZE;
       var rows = all.slice(start, start + BOARD_PAGE_SIZE).map(function (d) {
-        var p = state.prospects.filter(function (x) { return x.id === d.prospectId; })[0];
-        var suffix = c.key === "followups" ? ". Follow up manually (e.g. nudge in 3 days)" : "";
-        return "<li><button type=\"button\" class=\"board-item\" data-act=\"open-draft\" data-id=\"" + esc(d.prospectId) + "\">" +
-          esc(p ? p.name : d.prospectId) + "</button>" + esc(suffix) + "</li>";
+        var suffix = g.suffix ? esc(g.suffix) : "";
+        return "<li><span class=\"campaign-chip\">" + esc(d.campaign) + "</span>" +
+          "<button type=\"button\" class=\"board-item\" data-act=\"open-draft\" data-id=\"" + esc(d.prospectId) +
+          "\" data-run=\"" + esc(d.runId) + "\" data-campaign=\"" + esc(d.campaign) + "\">" + esc(d.name) + "</button>" + suffix + "</li>";
       });
-      if (!rows.length) rows = [emptyCopy(c.key)];
-      var count = all.length ? " · " + all.length : "";
+      var body;
+      if (rows.length) {
+        body = "<ul>" + rows.join("") + "</ul>";
+      } else {
+        var icon = g.key === "pending" ? illust("clear") : illust("calm");
+        body = '<div class="board-empty">' + icon + "<p>" + esc(g.empty) + "</p></div>";
+      }
       var pager = "";
       if (all.length > BOARD_PAGE_SIZE) {
         var end = Math.min(start + BOARD_PAGE_SIZE, all.length);
         pager = '<div class="board-pager">' +
-          '<button type="button" class="linklike" data-act="board-page" data-col="' + c.key + '" data-dir="-1"' + (page === 0 ? " disabled" : "") + '>&lsaquo; Prev</button>' +
+          '<button type="button" class="linklike" data-act="board-page" data-col="' + g.key + '" data-dir="-1"' + (page === 0 ? " disabled" : "") + '>&lsaquo; Prev</button>' +
           '<span class="muted small">' + (start + 1) + "\u2013" + end + " of " + all.length + "</span>" +
-          '<button type="button" class="linklike" data-act="board-page" data-col="' + c.key + '" data-dir="1"' + (page >= pages - 1 ? " disabled" : "") + '>Next &rsaquo;</button>' +
+          '<button type="button" class="linklike" data-act="board-page" data-col="' + g.key + '" data-dir="1"' + (page >= pages - 1 ? " disabled" : "") + '>Next &rsaquo;</button>' +
           "</div>";
       }
-      div.innerHTML = "<h3>" + esc(c.title) + count + "</h3><ul>" + rows.join("") + "</ul>" + pager;
+      var count = all.length ? " · " + all.length : "";
+      var div = document.createElement("section");
+      div.className = "board-group" + (g.primary ? " board-primary" : "");
+      div.setAttribute("data-col", g.key);
+      div.innerHTML = "<h3>" + esc(g.title) + count + "</h3>" + body + pager;
       board.appendChild(div);
     });
-    // Which campaign is this board showing? Always labelled (owner
-    // 2026-11-04: the board silently re-scoped and waiting messages
-    // "disappeared" — recognition over recall).
+    // The board is ALL campaigns now — label it so the scope is never in
+    // question (recognition over recall).
     var chip = $("board-campaign");
-    if (chip) {
-      var campName = state.profile && state.profile.name;
-      chip.hidden = !campName;
-      if (campName) chip.textContent = "Campaign: " + campName;
-    }
+    if (chip) { chip.hidden = false; chip.textContent = "All campaigns"; }
     var switcher = $("board-switch");
-    if (switcher) {
-      // The current campaign has no messages at all? Point at the ones
-      // that do (the latest pending issues, whichever campaign holds them).
-      var others = (state.runsCache || []).filter(function (r) {
-        return r.id !== state.runId && (r.waiting || 0) > 0;
-      });
-      if (!state.drafts.length && others.length) {
-        switcher.hidden = false;
-        switcher.innerHTML = '<p class="hint">No messages in this campaign yet. Waiting elsewhere:</p>' +
-          '<div class="waiting-row">' + others.map(function (r) {
-            return '<span class="campaign-chip">' + esc(r.profile_name || "Campaign") + "</span>" +
-              '<span class="run-meta">' + r.waiting + " waiting</span>" +
-              '<button type="button" class="linklike" data-act="open-messages" data-id="' + esc(r.id) + '" data-profile="' + esc(r.profile_id || "") + '" data-profile-name="' + esc(r.profile_name || "") + '">Review &rarr;</button>';
-          }).join("") + "</div>";
-      } else {
-        switcher.hidden = true;
-        switcher.innerHTML = "";
-      }
-    }
+    if (switcher) { switcher.hidden = true; switcher.innerHTML = ""; }
     showView("status");
   }
 
@@ -2491,7 +2511,7 @@
     var t = e.target || {};
     var ds = t.dataset || (t.getAttribute ? {
       act: t.getAttribute("data-act"), id: t.getAttribute("data-id"), col: t.getAttribute("data-col"), dir: t.getAttribute("data-dir"),
-      profile: t.getAttribute("data-profile"),
+      profile: t.getAttribute("data-profile"), run: t.getAttribute("data-run"), campaign: t.getAttribute("data-campaign"),
     } : {});
     if (ds.act === "board-page" && ds.col) {
       state.boardPage = state.boardPage || {};
@@ -2500,7 +2520,7 @@
       return;
     }
     if (ds.act === "new-campaign") { renderCampaignView(); return; }
-    if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id); return; }
+    if (ds.act === "open-draft" && ds.id) { openDraftFor(ds.id, ds.run, ds.campaign); return; }
     if (ds.act === "open-messages") {
       // Any entry point into the studio adopts its run with a CLEAN slate
       // (banner, waiting strip, board switcher) — never mix campaigns.
@@ -2531,7 +2551,13 @@
 
   // A board item is a door: it opens that lead's message in the studio,
   // focused on the exact draft (user request 2026-11-02).
-  function openDraftFor(prospectId) {
+  function openDraftFor(prospectId, runId, campaignName) {
+    // A board row may belong to a DIFFERENT campaign than the adopted run:
+    // switch first (clean slate) so the studio shows the right campaign
+    // (owner 2026-11-04: the board is aggregated across campaigns).
+    if (runId && state.runId !== runId) {
+      switchRun({ id: runId, profile_name: campaignName || "" });
+    }
     var focus = function () {
       var st = state.studio;
       if (st && st.list && st.list.length) {
@@ -3426,7 +3452,7 @@
   }
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { VIEWS: VIEWS, showView: showView, submitOnboard: submitOnboard, confirmBriefAndRun: confirmBriefAndRun, pollProgress: pollProgress, renderShortlist: renderShortlist, selectProspect: selectProspect, renderDrafts: renderDrafts, decideDraft: decideDraft, renderStatuses: renderStatuses, restart: restart, waNumber: waNumber, waUrl: waUrl, waWarning: waWarning, personalize: personalize, waApp: waApp, tidyProse: tidyProse, verdictHuman: verdictHuman, cleanCitations: cleanCitations };
+    module.exports = { VIEWS: VIEWS, showView: showView, submitOnboard: submitOnboard, confirmBriefAndRun: confirmBriefAndRun, pollProgress: pollProgress, renderShortlist: renderShortlist, selectProspect: selectProspect, renderDrafts: renderDrafts, decideDraft: decideDraft, renderStatuses: renderStatuses, restart: restart, waNumber: waNumber, waUrl: waUrl, waWarning: waWarning, personalize: personalize, waApp: waApp, tidyProse: tidyProse, verdictHuman: verdictHuman, cleanCitations: cleanCitations, state: state };
   }
 
   if (typeof document !== "undefined") {
