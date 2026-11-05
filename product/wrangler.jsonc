@@ -21,6 +21,48 @@
       "database_id": "f403c035-dcfd-4dda-baf9-aead92233bd1"
     }
   ],
+  // Staging environment (owner request 2026-11-05): a second worker with its
+  // OWN D1 so live keeps serving the version people use while speed rework
+  // is tested. Deploy: `wrangler deploy --env staging` -> its own
+  // workers.dev URL. Promote: the plain `wrangler deploy`. The delivery
+  // queue is shared with live for now — do NOT test sending on staging
+  // until staging gets its own queue (Phase 2).
+  "env": {
+    "staging": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "prospect_research_staging",
+          "database_id": "88cc8954-a128-4a12-881f-133aa0fbe9b8"
+        }
+      ],
+      // Wrangler does NOT inherit containers/queues into environments: bind
+      // them explicitly (shared with live for now — no sends on staging).
+      "containers": [{
+        "class_name": "SmtpRelayContainer",
+        "image": "./smtp-relay/Dockerfile",
+        "max_instances": 1,
+        "instance_type": "standard-1"
+      }],
+      "queues": {
+        "producers": [{ "binding": "DELIVERY_QUEUE", "queue": "delivery-jobs-staging" }],
+        "consumers": [{
+          "queue": "delivery-jobs-staging",
+          "max_batch_size": 10,
+          "max_batch_timeout": 5,
+          "max_retries": 5,
+          "retry_delay": 60,
+          "max_concurrency": 2,
+          "dead_letter_queue": "delivery-dlq-staging"
+        }]
+      },
+      "vars": {
+        "MODEL_ID": "muse-spark-1.3",
+        "ENVIRONMENT": "production",
+        "PUBLIC_BASE_URL": "https://prospect-research-staging.sam-5b1.workers.dev"
+      }
+    }
+  },
   "workflows": [
     {
       "name": "research-workflow",

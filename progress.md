@@ -3052,3 +3052,40 @@ work).
 Owner directive: push to git when done. Pushed main to
 github.com/arinafoodshq/prospect-research (the submission docs stay
 gitignored and unpushed).
+
+## 2026-11-05 (morning) — staging environment + owner directives
+
+Owner directives (2026-11-05): (1) all backend/frontend change work goes to
+a STAGING deployment; live keeps serving the version people use; the owner
+tests staging, then we promote. (2) Use the methodology at
+C:\dev\agent-rules-templates (habits framework: spec before code, explicit
+validation per task, testing left). (3) Image cap lowered to 6 per request
+(global AGENTS.md + instructions.md + the template AGENTS.md updated).
+
+Staging set up (verified by deploy output):
+- D1 `prospect_research_staging` (88cc8954-a128-4a12-881f-133aa0fbe9b8):
+  schema.sql applied, migration ledger synced (the 10 existing migrations
+  marked applied — schema.sql already contains them; future migrations
+  apply cleanly).
+- wrangler.jsonc env.staging: own D1 + vars (PUBLIC_BASE_URL ->
+  staging URL, ENVIRONMENT=production for behavior parity) + explicit
+  containers/queues (wrangler does NOT inherit them into environments) +
+  own queues `delivery-jobs-staging` / `delivery-dlq-staging` (a queue
+  allows one consumer; live owns delivery-jobs — staging sharing it failed
+  with code 11004, so staging got its own pipeline, which Phase 2 needs
+  anyway). Staging container instance:
+  prospect-research-smtprelaycontainer-staging.
+- Deployed: prospect-research-staging
+  https://prospect-research-staging.sam-5b1.workers.dev
+  (version a1c60471-14fd-4c96-ac96-9d01573b5738). LIVE UNTOUCHED.
+- Pending owner action: `npx wrangler secret put MODEL_API_KEY --env
+  staging` (never touched by the agent — secret values stay owner-side).
+  Google OAuth: if staging sign-in fails, add
+  https://prospect-research-staging.sam-5b1.workers.dev/api/auth/callback
+  to the OAuth client's authorized redirect URIs (redirect_uri is built
+  from the request origin, so nothing else needs changing).
+
+Next: Phase 1 spec per the SPECIFICATION.md template (RunCoordinator DO,
+/api/runs/:id/live, per-stage UI counts, first-messages-ready hero, kept
+counter fix, reason column for rule-disqualified set-asides), implemented
+on STAGING only, promoted on the owner's word.
